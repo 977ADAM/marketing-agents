@@ -13,12 +13,14 @@ type Config struct {
 	DatabaseURL  string
 	APIKey       string
 	BaseURL      string
-	ModelDefault string
+	ModelDefault string // сильная модель: стратег и критик
+	ModelFast    string // быстрая/дешёвая модель: копирайтеры
 
 	LLMMaxRetries        int
 	RunTimeout           time.Duration
 	CriticMaxIter        int
 	CriticScoreThreshold int
+	MaxTopics            int // верхний кап на число тем от стратега (контроль стоимости)
 
 	CostPer1KPrompt     float64
 	CostPer1KCompletion float64
@@ -35,10 +37,12 @@ func Load() (*Config, error) {
 		APIKey:               getStr("DEEPSEEK_API_KEY", ""),
 		BaseURL:              getStr("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
 		ModelDefault:         getStr("MODEL_DEFAULT", "deepseek-v4-pro"),
+		ModelFast:            getStr("MODEL_FAST", "deepseek-v4-flash"),
 		LLMMaxRetries:        getInt("LLM_MAX_RETRIES", 3),
 		RunTimeout:           getDur("RUN_TIMEOUT", 10*time.Minute),
 		CriticMaxIter:        getInt("CRITIC_MAX_ITER", 3),
 		CriticScoreThreshold: getInt("CRITIC_SCORE_THRESHOLD", 80),
+		MaxTopics:            getInt("MAX_TOPICS", 5),
 		CostPer1KPrompt:      getFloat("COST_PER_1K_PROMPT", 0.00027),
 		CostPer1KCompletion:  getFloat("COST_PER_1K_COMPLETION", 0.0011),
 		RateLimitPerMin:      getInt("RATE_LIMIT_PER_MIN", 30),

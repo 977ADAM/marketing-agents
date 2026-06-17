@@ -11,7 +11,8 @@ const RoleCritic = "critic"
 
 const criticSystem = `Ты — строгий редактор. Оцени статью от 0 до 100 и дай замечания. Ответ строго в JSON:
 {"score": <0-100>, "issues": ["..."], "verdict": "accept"|"revise"}.
-verdict="accept" если статья готова к публикации, иначе "revise".`
+verdict="accept" если статья готова к публикации, иначе "revise".
+Замечания (issues) пиши на русском. Снижай оценку, если статья не на русском языке.`
 
 type Critic struct{ llm llm.Client }
 

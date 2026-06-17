@@ -16,6 +16,7 @@ type Options struct {
 	ScoreThreshold      int
 	CostPer1KPrompt     float64
 	CostPer1KCompletion float64
+	MaxTopics           int // 0 = без ограничения; иначе кап на число тем (контроль стоимости/конкуррентности)
 }
 
 // Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость.
@@ -55,6 +56,11 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief) (Result, error) 
 		return Result{}, err
 	}
 	addUsage(u)
+
+	// Кап на число тем: стратег мог вернуть больше, чем хотим обрабатывать.
+	if o.opt.MaxTopics > 0 && len(strat.Topics) > o.opt.MaxTopics {
+		strat.Topics = strat.Topics[:o.opt.MaxTopics]
+	}
 
 	deliverables := make([]agents.Deliverable, len(strat.Topics))
 	g, gctx := errgroup.WithContext(ctx)

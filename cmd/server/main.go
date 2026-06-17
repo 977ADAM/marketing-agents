@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/config"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
@@ -42,11 +43,14 @@ func main() {
 
 	st := store.New(pool)
 	llmClient := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
+	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
+	llmClient.SetRoleModel(agents.RoleCopywriter, cfg.ModelFast)
 	orch := orchestrator.New(llmClient, orchestrator.Options{
 		CriticMaxIter:       cfg.CriticMaxIter,
 		ScoreThreshold:      cfg.CriticScoreThreshold,
 		CostPer1KPrompt:     cfg.CostPer1KPrompt,
 		CostPer1KCompletion: cfg.CostPer1KCompletion,
+		MaxTopics:           cfg.MaxTopics,
 	})
 	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger)
 	api := httpapi.New(st, runner, cfg.RateLimitPerMin)

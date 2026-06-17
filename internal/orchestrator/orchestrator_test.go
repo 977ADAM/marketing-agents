@@ -103,3 +103,31 @@ func TestRunFailsWhenStrategistErrors(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// MaxTopics ограничивает число обрабатываемых тем сверху.
+func TestRunCapsTopics(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses[agents.RoleStrategist] = []string{
+		`{"positioning":"p","topics":[{"title":"T1"},{"title":"T2"},{"title":"T3"}]}`,
+	}
+	fake.Responses[agents.RoleCopywriter] = []string{
+		`{"topic":"T1","title":"A1","body":"b","cta":"c"}`,
+		`{"topic":"T2","title":"A2","body":"b","cta":"c"}`,
+	}
+	fake.Responses[agents.RoleCritic] = []string{
+		`{"score":90,"issues":[],"verdict":"accept"}`,
+		`{"score":90,"issues":[],"verdict":"accept"}`,
+	}
+	o := New(fake, Options{CriticMaxIter: 1, ScoreThreshold: 80, MaxTopics: 2, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+
+	res, err := o.Run(context.Background(), brief())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Deliverables) != 2 {
+		t.Fatalf("deliverables = %d, want 2 (capped)", len(res.Deliverables))
+	}
+	if len(res.Strategy.Topics) != 2 {
+		t.Errorf("strategy topics = %d, want 2 (truncated)", len(res.Strategy.Topics))
+	}
+}

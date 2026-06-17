@@ -12,7 +12,8 @@ const RoleCopywriter = "copywriter"
 
 const copywriterSystem = `Ты — копирайтер нативных статей. Напиши статью по теме строго в JSON:
 {"topic": "...", "title": "...", "body": "...", "cta": "..."}.
-body — связный текст статьи; cta — призыв к действию. Учитывай тон и аудиторию из брифа.`
+body — связный текст статьи; cta — призыв к действию. Учитывай тон и аудиторию из брифа.
+Пиши на русском языке (title, body, cta — всё по-русски).`
 
 type Copywriter struct{ llm llm.Client }
 
