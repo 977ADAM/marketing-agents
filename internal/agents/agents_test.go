@@ -76,3 +76,33 @@ func TestCopywriterReviseUsesIssues(t *testing.T) {
 		t.Errorf("title = %q, want v2", art.Title)
 	}
 }
+
+func TestCriticScores(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses["critic"] = []string{
+		`{"score":85,"issues":[],"verdict":"accept"}`,
+	}
+	cr := NewCritic(fake)
+	art := Article{Topic: "t", Title: "T", Body: "B", CTA: "C"}
+
+	rev, _, err := cr.Run(context.Background(), testBrief(), art)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rev.Score != 85 || rev.Verdict != "accept" {
+		t.Errorf("review = %+v", rev)
+	}
+}
+
+func TestCriticClampsScore(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses["critic"] = []string{`{"score":150,"issues":[],"verdict":"accept"}`}
+	cr := NewCritic(fake)
+	rev, _, err := cr.Run(context.Background(), testBrief(), Article{Title: "T", Body: "B"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rev.Score != 100 {
+		t.Errorf("score = %d, want clamped to 100", rev.Score)
+	}
+}
