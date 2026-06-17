@@ -26,6 +26,31 @@ func jsonResponse(model, content string, pt, ct int) *http.Response {
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b))), Header: http.Header{"Content-Type": []string{"application/json"}}}
 }
 
+func TestCompleteRetriesOn5xx(t *testing.T) {
+	calls := 0
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"busy"}}`)), Header: http.Header{"Content-Type": []string{"application/json"}}}, nil
+		}
+		return jsonResponse("m", `{"ok":true}`, 1, 1), nil
+	})
+	c := New("sk", "https://api.deepseek.com/v1", "m", 2, &http.Client{Transport: rt})
+
+	var out struct {
+		OK bool `json:"ok"`
+	}
+	if _, err := c.Complete(context.Background(), "any", "s", "u", &out); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2 (one retry)", calls)
+	}
+	if !out.OK {
+		t.Error("out.OK = false")
+	}
+}
+
 func TestCompleteParsesJSONAndUsage(t *testing.T) {
 	var gotModel string
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
