@@ -1,0 +1,97 @@
+package httpapi
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/store"
+)
+
+// мок репозитория и раннера
+type mockRepo struct {
+	mu        sync.Mutex
+	created   string
+	campaigns map[string]*store.Campaign
+}
+
+func (m *mockRepo) Create(_ context.Context, _ string, b agents.Brief) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id := "camp-1"
+	m.created = id
+	if m.campaigns == nil {
+		m.campaigns = map[string]*store.Campaign{}
+	}
+	m.campaigns[id] = &store.Campaign{ID: id, Status: "pending", Brief: b}
+	return id, nil
+}
+func (m *mockRepo) Get(_ context.Context, id string) (*store.Campaign, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.campaigns[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return c, nil
+}
+
+type mockRunner struct {
+	called chan string
+}
+
+func (r *mockRunner) Start(id string, _ agents.Brief) { r.called <- id }
+
+func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
+	repo := &mockRepo{}
+	runner := &mockRunner{called: make(chan string, 1)}
+	api := New(repo, runner, 1000)
+
+	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
+	req := httptest.NewRequest("POST", "/campaigns", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("code = %d, want 202", rec.Code)
+	}
+	var resp struct{ ID, Status string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.ID != "camp-1" || resp.Status != "pending" {
+		t.Errorf("resp = %+v", resp)
+	}
+	select {
+	case got := <-runner.called:
+		if got != "camp-1" {
+			t.Errorf("runner started for %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner not started")
+	}
+}
+
+func TestPostCampaignValidates(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	req := httptest.NewRequest("POST", "/campaigns", bytes.NewBufferString(`{"product":""}`))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+func TestGetCampaignNotFound(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	req := httptest.NewRequest("GET", "/campaigns/missing", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", rec.Code)
+	}
+}
