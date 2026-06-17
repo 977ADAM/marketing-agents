@@ -41,3 +41,38 @@ func TestStrategistRejectsEmptyTopics(t *testing.T) {
 		t.Fatal("expected error on empty topics")
 	}
 }
+
+func TestCopywriterWritesArticle(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses["copywriter"] = []string{
+		`{"topic":"Зачем пить воду","title":"Пей умно","body":"Текст статьи...","cta":"Купить"}`,
+	}
+	cw := NewCopywriter(fake)
+	topic := Topic{Title: "Зачем пить воду", Angle: "польза", Points: []string{"а"}}
+
+	art, _, err := cw.Run(context.Background(), testBrief(), Strategy{Positioning: "p"}, topic)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if art.Title == "" || art.Body == "" || art.CTA == "" {
+		t.Errorf("incomplete article: %+v", art)
+	}
+}
+
+func TestCopywriterReviseUsesIssues(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses["copywriter"] = []string{
+		`{"topic":"t","title":"v2","body":"улучшено","cta":"Жми"}`,
+	}
+	cw := NewCopywriter(fake)
+	prev := Article{Topic: "t", Title: "v1", Body: "слабо", CTA: "Жми"}
+	rev := Review{Score: 50, Issues: []string{"слабый заход"}, Verdict: "revise"}
+
+	art, _, err := cw.Revise(context.Background(), prev, rev)
+	if err != nil {
+		t.Fatalf("Revise: %v", err)
+	}
+	if art.Title != "v2" {
+		t.Errorf("title = %q, want v2", art.Title)
+	}
+}
