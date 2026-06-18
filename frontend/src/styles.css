@@ -1,0 +1,31 @@
+:root { font-family: system-ui, sans-serif; color: #1a1a1a; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+.app { display: flex; min-height: 100vh; }
+.sidebar { flex: 0 0 260px; background: #f4f5f7; border-right: 1px solid #e2e4e8; padding: 16px; }
+.main { flex: 1; padding: 24px 32px; max-width: 900px; }
+.new-btn { width: 100%; padding: 8px; font-weight: 600; cursor: pointer; }
+.history-label { font-size: 11px; text-transform: uppercase; color: #888; margin: 16px 0 6px; }
+.history { list-style: none; padding: 0; margin: 0; }
+.history a { display: flex; justify-content: space-between; gap: 8px; padding: 6px 4px; text-decoration: none; color: inherit; border-radius: 4px; }
+.history a:hover { background: #e9ebef; }
+.chip { font-size: 11px; padding: 0 6px; border-radius: 8px; color: #fff; }
+.chip-pending { background: #888; } .chip-running { background: #2a6dd8; }
+.chip-done { background: #2e7d32; } .chip-failed { background: #c62828; }
+.new-campaign label { display: block; margin-bottom: 12px; font-weight: 600; }
+.new-campaign textarea { display: block; width: 100%; margin-top: 4px; min-height: 56px; font: inherit; padding: 6px; }
+.error { color: #c62828; }
+.muted { color: #888; }
+.steps { display: flex; gap: 12px; list-style: none; padding: 0; }
+.steps li { padding: 4px 10px; border-radius: 6px; background: #eee; }
+.steps li.active { background: #2a6dd8; color: #fff; }
+.articles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }
+.article-card { border: 1px solid #e2e4e8; border-radius: 8px; padding: 12px; }
+.article-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+.score { color: #fff; border-radius: 10px; padding: 0 8px; font-weight: 700; }
+.score-green { background: #2e7d32; } .score-amber { background: #e6a700; } .score-red { background: #c62828; }
+.verdict { font-size: 13px; color: #555; }
+.cta { font-weight: 600; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; }
+.modal-body { background: #fff; border-radius: 8px; padding: 24px; max-width: 640px; max-height: 80vh; overflow: auto; }
+.article-body { white-space: pre-wrap; line-height: 1.5; }

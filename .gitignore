@@ -7,3 +7,4 @@
 .superpowers/
 
 /internal/web/dist/assets/
+/frontend/node_modules/
