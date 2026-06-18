@@ -67,3 +67,60 @@ func TestGetNotFound(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestListRecent(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	b := agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
+
+	id1, err := s.Create(ctx, "", b)
+	if err != nil {
+		t.Fatalf("Create1: %v", err)
+	}
+	id2, err := s.Create(ctx, "", b)
+	if err != nil {
+		t.Fatalf("Create2: %v", err)
+	}
+
+	items, err := s.ListRecent(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(items) < 2 {
+		t.Fatalf("want >= 2 items, got %d", len(items))
+	}
+	// новые сверху: id2 создан позже id1, поэтому он должен идти раньше id1
+	posI1, posI2 := -1, -1
+	for i, it := range items {
+		if it.ID == id1 {
+			posI1 = i
+		}
+		if it.ID == id2 {
+			posI2 = i
+		}
+	}
+	if posI2 == -1 || posI1 == -1 || posI2 > posI1 {
+		t.Errorf("expected id2 before id1; posI1=%d posI2=%d", posI1, posI2)
+	}
+	if items[0].Brief.Product != "P" {
+		t.Errorf("brief not loaded: %+v", items[0])
+	}
+}
+
+func TestListRecentLimit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	b := agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
+	for i := 0; i < 3; i++ {
+		if _, err := s.Create(ctx, "", b); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+	items, err := s.ListRecent(ctx, 2)
+	if err != nil {
+		t.Fatalf("ListRecent: %v", err)
+	}
+	if len(items) != 2 {
+		t.Errorf("want 2, got %d", len(items))
+	}
+}

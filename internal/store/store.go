@@ -33,6 +33,15 @@ type Campaign struct {
 	UpdatedAt    time.Time            `json:"updated_at"`
 }
 
+// CampaignSummary — лёгкая сводка для списка истории (без strategy/deliverables/body).
+type CampaignSummary struct {
+	ID        string       `json:"id"`
+	Status    string       `json:"status"`
+	Brief     agents.Brief `json:"brief"`
+	CostUSD   *float64     `json:"cost_usd,omitempty"`
+	CreatedAt time.Time    `json:"created_at"`
+}
+
 type Store struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
@@ -105,6 +114,31 @@ func (s *Store) Fail(ctx context.Context, id, msg string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE campaigns SET status='failed', error=$2, updated_at=now() WHERE id=$1`, id, msg)
 	return err
+}
+
+// ListRecent возвращает до limit последних кампаний, новые сверху.
+func (s *Store) ListRecent(ctx context.Context, limit int) ([]CampaignSummary, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, status, brief, cost_usd, created_at
+		 FROM campaigns ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]CampaignSummary, 0, limit)
+	for rows.Next() {
+		var c CampaignSummary
+		var briefJSON []byte
+		var cost *float64
+		if err := rows.Scan(&c.ID, &c.Status, &briefJSON, &cost, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(briefJSON, &c.Brief)
+		c.CostUSD = cost
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 // Get читает кампанию вместе с deliverables.
