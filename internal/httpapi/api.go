@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
@@ -16,6 +17,7 @@ import (
 type Repo interface {
 	Create(ctx context.Context, clientID string, b agents.Brief) (string, error)
 	Get(ctx context.Context, id string) (*store.Campaign, error)
+	ListRecent(ctx context.Context, limit int) ([]store.CampaignSummary, error)
 }
 
 // Runner запускает фоновый прогон кампании (асинхронно).
@@ -36,8 +38,9 @@ func New(repo Repo, runner Runner, ratePerMin int) *API {
 
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /campaigns", a.postCampaign)
-	mux.HandleFunc("GET /campaigns/{id}", a.getCampaign)
+	mux.HandleFunc("POST /api/campaigns", a.postCampaign)
+	mux.HandleFunc("GET /api/campaigns", a.listCampaigns)
+	mux.HandleFunc("GET /api/campaigns/{id}", a.getCampaign)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -90,4 +93,22 @@ func (a *API) getCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, c)
+}
+
+func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	items, err := a.repo.ListRecent(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "could not list campaigns")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
 }

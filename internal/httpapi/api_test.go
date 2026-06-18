@@ -41,6 +41,18 @@ func (m *mockRepo) Get(_ context.Context, id string) (*store.Campaign, error) {
 	}
 	return c, nil
 }
+func (m *mockRepo) ListRecent(_ context.Context, limit int) ([]store.CampaignSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]store.CampaignSummary, 0, len(m.campaigns))
+	for _, c := range m.campaigns {
+		out = append(out, store.CampaignSummary{ID: c.ID, Status: c.Status, Brief: c.Brief})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
 
 type mockRunner struct {
 	called chan string
@@ -54,7 +66,7 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 	api := New(repo, runner, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
-	req := httptest.NewRequest("POST", "/campaigns", bytes.NewBufferString(body))
+	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
 
@@ -78,7 +90,7 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 
 func TestPostCampaignValidates(t *testing.T) {
 	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
-	req := httptest.NewRequest("POST", "/campaigns", bytes.NewBufferString(`{"product":""}`))
+	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{"product":""}`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -88,10 +100,31 @@ func TestPostCampaignValidates(t *testing.T) {
 
 func TestGetCampaignNotFound(t *testing.T) {
 	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
-	req := httptest.NewRequest("GET", "/campaigns/missing", nil)
+	req := httptest.NewRequest("GET", "/api/campaigns/missing", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("code = %d, want 404", rec.Code)
+	}
+}
+
+func TestListCampaigns(t *testing.T) {
+	repo := &mockRepo{}
+	_, _ = repo.Create(context.Background(), "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
+	api := New(repo, &mockRunner{called: make(chan string, 1)}, 1000)
+
+	req := httptest.NewRequest("GET", "/api/campaigns", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	var items []store.CampaignSummary
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 1 || items[0].Brief.Product != "P" {
+		t.Errorf("items = %+v", items)
 	}
 }
