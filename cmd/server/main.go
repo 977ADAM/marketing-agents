@@ -16,6 +16,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/web"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -55,7 +56,15 @@ func main() {
 	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger)
 	api := httpapi.New(st, runner, cfg.RateLimitPerMin)
 
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler()}
+	// общий роутинг: /api/* и /healthz → API, всё остальное → SPA.
+	root := http.NewServeMux()
+	apiHandler := api.Handler()
+	root.Handle("/api/", apiHandler)
+	root.Handle("/healthz", apiHandler)
+	root.Handle("/", web.Handler())
+
+	handler := httpapi.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
+	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler}
 
 	go func() {
 		logger.Info("listening", "addr", cfg.HTTPAddr)
