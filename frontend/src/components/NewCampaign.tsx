@@ -25,8 +25,8 @@ export function NewCampaign({ onCreated }: { onCreated?: () => void }) {
       const { id } = await createCampaign(brief)
       onCreated?.()
       nav(`/campaigns/${id}`)
-    } catch (e) {
-      setErr((e as Error).message)
+    } catch (err) {
+      setErr((err as Error).message)
       setBusy(false)
     }
   }
@@ -37,7 +37,7 @@ export function NewCampaign({ onCreated }: { onCreated?: () => void }) {
         {label}
         <textarea
           value={brief[key]}
-          onChange={(e) => setBrief({ ...brief, [key]: e.target.value })}
+          onChange={(e) => setBrief((prev) => ({ ...prev, [key]: e.target.value }))}
         />
       </label>
     )

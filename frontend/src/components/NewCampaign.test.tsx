@@ -43,4 +43,17 @@ describe('NewCampaign', () => {
     fireEvent.click(screen.getByRole('button', { name: /Сгенерировать/ }))
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/campaigns/abc'))
   })
+
+  it('shows error and re-enables the button when createCampaign fails', async () => {
+    createCampaign.mockRejectedValue(new Error('сервер недоступен'))
+    render(<MemoryRouter><NewCampaign /></MemoryRouter>)
+    fill(/Продукт/, 'Вода')
+    fill(/Цель/, 'Продажи')
+    fill(/Аудитория/, 'Все')
+    fill(/Tone/, 'Дружелюбный')
+    fireEvent.click(screen.getByRole('button', { name: /Сгенерировать/ }))
+    await waitFor(() => expect(screen.getByText('сервер недоступен')).toBeInTheDocument())
+    expect(navigate).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /Сгенерировать/ })).toBeEnabled()
+  })
 })
