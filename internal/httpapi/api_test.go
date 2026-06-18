@@ -139,9 +139,21 @@ func TestBasicAuth(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("no creds: code = %d, want 401", rec.Code)
 	}
+	if got := rec.Header().Get("WWW-Authenticate"); got == "" {
+		t.Errorf("missing WWW-Authenticate header on 401")
+	}
+
+	// верный логин, неверный пароль → 401
+	req := httptest.NewRequest("GET", "/api/campaigns", nil)
+	req.SetBasicAuth("u", "WRONG")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad pass: code = %d, want 401", rec.Code)
+	}
 
 	// верная кредa → 200
-	req := httptest.NewRequest("GET", "/api/campaigns", nil)
+	req = httptest.NewRequest("GET", "/api/campaigns", nil)
 	req.SetBasicAuth("u", "p")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

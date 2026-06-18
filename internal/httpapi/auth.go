@@ -15,9 +15,9 @@ func BasicAuth(user, pass string, next http.Handler) http.Handler {
 			return
 		}
 		u, p, ok := r.BasicAuth()
-		if !ok ||
-			subtle.ConstantTimeCompare([]byte(u), []byte(user)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(p), []byte(pass)) != 1 {
+		userOK := subtle.ConstantTimeCompare([]byte(u), []byte(user)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1
+		if !ok || !userOK || !passOK {
 			w.Header().Set("WWW-Authenticate", `Basic realm="marketing-agents"`)
 			writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
