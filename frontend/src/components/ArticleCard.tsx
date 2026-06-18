@@ -23,7 +23,7 @@ export function ArticleCard({ d }: { d: Deliverable }) {
           <div className="modal-body" onClick={(e) => e.stopPropagation()}>
             <h3>{d.title}</h3>
             <p className="article-body">{d.body}</p>
-            {d.review.issues?.length > 0 && (
+            {d.review.issues && d.review.issues.length > 0 && (
               <>
                 <h4>Замечания критика</h4>
                 <ul>{d.review.issues.map((i, k) => <li key={k}>{i}</li>)}</ul>

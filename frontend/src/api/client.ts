@@ -3,7 +3,8 @@ export type Status = 'pending' | 'running' | 'done' | 'failed'
 export interface Brief { product: string; goal: string; audience: string; tone: string }
 export interface Topic { title: string; angle: string; points: string[] }
 export interface Strategy { positioning: string; topics: Topic[] }
-export interface Review { score: number; issues: string[]; verdict: string }
+// issues опционален: Go сериализует nil-срез как null, не как [].
+export interface Review { score: number; issues?: string[]; verdict: string }
 export interface Deliverable { topic: string; title: string; body: string; cta: string; review: Review }
 
 export interface Campaign {
