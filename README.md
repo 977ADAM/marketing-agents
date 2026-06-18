@@ -2,14 +2,18 @@
 
 Мультиагентный сервис генерации маркетинговых статей: бриф → стратег →
 копирайтеры (по темам, параллельно) → критик → пакет статей. Go + DeepSeek.
+Встроенный веб-интерфейс (React SPA): форма брифа, наблюдение за прогоном
+кампании и история — всё в одном бинаре.
 
 ## Запуск
 
 ```bash
-cp .env.example .env   # указать DEEPSEEK_API_KEY
+cp .env.example .env   # указать DEEPSEEK_API_KEY (+ BASIC_AUTH_USER/PASS для UI)
 docker compose up -d --build
 curl localhost:8080/healthz   # ok
 ```
+
+Веб-интерфейс открывается на `http://localhost:8080/` (за basic-auth).
 
 ## API
 
@@ -49,7 +53,8 @@ API доступен под префиксом `/api` (`POST /api/campaigns`,
 ## Тесты
 
 ```bash
-go test ./...                                   # unit
+go test ./...                                   # unit (Go)
+cd frontend && npm test                         # фронтенд (Vitest)
 docker compose up -d db
 DATABASE_URL=postgres://app:app@localhost:5432/marketing?sslmode=disable \
   go test -tags=integration ./internal/store/   # интеграционные (стор)
