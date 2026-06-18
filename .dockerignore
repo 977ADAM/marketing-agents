@@ -1,0 +1,10 @@
+.git
+.gitignore
+.superpowers
+frontend/node_modules
+internal/web/dist
+*.env
+.env
+!.env.example
+README.md
+docs
