@@ -26,4 +26,15 @@ describe('createCampaign', () => {
     await expect(createCampaign({ product: '', goal: '', audience: '', tone: '' }))
       .rejects.toMatchObject({ code: 'validation', message: 'bad' } satisfies Partial<ApiError>)
   })
+
+  it('falls back to http_<status>/statusText when error body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      json: async () => { throw new Error('not json') },
+    }))
+    await expect(createCampaign({ product: '', goal: '', audience: '', tone: '' }))
+      .rejects.toMatchObject({ code: 'http_502', message: 'Bad Gateway' } satisfies Partial<ApiError>)
+  })
 })
