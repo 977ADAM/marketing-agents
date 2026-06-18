@@ -25,7 +25,8 @@ func Handler() http.Handler {
 			return
 		}
 		// есть ли такой файл? (без ведущего слэша для fs.Stat)
-		if _, err := fs.Stat(sub, p[1:]); err != nil {
+		// директория не считается файлом — иначе отдался бы листинг вместо SPA.
+		if info, err := fs.Stat(sub, p[1:]); err != nil || info.IsDir() {
 			// нет файла → отдаём index.html
 			r2 := r.Clone(r.Context())
 			r2.URL.Path = "/"
