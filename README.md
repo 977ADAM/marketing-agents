@@ -13,16 +13,38 @@ curl localhost:8080/healthz   # ok
 
 ## API
 
-- `POST /campaigns` — `{product, goal, audience, tone, client_id?}` → `202 {id, status}`
-- `GET /campaigns/{id}` — статус и результат (когда `done`)
+- `POST /api/campaigns` — `{product, goal, audience, tone, client_id?}` → `202 {id, status}`
+- `GET /api/campaigns/{id}` — статус и результат (когда `done`)
+- `GET /api/campaigns` — список всех кампаний
 - `GET /healthz`
 
 ## Пример
 
 ```bash
-curl -XPOST localhost:8080/campaigns -H 'Content-Type: application/json' \
+curl -XPOST localhost:8080/api/campaigns -H 'Content-Type: application/json' \
   -d '{"product":"Эко-бутылка","goal":"рост продаж","audience":"ЗОЖ 25-40","tone":"дружелюбный"}'
 ```
+
+## Веб-интерфейс
+
+Фронтенд (React+Vite) лежит в `frontend/` и встраивается в бинарь через
+`go:embed`. Сборка фронта пишет в `internal/web/dist`.
+
+Локально:
+```bash
+cd frontend && npm ci && npm run build   # → internal/web/dist
+cd .. && go build ./cmd/server
+```
+
+Dev-режим фронта (с прокси на :8080): `cd frontend && npm run dev`.
+
+API доступен под префиксом `/api` (`POST /api/campaigns`,
+`GET /api/campaigns`, `GET /api/campaigns/{id}`); `/healthz` — на корне.
+Доступ к UI/API закрыт basic-auth (`BASIC_AUTH_USER`/`BASIC_AUTH_PASS`);
+`/healthz` всегда открыт.
+
+> Не коммитьте пересобранные файлы под `internal/web/dist/` — в репозитории
+> держится только плейсхолдер `index.html`, а `assets/` в `.gitignore`.
 
 ## Тесты
 
