@@ -37,3 +37,15 @@ func TestLoadRequiresAPIKey(t *testing.T) {
 		t.Fatal("expected error when DEEPSEEK_API_KEY missing")
 	}
 }
+
+func TestBasicAuthDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("DEEPSEEK_API_KEY", "k")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.BasicAuthUser != "" || cfg.BasicAuthPass != "" {
+		t.Errorf("auth defaults should be empty, got %q/%q", cfg.BasicAuthUser, cfg.BasicAuthPass)
+	}
+}

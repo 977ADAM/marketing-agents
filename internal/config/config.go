@@ -27,6 +27,9 @@ type Config struct {
 
 	RateLimitPerMin int
 	LogLevel        string
+
+	BasicAuthUser string
+	BasicAuthPass string
 }
 
 // Load читает env, подставляет дефолты и валидирует обязательные поля.
@@ -47,6 +50,8 @@ func Load() (*Config, error) {
 		CostPer1KCompletion:  getFloat("COST_PER_1K_COMPLETION", 0.0011),
 		RateLimitPerMin:      getInt("RATE_LIMIT_PER_MIN", 30),
 		LogLevel:             getStr("LOG_LEVEL", "info"),
+		BasicAuthUser:        getStr("BASIC_AUTH_USER", ""),
+		BasicAuthPass:        getStr("BASIC_AUTH_PASS", ""),
 	}
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")

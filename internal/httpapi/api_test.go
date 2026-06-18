@@ -128,3 +128,39 @@ func TestListCampaigns(t *testing.T) {
 		t.Errorf("items = %+v", items)
 	}
 }
+
+func TestBasicAuth(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	h := BasicAuth("u", "p", inner)
+
+	// без креды → 401
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/campaigns", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no creds: code = %d, want 401", rec.Code)
+	}
+
+	// верная кредa → 200
+	req := httptest.NewRequest("GET", "/api/campaigns", nil)
+	req.SetBasicAuth("u", "p")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("good creds: code = %d, want 200", rec.Code)
+	}
+
+	// /healthz без auth
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("healthz: code = %d, want 200", rec.Code)
+	}
+
+	// пустые креды в конфиге → пропускать всё
+	open := BasicAuth("", "", inner)
+	rec = httptest.NewRecorder()
+	open.ServeHTTP(rec, httptest.NewRequest("GET", "/api/campaigns", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty creds bypass: code = %d, want 200", rec.Code)
+	}
+}
