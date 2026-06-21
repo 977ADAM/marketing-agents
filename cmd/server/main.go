@@ -43,6 +43,12 @@ func main() {
 	}
 
 	st := store.New(pool)
+	if n, err := st.RecoverInterrupted(baseCtx); err != nil {
+		logger.Error("recover interrupted", "err", err)
+		os.Exit(1)
+	} else if n > 0 {
+		logger.Info("recovered interrupted campaigns", "count", n)
+	}
 	llmClient := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
 	llmClient.SetRoleModel(agents.RoleCopywriter, cfg.ModelFast)
