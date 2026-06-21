@@ -28,6 +28,10 @@ export interface CampaignSummary {
   created_at: string
 }
 
+// Базовый префикс API повторяет base сборки (import.meta.env.BASE_URL уже
+// оканчивается на '/'): standalone → '/api', под interpool → '/marketing/api'.
+const API = `${import.meta.env.BASE_URL}api`
+
 export class ApiError extends Error {
   code: string
   constructor(code: string, message: string) {
@@ -56,7 +60,7 @@ async function handle<T>(res: Response): Promise<T> {
 }
 
 export async function createCampaign(brief: Brief): Promise<{ id: string; status: Status }> {
-  const res = await fetch('/api/campaigns', {
+  const res = await fetch(`${API}/campaigns`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(brief),
@@ -65,9 +69,9 @@ export async function createCampaign(brief: Brief): Promise<{ id: string; status
 }
 
 export async function getCampaign(id: string): Promise<Campaign> {
-  return handle(await fetch(`/api/campaigns/${id}`))
+  return handle(await fetch(`${API}/campaigns/${id}`))
 }
 
 export async function listCampaigns(): Promise<CampaignSummary[]> {
-  return handle(await fetch('/api/campaigns'))
+  return handle(await fetch(`${API}/campaigns`))
 }

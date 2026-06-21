@@ -1,6 +1,9 @@
 # 1) сборка фронта
 FROM node:22 AS web
 WORKDIR /web
+# Базовый путь фронта: '/' для standalone, '/marketing/' под interpool.
+ARG PUBLIC_BASE=/
+ENV PUBLIC_BASE=$PUBLIC_BASE
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
