@@ -124,3 +124,69 @@ func TestListRecentLimit(t *testing.T) {
 		t.Errorf("want 2, got %d", len(items))
 	}
 }
+
+func TestRecoverInterrupted(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+
+	// Сбросить возможные «осиротевшие» от прошлых тестов, чтобы count был детерминирован.
+	if _, err := st.RecoverInterrupted(ctx); err != nil {
+		t.Fatalf("pre-drain: %v", err)
+	}
+
+	pendingID, err := st.Create(ctx, "", agents.Brief{})
+	if err != nil {
+		t.Fatalf("create pending: %v", err)
+	}
+	runningID, err := st.Create(ctx, "", agents.Brief{})
+	if err != nil {
+		t.Fatalf("create running: %v", err)
+	}
+	if err := st.MarkRunning(ctx, runningID); err != nil {
+		t.Fatalf("mark running: %v", err)
+	}
+	doneID, err := st.Create(ctx, "", agents.Brief{})
+	if err != nil {
+		t.Fatalf("create done: %v", err)
+	}
+	if err := st.Complete(ctx, doneID, orchestrator.Result{}); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+
+	n, err := st.RecoverInterrupted(ctx)
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("recovered count = %d, want 2", n)
+	}
+
+	for _, id := range []string{pendingID, runningID} {
+		c, err := st.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("get %s: %v", id, err)
+		}
+		if c.Status != "failed" {
+			t.Errorf("campaign %s status = %q, want failed", id, c.Status)
+		}
+		if c.Error != "прервано рестартом сервиса" {
+			t.Errorf("campaign %s error = %q, want «прервано рестартом сервиса»", id, c.Error)
+		}
+	}
+
+	done, err := st.Get(ctx, doneID)
+	if err != nil {
+		t.Fatalf("get done: %v", err)
+	}
+	if done.Status != "done" {
+		t.Errorf("done campaign status = %q, want done (не тронута)", done.Status)
+	}
+
+	again, err := st.RecoverInterrupted(ctx)
+	if err != nil {
+		t.Fatalf("recover again: %v", err)
+	}
+	if again != 0 {
+		t.Errorf("second recover count = %d, want 0", again)
+	}
+}

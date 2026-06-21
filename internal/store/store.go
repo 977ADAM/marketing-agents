@@ -116,6 +116,18 @@ func (s *Store) Fail(ctx context.Context, id, msg string) error {
 	return err
 }
 
+// RecoverInterrupted помечает осиротевшие после рестарта кампании (pending/running)
+// как failed. Возвращает число восстановленных. Идемпотентен.
+func (s *Store) RecoverInterrupted(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE campaigns SET status='failed', error='прервано рестартом сервиса', updated_at=now()
+		 WHERE status IN ('pending','running')`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ListRecent возвращает до limit последних кампаний, новые сверху.
 func (s *Store) ListRecent(ctx context.Context, limit int) ([]CampaignSummary, error) {
 	rows, err := s.pool.Query(ctx,
