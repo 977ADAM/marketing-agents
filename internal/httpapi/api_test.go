@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -60,6 +61,19 @@ type mockRunner struct {
 
 func (r *mockRunner) Start(id string, _ agents.Brief) { r.called <- id }
 
+// errRepo возвращает ошибку на всех операциях — для проверки 500-веток.
+type errRepo struct{}
+
+func (errRepo) Create(context.Context, string, agents.Brief) (string, error) {
+	return "", errors.New("boom")
+}
+func (errRepo) Get(context.Context, string) (*store.Campaign, error) {
+	return nil, errors.New("boom")
+}
+func (errRepo) ListRecent(context.Context, int) ([]store.CampaignSummary, error) {
+	return nil, errors.New("boom")
+}
+
 func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
@@ -85,6 +99,74 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("runner not started")
+	}
+}
+
+func TestPostCampaignBadJSON(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{not json`))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+func TestPostCampaignRateLimited(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 4)}, 1) // burst 1
+	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
+	send := func() int {
+		req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
+		rec := httptest.NewRecorder()
+		api.Handler().ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if c := send(); c != http.StatusAccepted {
+		t.Fatalf("first code = %d, want 202", c)
+	}
+	if c := send(); c != http.StatusTooManyRequests {
+		t.Fatalf("second code = %d, want 429", c)
+	}
+}
+
+func TestPostCampaignRepoError(t *testing.T) {
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
+	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code = %d, want 500", rec.Code)
+	}
+}
+
+func TestGetCampaignInternalError(t *testing.T) {
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	req := httptest.NewRequest("GET", "/api/campaigns/x", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code = %d, want 500", rec.Code)
+	}
+}
+
+func TestListCampaignsInternalError(t *testing.T) {
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	req := httptest.NewRequest("GET", "/api/campaigns", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("code = %d, want 500", rec.Code)
+	}
+}
+
+func TestListCampaignsLimitClamp(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	req := httptest.NewRequest("GET", "/api/campaigns?limit=9999", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200", rec.Code)
 	}
 }
 
