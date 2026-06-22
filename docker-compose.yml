@@ -6,7 +6,8 @@ services:
       POSTGRES_PASSWORD: app
       POSTGRES_DB: marketing
     ports:
-      - "5432:5432"
+      # только localhost: БД не должна торчать в интернет (dev-compose)
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d marketing"]
       interval: 5s
@@ -19,7 +20,8 @@ services:
     environment:
       DATABASE_URL: postgres://app:app@db:5432/marketing?sslmode=disable
     ports:
-      - "8080:8080"
+      # только localhost: наружу marketing идёт только через Caddy (/marketing)
+      - "127.0.0.1:8080:8080"
     depends_on:
       db:
         condition: service_healthy
