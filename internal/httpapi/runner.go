@@ -39,7 +39,7 @@ func (r *BackgroundRunner) Start(id string, b agents.Brief) {
 			r.logger.Error("mark running", "id", id, "err", err)
 			return
 		}
-		res, err := r.orch.Run(ctx, b)
+		res, err := r.orch.Run(ctx, b, nil)
 		if err != nil {
 			r.logger.Error("run failed", "id", id, "err", err)
 			_ = r.store.Fail(context.WithoutCancel(ctx), id, err.Error())
