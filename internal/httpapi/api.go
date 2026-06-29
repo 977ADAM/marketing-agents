@@ -4,6 +4,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -139,6 +140,7 @@ func (a *API) campaignEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // не буферизировать SSE за nginx
 
 	snap, ch, cancel := a.sub.Subscribe(id)
 	defer cancel()
@@ -153,6 +155,9 @@ func (a *API) campaignEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case s, ok := <-ch:
+			// Канал закрыт = прогон завершён. last — последний доставленный снимок;
+			// итоговую фазу/результат клиент дочитывает через GET /api/campaigns/{id}
+			// (финальный снимок мог не дойти при переполненном буфере — см. tracker.finish).
 			if !ok {
 				writeSSE(w, "done", last)
 				flusher.Flush()
@@ -171,9 +176,7 @@ func (a *API) campaignEvents(w http.ResponseWriter, r *http.Request) {
 func writeSSE(w http.ResponseWriter, event string, snap orchestrator.Snapshot) {
 	b, _ := json.Marshal(snap)
 	if event != "" {
-		_, _ = w.Write([]byte("event: " + event + "\n"))
+		fmt.Fprintf(w, "event: %s\n", event)
 	}
-	_, _ = w.Write([]byte("data: "))
-	_, _ = w.Write(b)
-	_, _ = w.Write([]byte("\n\n"))
+	fmt.Fprintf(w, "data: %s\n\n", b)
 }

@@ -20,12 +20,14 @@ func newFakePS() *fakeProgressStore {
 	return &fakeProgressStore{saved: map[string]orchestrator.Snapshot{}, camps: map[string]*store.Campaign{}}
 }
 func (f *fakeProgressStore) SaveProgress(_ context.Context, id string, s orchestrator.Snapshot) error {
-	f.mu.Lock(); defer f.mu.Unlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.saved[id] = s
 	return nil
 }
 func (f *fakeProgressStore) Get(_ context.Context, id string) (*store.Campaign, error) {
-	f.mu.Lock(); defer f.mu.Unlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	c, ok := f.camps[id]
 	if !ok {
 		return nil, store.ErrNotFound

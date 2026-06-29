@@ -301,13 +301,22 @@ func TestCampaignEventsStream(t *testing.T) {
 	ch <- orchestrator.Snapshot{Phase: orchestrator.PhaseProducing, Percent: 50}
 	close(ch)
 
-	sc := bufio.NewScanner(resp.Body)
+	done := make(chan struct{})
 	var lines []string
-	for sc.Scan() {
-		lines = append(lines, sc.Text())
-		if sc.Text() == "event: done" {
-			break
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			lines = append(lines, sc.Text())
+			if sc.Text() == "event: done" {
+				break
+			}
 		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SSE stream did not deliver done frame in time")
 	}
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, `"percent":5`) {
@@ -318,5 +327,16 @@ func TestCampaignEventsStream(t *testing.T) {
 	}
 	if !strings.Contains(joined, "event: done") {
 		t.Errorf("no done:\n%s", joined)
+	}
+}
+
+func TestCampaignEventsInternalError(t *testing.T) {
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)},
+		&fakeSub{ch: make(chan orchestrator.Snapshot)}, 1000)
+	req := httptest.NewRequest("GET", "/api/campaigns/x/events", nil)
+	w := httptest.NewRecorder()
+	api.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("code = %d, want 500", w.Code)
 	}
 }
