@@ -19,6 +19,7 @@ curl localhost:8080/healthz   # ok
 
 - `POST /api/campaigns` — `{product, goal, audience, tone, client_id?}` → `202 {id, status}`
 - `GET /api/campaigns/{id}` — статус и результат (когда `done`)
+- `GET /api/campaigns/{id}/events` — SSE-поток живого прогресса прогона (по-темный)
 - `GET /api/campaigns` — список всех кампаний
 - `GET /healthz`
 
