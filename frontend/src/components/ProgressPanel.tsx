@@ -37,7 +37,7 @@ export function ProgressPanel({ product, snapshot }: { product: string; snapshot
         <div className="bar-fill" style={{ width: `${snapshot?.percent ?? 0}%` }} />
       </div>
       <ul className="topics">
-        {snapshot?.topics.map((t) => (
+        {(snapshot?.topics ?? []).map((t) => (
           <li key={t.index} className={`topic topic-${t.state}`}>
             <span className="topic-title">{t.title}</span>
             <span className="topic-state">

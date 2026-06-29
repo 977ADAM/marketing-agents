@@ -28,4 +28,10 @@ describe('ProgressPanel', () => {
     render(<ProgressPanel product="Вода" snapshot={null} />)
     expect(screen.getByText('Подключение…')).toBeInTheDocument()
   })
+
+  it('не падает на снимке strategizing с topics=null', () => {
+    const strat = { phase: 'strategizing', percent: 5, topic_total: 0, topics_done: 0, topics: null } as unknown as Snapshot
+    render(<ProgressPanel product="Вода" snapshot={strat} />)
+    expect(screen.getByText('Стратегия')).toBeInTheDocument()
+  })
 })
