@@ -14,6 +14,14 @@ type ProgressStore interface {
 	Get(ctx context.Context, id string) (*store.Campaign, error)
 }
 
+// CampaignProgress — то, что runner получает от Hub: интерфейс прогресса
+// (для передачи в orchestrator.Run) плюс терминальные методы Done/Failed.
+type CampaignProgress interface {
+	orchestrator.Progress
+	Done()
+	Failed()
+}
+
 // Hub держит живые прогоны и рассылает снимки прогресса подписчикам.
 type Hub struct {
 	baseCtx context.Context
@@ -33,7 +41,7 @@ type hubRun struct {
 }
 
 // Tracker регистрирует живой прогон и возвращает реализацию orchestrator.Progress.
-func (h *Hub) Tracker(id string) *tracker {
+func (h *Hub) Tracker(id string) CampaignProgress {
 	r := &hubRun{subs: map[chan orchestrator.Snapshot]struct{}{}}
 	h.mu.Lock()
 	h.runs[id] = r
@@ -74,11 +82,11 @@ func (h *Hub) snapshotFromStore(id string) orchestrator.Snapshot {
 	if err == nil && c != nil && c.Progress != nil {
 		return *c.Progress
 	}
-	ph := orchestrator.PhaseFailed
 	if c != nil && c.Status == "done" {
-		ph = orchestrator.PhaseDone
+		return orchestrator.Snapshot{Phase: orchestrator.PhaseDone, Percent: 100}
 	}
-	return orchestrator.Snapshot{Phase: ph, Percent: 100}
+	// неизвестная/прерванная кампания без снимка: failed, прогресс неизвестен
+	return orchestrator.Snapshot{Phase: orchestrator.PhaseFailed}
 }
 
 func cloneSnapshot(s orchestrator.Snapshot) orchestrator.Snapshot {
@@ -160,6 +168,11 @@ func (t *tracker) TopicDone(i, score int) {
 func (t *tracker) Done()   { t.finish(orchestrator.PhaseDone) }
 func (t *tracker) Failed() { t.finish(orchestrator.PhaseFailed) }
 
+// finish ставит терминальную фазу и закрывает каналы подписчиков. ВАЖНО: финальный
+// снимок рассылается тем же неблокирующим fan-out, что и остальные, поэтому при
+// переполненном буфере подписчика он может НЕ дойти — закрытие канала и есть сигнал
+// «прогон завершён», а финальную фазу потребитель дочитывает из стора (Subscribe
+// после завершения берёт снимок из БД).
 func (t *tracker) finish(ph orchestrator.Phase) {
 	t.update(func(s *orchestrator.Snapshot) { s.Phase = ph })
 	t.run.mu.Lock()
