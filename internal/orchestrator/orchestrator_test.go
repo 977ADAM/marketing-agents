@@ -148,6 +148,37 @@ func (r *recordProgress) TopicReviewing(i, it int) { r.add(fmt.Sprintf("reviewin
 func (r *recordProgress) TopicRevising(i, it int)  { r.add(fmt.Sprintf("revising:%d:%d", i, it)) }
 func (r *recordProgress) TopicDone(i, sc int)      { r.add(fmt.Sprintf("done:%d:%d", i, sc)) }
 
+// исчерпан max-iter без accept → второй путь TopicDone (с лучшим score).
+func TestRunEmitsProgressPickBest(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses[agents.RoleStrategist] = []string{
+		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
+	}
+	fake.Responses[agents.RoleCopywriter] = []string{
+		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
+		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
+	}
+	fake.Responses[agents.RoleCritic] = []string{
+		`{"score":50,"issues":["x"],"verdict":"revise"}`,
+		`{"score":40,"issues":["y"],"verdict":"revise"}`,
+	}
+	o := New(fake, Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	rec := &recordProgress{}
+
+	if _, err := o.Run(context.Background(), brief(), rec); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := []string{"strategizing", "planned:1", "writing:0", "reviewing:0:1", "revising:0:1", "reviewing:0:2", "done:0:50"}
+	if len(rec.events) != len(want) {
+		t.Fatalf("events = %v, want %v", rec.events, want)
+	}
+	for i := range want {
+		if rec.events[i] != want[i] {
+			t.Fatalf("events = %v, want %v", rec.events, want)
+		}
+	}
+}
+
 func TestRunEmitsProgress(t *testing.T) {
 	fake := llm.NewFake()
 	fake.Responses[agents.RoleStrategist] = []string{

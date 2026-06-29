@@ -46,6 +46,7 @@ type Progress interface {
 	TopicsPlanned(titles []string)
 	TopicWriting(i int)
 	TopicReviewing(i, iter int)
+	// TopicRevising: iter — номер ревью (1-based), в ответ на которое идёт доработка.
 	TopicRevising(i, iter int)
 	TopicDone(i, score int)
 }
