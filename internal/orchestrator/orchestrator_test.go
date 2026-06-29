@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
@@ -28,7 +30,7 @@ func TestRunFanOutAcceptsImmediately(t *testing.T) {
 	}
 	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
-	res, err := o.Run(context.Background(), brief())
+	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -56,7 +58,7 @@ func TestRunCriticReviseLoop(t *testing.T) {
 	}
 	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
-	res, err := o.Run(context.Background(), brief())
+	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -84,7 +86,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 	}
 	o := New(fake, Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
-	res, err := o.Run(context.Background(), brief())
+	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -99,7 +101,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 func TestRunFailsWhenStrategistErrors(t *testing.T) {
 	fake := llm.NewFake() // нет ответов → стратег вернёт ошибку
 	o := New(fake, Options{CriticMaxIter: 1, ScoreThreshold: 80})
-	if _, err := o.Run(context.Background(), brief()); err == nil {
+	if _, err := o.Run(context.Background(), brief(), nil); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -120,7 +122,7 @@ func TestRunCapsTopics(t *testing.T) {
 	}
 	o := New(fake, Options{CriticMaxIter: 1, ScoreThreshold: 80, MaxTopics: 2, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
-	res, err := o.Run(context.Background(), brief())
+	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -129,5 +131,49 @@ func TestRunCapsTopics(t *testing.T) {
 	}
 	if len(res.Strategy.Topics) != 2 {
 		t.Errorf("strategy topics = %d, want 2 (truncated)", len(res.Strategy.Topics))
+	}
+}
+
+// recordProgress фиксирует порядок вызовов Progress (потокобезопасно).
+type recordProgress struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (r *recordProgress) add(e string) { r.mu.Lock(); r.events = append(r.events, e); r.mu.Unlock() }
+func (r *recordProgress) Strategizing()            { r.add("strategizing") }
+func (r *recordProgress) TopicsPlanned(t []string) { r.add(fmt.Sprintf("planned:%d", len(t))) }
+func (r *recordProgress) TopicWriting(i int)       { r.add(fmt.Sprintf("writing:%d", i)) }
+func (r *recordProgress) TopicReviewing(i, it int) { r.add(fmt.Sprintf("reviewing:%d:%d", i, it)) }
+func (r *recordProgress) TopicRevising(i, it int)  { r.add(fmt.Sprintf("revising:%d:%d", i, it)) }
+func (r *recordProgress) TopicDone(i, sc int)      { r.add(fmt.Sprintf("done:%d:%d", i, sc)) }
+
+func TestRunEmitsProgress(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses[agents.RoleStrategist] = []string{
+		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
+	}
+	fake.Responses[agents.RoleCopywriter] = []string{
+		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
+		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
+	}
+	fake.Responses[agents.RoleCritic] = []string{
+		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
+		`{"score":85,"issues":[],"verdict":"accept"}`,
+	}
+	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	rec := &recordProgress{}
+
+	if _, err := o.Run(context.Background(), brief(), rec); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := []string{"strategizing", "planned:1", "writing:0", "reviewing:0:1", "revising:0:1", "reviewing:0:2", "done:0:85"}
+	if len(rec.events) != len(want) {
+		t.Fatalf("events = %v, want %v", rec.events, want)
+	}
+	for i := range want {
+		if rec.events[i] != want[i] {
+			t.Fatalf("events = %v, want %v", rec.events, want)
+		}
 	}
 }

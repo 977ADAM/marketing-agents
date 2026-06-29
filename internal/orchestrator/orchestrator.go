@@ -42,7 +42,10 @@ func New(c llm.Client, opt Options) *Orchestrator {
 	}
 }
 
-func (o *Orchestrator) Run(ctx context.Context, b agents.Brief) (Result, error) {
+func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (Result, error) {
+	if p == nil {
+		p = NopProgress{}
+	}
 	var mu sync.Mutex
 	total := llm.Usage{}
 	addUsage := func(u llm.Usage) {
@@ -51,6 +54,7 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief) (Result, error) 
 		mu.Unlock()
 	}
 
+	p.Strategizing()
 	strat, u, err := o.strategist.Run(ctx, b)
 	if err != nil {
 		return Result{}, err
@@ -62,12 +66,18 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief) (Result, error) 
 		strat.Topics = strat.Topics[:o.opt.MaxTopics]
 	}
 
+	titles := make([]string, len(strat.Topics))
+	for i, t := range strat.Topics {
+		titles[i] = t.Title
+	}
+	p.TopicsPlanned(titles)
+
 	deliverables := make([]agents.Deliverable, len(strat.Topics))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, topic := range strat.Topics {
 		i, topic := i, topic
 		g.Go(func() error {
-			d, u, err := o.produce(gctx, b, strat, topic)
+			d, u, err := o.produce(gctx, b, strat, i, topic, p)
 			addUsage(u)
 			if err != nil {
 				return fmt.Errorf("topic %q: %w", topic.Title, err)
@@ -88,8 +98,9 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief) (Result, error) 
 }
 
 // produce пишет статью и гоняет цикл критика; usage аккумулируется по всем вызовам.
-func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Strategy, t agents.Topic) (agents.Deliverable, llm.Usage, error) {
+func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Strategy, i int, t agents.Topic, p Progress) (agents.Deliverable, llm.Usage, error) {
 	total := llm.Usage{}
+	p.TopicWriting(i)
 	art, u, err := o.copywriter.Run(ctx, b, s, t)
 	total = total.Add(u)
 	if err != nil {
@@ -99,6 +110,7 @@ func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Str
 	best := agents.Deliverable{Article: art}
 	bestSet := false
 	for iter := 0; iter < o.opt.CriticMaxIter; iter++ {
+		p.TopicReviewing(i, iter+1)
 		rev, u, err := o.critic.Run(ctx, b, art)
 		total = total.Add(u)
 		if err != nil {
@@ -109,17 +121,20 @@ func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Str
 			bestSet = true
 		}
 		if rev.Verdict == "accept" || rev.Score >= o.opt.ScoreThreshold {
+			p.TopicDone(i, rev.Score)
 			return agents.Deliverable{Article: art, Review: rev}, total, nil
 		}
 		if iter == o.opt.CriticMaxIter-1 {
 			break // больше не доработать — выходим с лучшим
 		}
+		p.TopicRevising(i, iter+1)
 		art, u, err = o.copywriter.Revise(ctx, art, rev)
 		total = total.Add(u)
 		if err != nil {
 			return agents.Deliverable{}, total, err
 		}
 	}
+	p.TopicDone(i, best.Review.Score)
 	return best, total, nil
 }
 
