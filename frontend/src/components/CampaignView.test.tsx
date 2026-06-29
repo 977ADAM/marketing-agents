@@ -1,6 +1,6 @@
 import { render, screen, act, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { CampaignView } from './CampaignView'
 import type { Campaign } from '../api/client'
 
@@ -55,6 +55,8 @@ beforeEach(() => {
   vi.stubGlobal('EventSource', MockEventSource as unknown as typeof EventSource)
 })
 
+afterEach(() => vi.unstubAllGlobals())
+
 describe('CampaignView', () => {
   it('показывает прогресс, затем результат после terminal-события', async () => {
     getCampaign.mockResolvedValueOnce(running) // первичная загрузка
@@ -85,5 +87,15 @@ describe('CampaignView', () => {
     getCampaign.mockResolvedValue({ ...running, status: 'failed', error: 'boom' })
     renderView()
     await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument())
+  })
+
+  it('показывает «Переподключение…» при ошибке SSE', async () => {
+    getCampaign.mockResolvedValueOnce(running)
+    renderView()
+    await waitFor(() => expect(screen.getByText('Вода')).toBeInTheDocument())
+    act(() => {
+      MockEventSource.last.onerror?.(new Event('error'))
+    })
+    expect(screen.getByText('Переподключение…')).toBeInTheDocument()
   })
 })

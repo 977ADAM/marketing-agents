@@ -1,6 +1,6 @@
-import type { Snapshot, TopicState } from '../api/client'
+import type { Snapshot, TopicState, Phase } from '../api/client'
 
-const PHASE_LABEL: Record<string, string> = {
+const PHASE_LABEL: Record<Phase, string> = {
   strategizing: 'Стратегия',
   producing: 'Генерация статей',
   done: 'Готово',
@@ -26,7 +26,14 @@ export function ProgressPanel({ product, snapshot }: { product: string; snapshot
     <div className="progress">
       <h2>{product}</h2>
       <p>{snapshot ? PHASE_LABEL[snapshot.phase] : 'Подключение…'}</p>
-      <div className="bar">
+      <div
+        className="bar"
+        role="progressbar"
+        aria-valuenow={snapshot?.percent ?? 0}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Прогресс генерации"
+      >
         <div className="bar-fill" style={{ width: `${snapshot?.percent ?? 0}%` }} />
       </div>
       <ul className="topics">

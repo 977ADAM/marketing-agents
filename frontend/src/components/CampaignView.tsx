@@ -10,15 +10,16 @@ export function CampaignView() {
   const { snapshot, terminal, error } = useCampaignProgress(id)
   const [campaign, setCampaign] = useState<Campaign | null>(null)
 
-  // первичная загрузка (бриф для заголовка + случай уже завершённой кампании)
+  // Загружаем полную кампанию при монтировании и повторно на терминальном
+  // событии. Флаг cancelled гасит устаревший ответ (медленный первичный fetch
+  // не должен перезаписать уже полученный финальный результат).
   useEffect(() => {
-    getCampaign(id).then(setCampaign).catch(() => {})
-  }, [id])
-
-  // на терминальном событии — дочитываем финальный результат
-  useEffect(() => {
-    if (terminal) getCampaign(id).then(setCampaign).catch(() => {})
-  }, [terminal, id])
+    let cancelled = false
+    getCampaign(id)
+      .then((c) => { if (!cancelled) setCampaign(c) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [id, terminal])
 
   if (!campaign) return <p className="muted">Загрузка…</p>
 
