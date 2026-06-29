@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"golang.org/x/time/rate"
 )
@@ -25,15 +27,21 @@ type Runner interface {
 	Start(id string, b agents.Brief)
 }
 
+// Subscriber — источник снимков прогресса для SSE.
+type Subscriber interface {
+	Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func())
+}
+
 type API struct {
 	repo    Repo
 	runner  Runner
+	sub     Subscriber
 	limiter *rate.Limiter
 }
 
-func New(repo Repo, runner Runner, ratePerMin int) *API {
+func New(repo Repo, runner Runner, sub Subscriber, ratePerMin int) *API {
 	lim := rate.NewLimiter(rate.Limit(float64(ratePerMin)/60.0), ratePerMin)
-	return &API{repo: repo, runner: runner, limiter: lim}
+	return &API{repo: repo, runner: runner, sub: sub, limiter: lim}
 }
 
 func (a *API) Handler() http.Handler {
@@ -41,6 +49,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/campaigns", a.postCampaign)
 	mux.HandleFunc("GET /api/campaigns", a.listCampaigns)
 	mux.HandleFunc("GET /api/campaigns/{id}", a.getCampaign)
+	mux.HandleFunc("GET /api/campaigns/{id}/events", a.campaignEvents)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -111,4 +120,60 @@ func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *API) campaignEvents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := a.repo.Get(r.Context(), id); err == store.ErrNotFound {
+		writeError(w, http.StatusNotFound, "not_found", "campaign not found")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "could not load campaign")
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "internal", "streaming unsupported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	snap, ch, cancel := a.sub.Subscribe(id)
+	defer cancel()
+	writeSSE(w, "", snap)
+	flusher.Flush()
+
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	last := snap
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case s, ok := <-ch:
+			if !ok {
+				writeSSE(w, "done", last)
+				flusher.Flush()
+				return
+			}
+			last = s
+			writeSSE(w, "", s)
+			flusher.Flush()
+		case <-ticker.C:
+			_, _ = w.Write([]byte(": ping\n\n"))
+			flusher.Flush()
+		}
+	}
+}
+
+func writeSSE(w http.ResponseWriter, event string, snap orchestrator.Snapshot) {
+	b, _ := json.Marshal(snap)
+	if event != "" {
+		_, _ = w.Write([]byte("event: " + event + "\n"))
+	}
+	_, _ = w.Write([]byte("data: "))
+	_, _ = w.Write(b)
+	_, _ = w.Write([]byte("\n\n"))
 }

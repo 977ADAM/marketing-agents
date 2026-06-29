@@ -1,17 +1,20 @@
 package httpapi
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
@@ -77,7 +80,7 @@ func (errRepo) ListRecent(context.Context, int) ([]store.CampaignSummary, error)
 func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := New(repo, runner, 1000)
+	api := New(repo, runner, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -103,7 +106,7 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 }
 
 func TestPostCampaignBadJSON(t *testing.T) {
-	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{not json`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -113,7 +116,7 @@ func TestPostCampaignBadJSON(t *testing.T) {
 }
 
 func TestPostCampaignRateLimited(t *testing.T) {
-	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 4)}, 1) // burst 1
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 4)}, nil, 1) // burst 1
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	send := func() int {
 		req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -130,7 +133,7 @@ func TestPostCampaignRateLimited(t *testing.T) {
 }
 
 func TestPostCampaignRepoError(t *testing.T) {
-	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
@@ -141,7 +144,7 @@ func TestPostCampaignRepoError(t *testing.T) {
 }
 
 func TestGetCampaignInternalError(t *testing.T) {
-	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/x", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -151,7 +154,7 @@ func TestGetCampaignInternalError(t *testing.T) {
 }
 
 func TestListCampaignsInternalError(t *testing.T) {
-	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -161,7 +164,7 @@ func TestListCampaignsInternalError(t *testing.T) {
 }
 
 func TestListCampaignsLimitClamp(t *testing.T) {
-	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns?limit=9999", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -171,7 +174,7 @@ func TestListCampaignsLimitClamp(t *testing.T) {
 }
 
 func TestPostCampaignValidates(t *testing.T) {
-	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{"product":""}`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -181,7 +184,7 @@ func TestPostCampaignValidates(t *testing.T) {
 }
 
 func TestGetCampaignNotFound(t *testing.T) {
-	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/missing", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -193,7 +196,7 @@ func TestGetCampaignNotFound(t *testing.T) {
 func TestListCampaigns(t *testing.T) {
 	repo := &mockRepo{}
 	_, _ = repo.Create(context.Background(), "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
-	api := New(repo, &mockRunner{called: make(chan string, 1)}, 1000)
+	api := New(repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)
 	rec := httptest.NewRecorder()
@@ -256,5 +259,64 @@ func TestBasicAuth(t *testing.T) {
 	open.ServeHTTP(rec, httptest.NewRequest("GET", "/api/campaigns", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("empty creds bypass: code = %d, want 200", rec.Code)
+	}
+}
+
+// fakeSub — подписчик для SSE-тестов.
+type fakeSub struct {
+	snap orchestrator.Snapshot
+	ch   chan orchestrator.Snapshot
+}
+
+func (f *fakeSub) Subscribe(string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
+	return f.snap, f.ch, func() {}
+}
+
+func TestCampaignEventsNotFound(t *testing.T) {
+	repo := &mockRepo{}
+	api := New(repo, &mockRunner{called: make(chan string, 1)},
+		&fakeSub{ch: make(chan orchestrator.Snapshot)}, 1000)
+	req := httptest.NewRequest("GET", "/api/campaigns/nope/events", nil)
+	w := httptest.NewRecorder()
+	api.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", w.Code)
+	}
+}
+
+func TestCampaignEventsStream(t *testing.T) {
+	repo := &mockRepo{campaigns: map[string]*store.Campaign{"camp-1": {ID: "camp-1", Status: "running"}}}
+	ch := make(chan orchestrator.Snapshot, 4)
+	sub := &fakeSub{snap: orchestrator.Snapshot{Phase: orchestrator.PhaseStrategizing, Percent: 5}, ch: ch}
+	api := New(repo, &mockRunner{called: make(chan string, 1)}, sub, 1000)
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/campaigns/camp-1/events")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	ch <- orchestrator.Snapshot{Phase: orchestrator.PhaseProducing, Percent: 50}
+	close(ch)
+
+	sc := bufio.NewScanner(resp.Body)
+	var lines []string
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+		if sc.Text() == "event: done" {
+			break
+		}
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, `"percent":5`) {
+		t.Errorf("no initial snapshot:\n%s", joined)
+	}
+	if !strings.Contains(joined, `"percent":50`) {
+		t.Errorf("no update:\n%s", joined)
+	}
+	if !strings.Contains(joined, "event: done") {
+		t.Errorf("no done:\n%s", joined)
 	}
 }

@@ -61,7 +61,7 @@ func main() {
 	})
 	hub := httpapi.NewHub(baseCtx, st)
 	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger, hub)
-	api := httpapi.New(st, runner, cfg.RateLimitPerMin)
+	api := httpapi.New(st, runner, hub, cfg.RateLimitPerMin)
 
 	// общий роутинг: /api/* и /healthz → API, всё остальное → SPA.
 	root := http.NewServeMux()
