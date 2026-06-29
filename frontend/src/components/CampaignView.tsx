@@ -1,30 +1,26 @@
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { useCampaign } from '../hooks/useCampaign'
+import { getCampaign, type Campaign } from '../api/client'
+import { useCampaignProgress } from '../hooks/useCampaignProgress'
 import { ArticleCard } from './ArticleCard'
-
-const STEPS = ['Стратег', 'Копирайтеры', 'Критик']
+import { ProgressPanel } from './ProgressPanel'
 
 export function CampaignView() {
   const { id = '' } = useParams()
-  const { campaign, error } = useCampaign(id)
+  const { snapshot, terminal, error } = useCampaignProgress(id)
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+
+  // первичная загрузка (бриф для заголовка + случай уже завершённой кампании)
+  useEffect(() => {
+    getCampaign(id).then(setCampaign).catch(() => {})
+  }, [id])
+
+  // на терминальном событии — дочитываем финальный результат
+  useEffect(() => {
+    if (terminal) getCampaign(id).then(setCampaign).catch(() => {})
+  }, [terminal, id])
 
   if (!campaign) return <p className="muted">Загрузка…</p>
-
-  if (campaign.status === 'pending' || campaign.status === 'running') {
-    const active = campaign.strategy ? 1 : 0
-    return (
-      <div className="progress">
-        <h2>{campaign.brief.product}</h2>
-        <p>Генерация кампании…</p>
-        <ol className="steps">
-          {STEPS.map((s, i) => (
-            <li key={s} className={i <= active ? 'active' : ''}>{s}</li>
-          ))}
-        </ol>
-        {error && <p className="muted">Переподключение…</p>}
-      </div>
-    )
-  }
 
   if (campaign.status === 'failed') {
     return (
@@ -35,22 +31,31 @@ export function CampaignView() {
     )
   }
 
-  // done
-  return (
-    <div className="result">
-      <h2>{campaign.brief.product}</h2>
-      {campaign.strategy && (
-        <div className="positioning">
-          <h3>Позиционирование</h3>
-          <p>{campaign.strategy.positioning}</p>
+  if (campaign.status === 'done') {
+    return (
+      <div className="result">
+        <h2>{campaign.brief.product}</h2>
+        {campaign.strategy && (
+          <div className="positioning">
+            <h3>Позиционирование</h3>
+            <p>{campaign.strategy.positioning}</p>
+          </div>
+        )}
+        {campaign.cost_usd != null && (
+          <p className="muted">Стоимость прогона: ${campaign.cost_usd.toFixed(4)}</p>
+        )}
+        <div className="articles">
+          {campaign.deliverables?.map((d, i) => <ArticleCard key={i} d={d} />)}
         </div>
-      )}
-      {campaign.cost_usd != null && (
-        <p className="muted">Стоимость прогона: ${campaign.cost_usd.toFixed(4)}</p>
-      )}
-      <div className="articles">
-        {campaign.deliverables?.map((d, i) => <ArticleCard key={i} d={d} />)}
       </div>
-    </div>
+    )
+  }
+
+  // pending / running — живой прогресс
+  return (
+    <>
+      <ProgressPanel product={campaign.brief.product} snapshot={snapshot} />
+      {error && <p className="muted">Переподключение…</p>}
+    </>
   )
 }

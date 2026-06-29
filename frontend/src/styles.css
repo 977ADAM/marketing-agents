@@ -29,3 +29,9 @@ body { margin: 0; }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; }
 .modal-body { background: #fff; border-radius: 8px; padding: 24px; max-width: 640px; max-height: 80vh; overflow: auto; }
 .article-body { white-space: pre-wrap; line-height: 1.5; }
+.bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin: 12px 0; }
+.bar-fill { height: 100%; background: #2563eb; transition: width .3s ease; }
+.topics { list-style: none; padding: 0; margin: 0; }
+.topic { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+.topic-done .topic-state { color: #16a34a; }
+.topic-state { color: #6b7280; font-size: .9em; }
