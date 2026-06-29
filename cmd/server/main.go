@@ -59,7 +59,8 @@ func main() {
 		CostPer1KCompletion: cfg.CostPer1KCompletion,
 		MaxTopics:           cfg.MaxTopics,
 	})
-	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger)
+	hub := httpapi.NewHub(baseCtx, st)
+	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger, hub)
 	api := httpapi.New(st, runner, cfg.RateLimitPerMin)
 
 	// общий роутинг: /api/* и /healthz → API, всё остальное → SPA.
