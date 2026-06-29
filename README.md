@@ -62,9 +62,10 @@ DATABASE_URL=postgres://app:app@localhost:5432/marketing?sslmode=disable \
 
 ## Конфигурация
 
-Все настройки — через env, см. `.env.example`. Модель по умолчанию
-`deepseek-v4-pro` для всех ролей; разнести модели по ролям можно через
-`SetRoleModel` в LLM-клиенте.
+Все настройки — через env, см. `.env.example`. Модели разнесены по ролям:
+`MODEL_DEFAULT` (`deepseek-v4-pro`) — стратег и критик, `MODEL_FAST`
+(`deepseek-v4-flash`) — копирайтеры. Привязка ролей к моделям — через
+`SetRoleModel` в LLM-клиенте (см. `cmd/server/main.go`).
 
 ## Известное ограничение
 
