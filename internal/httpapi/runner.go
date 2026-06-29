@@ -51,6 +51,7 @@ func (r *BackgroundRunner) Start(id string, b agents.Brief) {
 		}
 		if err := r.store.Complete(context.WithoutCancel(ctx), id, res); err != nil {
 			r.logger.Error("complete", "id", id, "err", err)
+			_ = r.store.Fail(context.WithoutCancel(ctx), id, "complete: "+err.Error())
 			tr.Failed()
 			return
 		}
