@@ -160,7 +160,7 @@ func TestProgressRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Progress == nil || got.Progress.Percent != 50 || got.Progress.TopicsDone != 1 {
+	if got.Progress == nil || got.Progress.Phase != orchestrator.PhaseProducing || got.Progress.Percent != 50 || got.Progress.TopicsDone != 1 {
 		t.Fatalf("Progress = %+v", got.Progress)
 	}
 	if len(got.Progress.Topics) != 2 || got.Progress.Topics[0].Score != 88 {

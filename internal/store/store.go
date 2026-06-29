@@ -21,17 +21,17 @@ var ErrNotFound = errors.New("campaign not found")
 
 // Campaign — модель строки кампании для API.
 type Campaign struct {
-	ID           string               `json:"id"`
-	ClientID     string               `json:"client_id"`
-	Status       string               `json:"status"`
-	Brief        agents.Brief         `json:"brief"`
-	Strategy     *agents.Strategy     `json:"strategy,omitempty"`
+	ID           string                 `json:"id"`
+	ClientID     string                 `json:"client_id"`
+	Status       string                 `json:"status"`
+	Brief        agents.Brief           `json:"brief"`
+	Strategy     *agents.Strategy       `json:"strategy,omitempty"`
 	Deliverables []agents.Deliverable   `json:"deliverables,omitempty"`
 	Progress     *orchestrator.Snapshot `json:"progress,omitempty"`
 	CostUSD      *float64               `json:"cost_usd,omitempty"`
-	Error        string               `json:"error,omitempty"`
-	CreatedAt    time.Time            `json:"created_at"`
-	UpdatedAt    time.Time            `json:"updated_at"`
+	Error        string                 `json:"error,omitempty"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
 }
 
 // CampaignSummary — лёгкая сводка для списка истории (без strategy/deliverables/body).
