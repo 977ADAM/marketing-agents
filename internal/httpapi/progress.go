@@ -57,12 +57,13 @@ func (h *Hub) Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.S
 	snap := cloneSnapshot(r.snap)
 	r.subs[ch] = struct{}{}
 	r.mu.Unlock()
+	// cancel лишь разрегистрирует подписчика. Канал НЕ закрывается здесь:
+	// закрывать его вправе только отправитель (finish), иначе update() может
+	// словить панику "send on closed channel". Закрытый по cancel канал
+	// никем не читается (SSE-хендлер уже вышел) и будет собран GC.
 	cancel := func() {
 		r.mu.Lock()
-		if _, ok := r.subs[ch]; ok {
-			delete(r.subs, ch)
-			close(ch)
-		}
+		delete(r.subs, ch)
 		r.mu.Unlock()
 	}
 	return snap, ch, cancel

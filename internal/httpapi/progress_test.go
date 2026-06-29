@@ -87,3 +87,18 @@ func TestHubFinishClosesSubscribers(t *testing.T) {
 		t.Fatal("expected closed channel after finish")
 	}
 }
+
+func TestHubUpdateAfterCancelNoPanic(t *testing.T) {
+	hub := NewHub(context.Background(), newFakePS())
+	tr := hub.Tracker("c3")
+	_, _, cancel := hub.Subscribe("c3")
+
+	cancel() // подписчик ушёл
+
+	// отправитель продолжает слать снимки — не должно быть паники send-on-closed
+	tr.Strategizing()
+	tr.TopicsPlanned([]string{"T1"})
+	tr.TopicWriting(0)
+	tr.TopicDone(0, 90)
+	tr.Done()
+}
