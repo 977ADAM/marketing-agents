@@ -26,8 +26,9 @@ type Campaign struct {
 	Status       string               `json:"status"`
 	Brief        agents.Brief         `json:"brief"`
 	Strategy     *agents.Strategy     `json:"strategy,omitempty"`
-	Deliverables []agents.Deliverable `json:"deliverables,omitempty"`
-	CostUSD      *float64             `json:"cost_usd,omitempty"`
+	Deliverables []agents.Deliverable   `json:"deliverables,omitempty"`
+	Progress     *orchestrator.Snapshot `json:"progress,omitempty"`
+	CostUSD      *float64               `json:"cost_usd,omitempty"`
 	Error        string               `json:"error,omitempty"`
 	CreatedAt    time.Time            `json:"created_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
@@ -80,6 +81,14 @@ func (s *Store) Create(ctx context.Context, clientID string, b agents.Brief) (st
 func (s *Store) MarkRunning(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE campaigns SET status='running', updated_at=now() WHERE id=$1`, id)
+	return err
+}
+
+// SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
+func (s *Store) SaveProgress(ctx context.Context, id string, snap orchestrator.Snapshot) error {
+	b, _ := json.Marshal(snap)
+	_, err := s.pool.Exec(ctx,
+		`UPDATE campaigns SET progress=$2, updated_at=now() WHERE id=$1`, id, b)
 	return err
 }
 
@@ -156,13 +165,13 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]CampaignSummary, e
 // Get читает кампанию вместе с deliverables.
 func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
 	var c Campaign
-	var briefJSON, stratJSON []byte
+	var briefJSON, stratJSON, progressJSON []byte
 	var cost *float64
 	var errText *string
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, client_id, status, brief, strategy, cost_usd, error, created_at, updated_at
+		`SELECT id, client_id, status, brief, strategy, cost_usd, error, progress, created_at, updated_at
 		 FROM campaigns WHERE id=$1`, id).
-		Scan(&c.ID, &c.ClientID, &c.Status, &briefJSON, &stratJSON, &cost, &errText, &c.CreatedAt, &c.UpdatedAt)
+		Scan(&c.ID, &c.ClientID, &c.Status, &briefJSON, &stratJSON, &cost, &errText, &progressJSON, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -179,6 +188,12 @@ func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
 	c.CostUSD = cost
 	if errText != nil {
 		c.Error = *errText
+	}
+	if len(progressJSON) > 0 {
+		var snap orchestrator.Snapshot
+		if json.Unmarshal(progressJSON, &snap) == nil {
+			c.Progress = &snap
+		}
 	}
 
 	rows, err := s.pool.Query(ctx,

@@ -125,6 +125,49 @@ func TestListRecentLimit(t *testing.T) {
 	}
 }
 
+func TestProgressRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	id, err := s.Create(ctx, "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// до сохранения прогресса — nil
+	got, err := s.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Progress != nil {
+		t.Fatalf("Progress = %+v, want nil", got.Progress)
+	}
+
+	snap := orchestrator.Snapshot{
+		Phase:      orchestrator.PhaseProducing,
+		TopicTotal: 2,
+		TopicsDone: 1,
+		Percent:    50,
+		Topics: []orchestrator.TopicProgress{
+			{Index: 0, Title: "T1", State: orchestrator.TopicDone, Score: 88},
+			{Index: 1, Title: "T2", State: orchestrator.TopicWriting},
+		},
+	}
+	if err := s.SaveProgress(ctx, id, snap); err != nil {
+		t.Fatalf("SaveProgress: %v", err)
+	}
+
+	got, err = s.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Progress == nil || got.Progress.Percent != 50 || got.Progress.TopicsDone != 1 {
+		t.Fatalf("Progress = %+v", got.Progress)
+	}
+	if len(got.Progress.Topics) != 2 || got.Progress.Topics[0].Score != 88 {
+		t.Fatalf("topics = %+v", got.Progress.Topics)
+	}
+}
+
 func TestRecoverInterrupted(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
