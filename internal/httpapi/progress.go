@@ -38,6 +38,7 @@ type hubRun struct {
 	mu   sync.Mutex
 	snap orchestrator.Snapshot
 	subs map[chan orchestrator.Snapshot]struct{}
+	done bool
 }
 
 // Tracker регистрирует живой прогон и возвращает реализацию orchestrator.Progress.
@@ -60,8 +61,16 @@ func (h *Hub) Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.S
 		close(ch)
 		return h.snapshotFromStore(id), ch, func() {}
 	}
-	ch := make(chan orchestrator.Snapshot, 8)
 	r.mu.Lock()
+	if r.done {
+		// прогон завершился между чтением hub.runs и захватом r.mu —
+		// отдаём снимок из стора и закрытый канал (как для неживого run).
+		r.mu.Unlock()
+		closed := make(chan orchestrator.Snapshot)
+		close(closed)
+		return h.snapshotFromStore(id), closed, func() {}
+	}
+	ch := make(chan orchestrator.Snapshot, 8)
 	snap := cloneSnapshot(r.snap)
 	r.subs[ch] = struct{}{}
 	r.mu.Unlock()
@@ -176,6 +185,7 @@ func (t *tracker) Failed() { t.finish(orchestrator.PhaseFailed) }
 func (t *tracker) finish(ph orchestrator.Phase) {
 	t.update(func(s *orchestrator.Snapshot) { s.Phase = ph })
 	t.run.mu.Lock()
+	t.run.done = true
 	for c := range t.run.subs {
 		delete(t.run.subs, c)
 		close(c)
