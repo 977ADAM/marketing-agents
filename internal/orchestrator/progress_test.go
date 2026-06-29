@@ -13,6 +13,8 @@ func TestComputePercent(t *testing.T) {
 		{PhaseProducing, 1, 2, 52}, // 10 + 85*1/2 = 52 (округление вниз)
 		{PhaseProducing, 2, 2, 95},
 		{PhaseDone, 2, 2, 100},
+		{PhaseProducing, 0, 0, 10},  // total==0 guard returns pctPlanned
+		{PhaseFailed, 3, 5, 0},      // failed path returns 0 (caller ignores it)
 	}
 	for _, c := range cases {
 		if got := computePercent(c.ph, c.done, c.total); got != c.want {
