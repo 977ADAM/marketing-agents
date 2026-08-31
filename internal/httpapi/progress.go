@@ -8,10 +8,12 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
-// ProgressStore — то, что Hub'у нужно от стора.
+// ProgressStore — то, что Hub'у нужно от стора (для кампаний и проверок).
 type ProgressStore interface {
 	SaveProgress(ctx context.Context, id string, snap orchestrator.Snapshot) error
 	Get(ctx context.Context, id string) (*store.Campaign, error)
+	SaveReviewProgress(ctx context.Context, id string, snap orchestrator.Snapshot) error
+	GetReview(ctx context.Context, id string) (*store.Review, error)
 }
 
 // CampaignProgress — то, что runner получает от Hub: интерфейс прогресса
@@ -22,7 +24,16 @@ type CampaignProgress interface {
 	Failed()
 }
 
-// Hub держит живые прогоны и рассылает снимки прогресса подписчикам.
+// runKind — тип живого прогона: какой стор-объект персистим и читаем.
+type runKind int
+
+const (
+	kindCampaign runKind = iota
+	kindReview
+)
+
+// Hub держит живые прогоны (кампании и проверки текстов) и рассылает снимки
+// прогресса подписчикам.
 type Hub struct {
 	baseCtx context.Context
 	store   ProgressStore
@@ -36,30 +47,49 @@ func NewHub(baseCtx context.Context, st ProgressStore) *Hub {
 
 type hubRun struct {
 	mu   sync.Mutex
+	kind runKind
 	snap orchestrator.Snapshot
 	subs map[chan orchestrator.Snapshot]struct{}
 	done bool
 }
 
-// Tracker регистрирует живой прогон и возвращает реализацию orchestrator.Progress.
+// Tracker регистрирует живой прогон кампании и возвращает реализацию Progress.
 func (h *Hub) Tracker(id string) CampaignProgress {
-	r := &hubRun{subs: map[chan orchestrator.Snapshot]struct{}{}}
+	return h.newTracker(id, kindCampaign)
+}
+
+// ReviewTracker регистрирует живой прогон проверки текстов.
+func (h *Hub) ReviewTracker(id string) CampaignProgress {
+	return h.newTracker(id, kindReview)
+}
+
+func (h *Hub) newTracker(id string, kind runKind) CampaignProgress {
+	r := &hubRun{kind: kind, subs: map[chan orchestrator.Snapshot]struct{}{}}
 	h.mu.Lock()
 	h.runs[id] = r
 	h.mu.Unlock()
 	return &tracker{hub: h, id: id, run: r}
 }
 
-// Subscribe возвращает текущий снимок, канал будущих снимков и функцию отписки.
-// Если живого прогона нет (рестарт/завершён) — снимок берётся из стора, канал закрыт.
+// Subscribe возвращает текущий снимок, канал будущих снимков и функцию отписки
+// для кампании. Если живого прогона нет — снимок берётся из стора, канал закрыт.
 func (h *Hub) Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
+	return h.subscribe(id, kindCampaign)
+}
+
+// SubscribeReview — то же для проверки текстов.
+func (h *Hub) SubscribeReview(id string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
+	return h.subscribe(id, kindReview)
+}
+
+func (h *Hub) subscribe(id string, kind runKind) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
 	h.mu.Lock()
 	r, ok := h.runs[id]
 	h.mu.Unlock()
-	if !ok {
+	if !ok || r.kind != kind {
 		ch := make(chan orchestrator.Snapshot)
 		close(ch)
-		return h.snapshotFromStore(id), ch, func() {}
+		return h.snapshotFromStore(id, kind), ch, func() {}
 	}
 	r.mu.Lock()
 	if r.done {
@@ -68,7 +98,7 @@ func (h *Hub) Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.S
 		r.mu.Unlock()
 		closed := make(chan orchestrator.Snapshot)
 		close(closed)
-		return h.snapshotFromStore(id), closed, func() {}
+		return h.snapshotFromStore(id, kind), closed, func() {}
 	}
 	ch := make(chan orchestrator.Snapshot, 8)
 	snap := cloneSnapshot(r.snap)
@@ -86,7 +116,17 @@ func (h *Hub) Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.S
 	return snap, ch, cancel
 }
 
-func (h *Hub) snapshotFromStore(id string) orchestrator.Snapshot {
+func (h *Hub) snapshotFromStore(id string, kind runKind) orchestrator.Snapshot {
+	if kind == kindReview {
+		r, err := h.store.GetReview(h.baseCtx, id)
+		if err == nil && r != nil && r.Progress != nil {
+			return *r.Progress
+		}
+		if r != nil && r.Status == "done" {
+			return orchestrator.Snapshot{Phase: orchestrator.PhaseDone, Percent: 100}
+		}
+		return orchestrator.Snapshot{Phase: orchestrator.PhaseFailed}
+	}
 	c, err := h.store.Get(h.baseCtx, id)
 	if err == nil && c != nil && c.Progress != nil {
 		return *c.Progress
@@ -124,7 +164,12 @@ func (t *tracker) update(fn func(s *orchestrator.Snapshot)) {
 	}
 	t.run.mu.Unlock()
 
-	_ = t.hub.store.SaveProgress(t.hub.baseCtx, t.id, snap)
+	switch t.run.kind {
+	case kindReview:
+		_ = t.hub.store.SaveReviewProgress(t.hub.baseCtx, t.id, snap)
+	default:
+		_ = t.hub.store.SaveProgress(t.hub.baseCtx, t.id, snap)
+	}
 	for _, c := range subs {
 		select {
 		case c <- snap:

@@ -66,3 +66,35 @@ func (r *BackgroundRunner) Drain() {
 		r.wg <- struct{}{}
 	}
 }
+
+// StartReview запускает фоновую проверку готовых текстов (агенты review).
+func (r *BackgroundRunner) StartReview(id string, req orchestrator.ReviewRequest) {
+	r.wg <- struct{}{}
+	go func() {
+		defer func() { <-r.wg }()
+		ctx, cancel := context.WithTimeout(r.baseCtx, r.runTimeout)
+		defer cancel()
+
+		tr := r.hub.ReviewTracker(id)
+		if err := r.store.MarkReviewRunning(ctx, id); err != nil {
+			r.logger.Error("mark review running", "id", id, "err", err)
+			tr.Failed()
+			return
+		}
+		res, err := r.orch.Review(ctx, req, tr)
+		if err != nil {
+			r.logger.Error("review failed", "id", id, "err", err)
+			_ = r.store.FailReview(context.WithoutCancel(ctx), id, err.Error())
+			tr.Failed()
+			return
+		}
+		if err := r.store.CompleteReview(context.WithoutCancel(ctx), id, res); err != nil {
+			r.logger.Error("review complete", "id", id, "err", err)
+			_ = r.store.FailReview(context.WithoutCancel(ctx), id, "complete: "+err.Error())
+			tr.Failed()
+			return
+		}
+		tr.Done()
+		r.logger.Info("review done", "id", id, "texts", len(res.Items), "cost_usd", res.CostUSD)
+	}()
+}

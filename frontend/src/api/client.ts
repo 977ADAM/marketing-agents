@@ -46,12 +46,72 @@ export interface CampaignSummary {
   created_at: string
 }
 
+// --- Проверка готовых текстов ---
+
+export interface ReviewText {
+  title: string
+  body: string
+}
+
+export interface ReviewRequest {
+  brief: string
+  texts: ReviewText[]
+}
+
+export interface CheckScore {
+  score: number
+  issues?: string[]
+}
+
+export interface TextReport {
+  title: string
+  compliance: CheckScore
+  quality: CheckScore
+  overall: number
+  verdict: 'pass' | 'fix'
+}
+
+export interface ReviewResult {
+  items: TextReport[]
+  cost_usd: number
+}
+
+export interface ReviewRun {
+  id: string
+  client_id: string
+  status: Status
+  brief_text: string
+  result?: ReviewResult
+  progress?: Snapshot
+  cost_usd?: number
+  error?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ReviewRunSummary {
+  id: string
+  status: Status
+  brief_text: string
+  cost_usd?: number
+  created_at: string
+}
+
+export interface ExtractedDoc {
+  title: string
+  text: string
+}
+
 // Базовый префикс API повторяет base сборки (import.meta.env.BASE_URL уже
 // оканчивается на '/'): standalone → '/api', под interpool → '/marketing/api'.
 const API = `${import.meta.env.BASE_URL}api`
 
 export function eventsUrl(id: string): string {
   return `${API}/campaigns/${id}/events`
+}
+
+export function reviewEventsUrl(id: string): string {
+  return `${API}/reviews/${id}/events`
 }
 
 export class ApiError extends Error {
@@ -96,4 +156,29 @@ export async function getCampaign(id: string): Promise<Campaign> {
 
 export async function listCampaigns(): Promise<CampaignSummary[]> {
   return handle(await fetch(`${API}/campaigns`))
+}
+
+export async function createReview(req: ReviewRequest): Promise<{ id: string; status: Status }> {
+  const res = await fetch(`${API}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  return handle(res)
+}
+
+export async function getReview(id: string): Promise<ReviewRun> {
+  return handle(await fetch(`${API}/reviews/${id}`))
+}
+
+export async function listReviews(): Promise<ReviewRunSummary[]> {
+  return handle(await fetch(`${API}/reviews`))
+}
+
+// extractDocx загружает .docx на сервер и возвращает извлечённый текст.
+export async function extractDocx(file: File): Promise<ExtractedDoc> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${API}/reviews/extract`, { method: 'POST', body: form })
+  return handle(res)
 }

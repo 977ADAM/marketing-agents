@@ -21,18 +21,34 @@ function topicSuffix(state: TopicState, iter?: number, score?: number): string {
   return ''
 }
 
-export function ProgressPanel({ product, snapshot }: { product: string; snapshot: Snapshot | null }) {
+// ProgressPanel — общий прогресс прогона. Для проверки текстов можно переопределить
+// подписи фаз/состояний (phaseLabels/topicLabels) и отключить итерации (showIter=false).
+export function ProgressPanel({
+  product,
+  snapshot,
+  phaseLabels,
+  topicLabels,
+  showIter = true,
+}: {
+  product: string
+  snapshot: Snapshot | null
+  phaseLabels?: Partial<Record<Phase, string>>
+  topicLabels?: Partial<Record<TopicState, string>>
+  showIter?: boolean
+}) {
+  const phase = (ph: Phase) => phaseLabels?.[ph] ?? PHASE_LABEL[ph]
+  const topic = (st: TopicState) => topicLabels?.[st] ?? TOPIC_LABEL[st]
   return (
     <div className="progress">
       <h2>{product}</h2>
-      <p>{snapshot ? PHASE_LABEL[snapshot.phase] : 'Подключение…'}</p>
+      <p>{snapshot ? phase(snapshot.phase) : 'Подключение…'}</p>
       <div
         className="bar"
         role="progressbar"
         aria-valuenow={snapshot?.percent ?? 0}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label="Прогресс генерации"
+        aria-label="Прогресс прогона"
       >
         <div className="bar-fill" style={{ width: `${snapshot?.percent ?? 0}%` }} />
       </div>
@@ -41,8 +57,8 @@ export function ProgressPanel({ product, snapshot }: { product: string; snapshot
           <li key={t.index} className={`topic topic-${t.state}`}>
             <span className="topic-title">{t.title}</span>
             <span className="topic-state">
-              {TOPIC_LABEL[t.state]}
-              {topicSuffix(t.state, t.iter, t.score)}
+              {topic(t.state)}
+              {showIter && topicSuffix(t.state, t.iter, t.score)}
             </span>
           </li>
         ))}

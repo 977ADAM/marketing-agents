@@ -11,13 +11,20 @@ import (
 
 // fakeProgressStore — стор в памяти для тестов Hub.
 type fakeProgressStore struct {
-	mu    sync.Mutex
-	saved map[string]orchestrator.Snapshot
-	camps map[string]*store.Campaign
+	mu      sync.Mutex
+	saved   map[string]orchestrator.Snapshot
+	savedRV map[string]orchestrator.Snapshot
+	camps   map[string]*store.Campaign
+	revs    map[string]*store.Review
 }
 
 func newFakePS() *fakeProgressStore {
-	return &fakeProgressStore{saved: map[string]orchestrator.Snapshot{}, camps: map[string]*store.Campaign{}}
+	return &fakeProgressStore{
+		saved:   map[string]orchestrator.Snapshot{},
+		savedRV: map[string]orchestrator.Snapshot{},
+		camps:   map[string]*store.Campaign{},
+		revs:    map[string]*store.Review{},
+	}
 }
 func (f *fakeProgressStore) SaveProgress(_ context.Context, id string, s orchestrator.Snapshot) error {
 	f.mu.Lock()
@@ -33,6 +40,21 @@ func (f *fakeProgressStore) Get(_ context.Context, id string) (*store.Campaign, 
 		return nil, store.ErrNotFound
 	}
 	return c, nil
+}
+func (f *fakeProgressStore) SaveReviewProgress(_ context.Context, id string, s orchestrator.Snapshot) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.savedRV[id] = s
+	return nil
+}
+func (f *fakeProgressStore) GetReview(_ context.Context, id string) (*store.Review, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r, ok := f.revs[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return r, nil
 }
 
 func TestHubLiveSubscriber(t *testing.T) {

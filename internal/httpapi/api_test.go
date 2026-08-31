@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +25,7 @@ type mockRepo struct {
 	mu        sync.Mutex
 	created   string
 	campaigns map[string]*store.Campaign
+	reviews   map[string]*store.Review
 }
 
 func (m *mockRepo) Create(_ context.Context, _ string, b agents.Brief) (string, error) {
@@ -57,12 +60,41 @@ func (m *mockRepo) ListRecent(_ context.Context, limit int) ([]store.CampaignSum
 	}
 	return out, nil
 }
+func (m *mockRepo) CreateReview(_ context.Context, _, briefText string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id := "rev-1"
+	m.reviews = map[string]*store.Review{id: {ID: id, Status: "pending", BriefText: briefText}}
+	return id, nil
+}
+func (m *mockRepo) GetReview(_ context.Context, id string) (*store.Review, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.reviews[id]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	return r, nil
+}
+func (m *mockRepo) ListReviews(_ context.Context, limit int) ([]store.ReviewSummary, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]store.ReviewSummary, 0, len(m.reviews))
+	for _, r := range m.reviews {
+		out = append(out, store.ReviewSummary{ID: r.ID, Status: r.Status, BriefText: r.BriefText})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
 
 type mockRunner struct {
 	called chan string
 }
 
 func (r *mockRunner) Start(id string, _ agents.Brief) { r.called <- id }
+func (r *mockRunner) StartReview(id string, _ orchestrator.ReviewRequest) { r.called <- id }
 
 // errRepo возвращает ошибку на всех операциях — для проверки 500-веток.
 type errRepo struct{}
@@ -74,6 +106,15 @@ func (errRepo) Get(context.Context, string) (*store.Campaign, error) {
 	return nil, errors.New("boom")
 }
 func (errRepo) ListRecent(context.Context, int) ([]store.CampaignSummary, error) {
+	return nil, errors.New("boom")
+}
+func (errRepo) CreateReview(context.Context, string, string) (string, error) {
+	return "", errors.New("boom")
+}
+func (errRepo) GetReview(context.Context, string) (*store.Review, error) {
+	return nil, errors.New("boom")
+}
+func (errRepo) ListReviews(context.Context, int) ([]store.ReviewSummary, error) {
 	return nil, errors.New("boom")
 }
 
@@ -271,6 +312,9 @@ type fakeSub struct {
 func (f *fakeSub) Subscribe(string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
 	return f.snap, f.ch, func() {}
 }
+func (f *fakeSub) SubscribeReview(string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
+	return f.snap, f.ch, func() {}
+}
 
 func TestCampaignEventsNotFound(t *testing.T) {
 	repo := &mockRepo{}
@@ -338,5 +382,177 @@ func TestCampaignEventsInternalError(t *testing.T) {
 	api.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("code = %d, want 500", w.Code)
+	}
+}
+
+func TestPostReviewCreatesAndStartsRunner(t *testing.T) {
+	repo := &mockRepo{}
+	runner := &mockRunner{called: make(chan string, 1)}
+	api := New(repo, runner, nil, 1000)
+
+	body := `{"brief":"бриф","texts":[{"title":"T1","body":"текст"}]}`
+	req := httptest.NewRequest("POST", "/api/reviews", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("code = %d, want 202", rec.Code)
+	}
+	var resp struct{ ID, Status string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+	if resp.ID != "rev-1" || resp.Status != "pending" {
+		t.Errorf("resp = %+v", resp)
+	}
+	select {
+	case got := <-runner.called:
+		if got != "rev-1" {
+			t.Errorf("runner started for %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner not started")
+	}
+}
+
+func TestPostReviewValidates(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	cases := []string{
+		`{"texts":[{"title":"T","body":"b"}]}`,                    // нет брифа
+		`{"brief":"б"}`,                                           // нет текстов
+		`{"brief":"б","texts":[{"title":"T","body":"  "}]}`,       // пустое тело
+	}
+	for _, body := range cases {
+		req := httptest.NewRequest("POST", "/api/reviews", bytes.NewBufferString(body))
+		rec := httptest.NewRecorder()
+		api.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %s: code = %d, want 400", body, rec.Code)
+		}
+	}
+}
+
+func TestGetReviewNotFound(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	req := httptest.NewRequest("GET", "/api/reviews/missing", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", rec.Code)
+	}
+}
+
+func TestReviewEventsNotFound(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)},
+		&fakeSub{ch: make(chan orchestrator.Snapshot)}, 1000)
+	req := httptest.NewRequest("GET", "/api/reviews/nope/events", nil)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("code = %d, want 404", rec.Code)
+	}
+}
+
+// minimalDocx собирает .docx с двумя абзацами в памяти.
+func minimalDocx(t *testing.T, paras ...string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc strings.Builder
+	doc.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>`)
+	for _, p := range paras {
+		doc.WriteString("<w:p><w:r><w:t>" + p + "</w:t></w:r></w:p>")
+	}
+	doc.WriteString(`</w:body></w:document>`)
+	if _, err := w.Write([]byte(doc.String())); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestExtractDocxEndpoint(t *testing.T) {
+	data := minimalDocx(t, "Как выбрать шины", "Первый абзац текста.", "Второй абзац.")
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("file", "article.docx")
+	_, _ = fw.Write(data)
+	_ = mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/reviews/extract", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out extractResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Title != "Как выбрать шины" {
+		t.Errorf("title = %q", out.Title)
+	}
+	if out.Text != "Как выбрать шины\nПервый абзац текста.\nВторой абзац." {
+		t.Errorf("text = %q", out.Text)
+	}
+}
+
+func TestExtractDocxBadFile(t *testing.T) {
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("file", "not.docx")
+	_, _ = fw.Write([]byte("not a zip"))
+	_ = mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/reviews/extract", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code = %d, want 400", rec.Code)
+	}
+}
+
+// docx с таблицей: текст внутри w:tbl/w:tr/w:tc тоже должен извлекаться.
+func TestExtractDocxTable(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.Create("word/document.xml")
+	doc := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
+		`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` +
+		`<w:p><w:r><w:t>Заголовок</w:t></w:r></w:p>` +
+		`<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Бренд</w:t></w:r></w:p></w:tc>` +
+		`<w:tc><w:p><w:r><w:t>Колесо.ру</w:t></w:r></w:p></w:tc></w:tr></w:tbl>` +
+		`</w:body></w:document>`
+	_, _ = w.Write([]byte(doc))
+	_ = zw.Close()
+
+	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("file", "brief.docx")
+	_, _ = fw.Write(buf.Bytes())
+	_ = mw.Close()
+
+	req := httptest.NewRequest("POST", "/api/reviews/extract", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var out extractResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	want := "Заголовок\nБренд\nКолесо.ру"
+	if out.Text != want {
+		t.Errorf("text = %q, want %q", out.Text, want)
 	}
 }

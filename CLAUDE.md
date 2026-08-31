@@ -1,7 +1,10 @@
 # marketing-agents
 
-Мультиагентный сервис генерации маркетинговых статей на **Go + DeepSeek**.
-Пайплайн: `бриф → стратег → копирайтеры (параллельно по темам) → критик → пакет статей`.
+Мультиагентный сервис маркетингового контента на **Go + DeepSeek**.
+Два пайплайна:
+- генерация: `бриф → стратег → копирайтеры (параллельно по темам) → критик → пакет статей`;
+- проверка готовых текстов: `бриф + тексты → compliance-агент (соответствие брифу) +
+  quality-агент (корректность текста) → отчёт {compliance, quality, overall, verdict}`.
 Веб-интерфейс (React SPA) встроен в один бинарь через `go:embed`.
 
 ## Архитектура
@@ -10,17 +13,23 @@
 - `cmd/server/main.go` — точка входа: загрузка конфига, пул pgx, миграции,
   `RecoverInterrupted`, сборка LLM-клиента/оркестратора/runner, роутинг, graceful shutdown.
 - `internal/config` — все настройки из env (`Load()`); `DATABASE_URL` и `DEEPSEEK_API_KEY` обязательны.
-- `internal/agents` — роли `strategist`, `copywriter`, `critic` + общие `types`.
-- `internal/orchestrator` — оркестрация пайплайна (итерации критика, кап тем, подсчёт стоимости).
+- `internal/agents` — роли `strategist`, `copywriter`, `critic` (генерация) +
+  `compliance`, `quality` (проверка текстов, см. `reviewer.go`) + общие `types`.
+- `internal/orchestrator` — `Run` (пайплайн генерации, итерации критика, кап тем) и
+  `Review` (параллельная проверка текстов двумя агентами); подсчёт стоимости.
 - `internal/llm` — openai-совместимый клиент под DeepSeek (`openai.go`), ретраи; `fake.go` для тестов.
   Модели разносятся по ролям через `SetRoleModel`.
-- `internal/httpapi` — REST (`api.go`), basic-auth (`auth.go`), фоновый `runner.go`, `errors.go`.
-- `internal/store` — Postgres через pgx; миграции в `store/migrations/*.sql`; `RecoverInterrupted`
-  помечает осиротевшие `running`-кампании как `failed` при старте.
+- `internal/httpapi` — REST (`api.go` + `reviews.go`), basic-auth (`auth.go`), фоновый `runner.go`
+  (`Start`/`StartReview`), `progress.go` — Hub для кампаний и проверок (kind), разбор `.docx`
+  в `reviews.go` (stdlib zip+xml, включая таблицы).
+- `internal/store` — Postgres через pgx; миграции в `store/migrations/*.sql`;
+  таблицы `campaigns`+`deliverables` и `reviews` (миграция 0003); `RecoverInterrupted`
+  помечает осиротевшие `running`-записи обоих типов как `failed` при старте.
 - `internal/web` — `go:embed` фронта из `internal/web/dist`.
 
 **Frontend (Vite + React + TS):** в `frontend/src` — форма брифа (`NewCampaign`),
-наблюдение за прогоном через polling (`useCampaign`/`CampaignView`), история (`Sidebar`/`useCampaigns`).
+проверка текстов (`ReviewForm` с загрузкой .docx), наблюдение за прогонами через polling/SSE
+(`useCampaignProgress`/`useReviewProgress`), история (`Sidebar`/`useCampaigns`/`useReviews`).
 Сборка пишет в `internal/web/dist`.
 
 ## Роутинг и доступ
@@ -32,6 +41,11 @@
 - `POST /api/campaigns` — `{product, goal, audience, tone, client_id?}` → `202 {id, status}`
 - `GET /api/campaigns/{id}` — статус и результат (когда `done`)
 - `GET /api/campaigns` — список всех кампаний
+- `POST /api/reviews` — `{brief, texts: [{title, body}], client_id?}` → `202 {id, status}`
+- `GET /api/reviews/{id}` — статус и отчёт (`items[]`: compliance/quality/overall/verdict)
+- `GET /api/reviews/{id}/events` — SSE-прогресс проверки
+- `GET /api/reviews` — список проверок
+- `POST /api/reviews/extract` — multipart `file` (.docx) → `{title, text}`
 - `GET /healthz`
 
 ## Команды

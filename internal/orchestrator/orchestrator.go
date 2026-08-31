@@ -27,6 +27,7 @@ type Result struct {
 }
 
 type Orchestrator struct {
+	llm        llm.Client
 	strategist *agents.Strategist
 	copywriter *agents.Copywriter
 	critic     *agents.Critic
@@ -35,6 +36,7 @@ type Orchestrator struct {
 
 func New(c llm.Client, opt Options) *Orchestrator {
 	return &Orchestrator{
+		llm:        c,
 		strategist: agents.NewStrategist(c),
 		copywriter: agents.NewCopywriter(c),
 		critic:     agents.NewCritic(c),
