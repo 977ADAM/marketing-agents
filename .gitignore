@@ -8,3 +8,5 @@
 
 /internal/web/dist/assets/
 /frontend/node_modules/
+
+.DS_Store
