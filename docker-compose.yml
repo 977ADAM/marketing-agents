@@ -5,6 +5,9 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: marketing
+    volumes:
+      # именованный volume: данные БД переживают docker compose down/up
+      - pgdata:/var/lib/postgresql/data
     ports:
       # только localhost: БД не должна торчать в интернет (dev-compose)
       - "127.0.0.1:5432:5432"
@@ -25,3 +28,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+volumes:
+  pgdata:
