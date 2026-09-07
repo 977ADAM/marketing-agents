@@ -8,3 +8,4 @@ internal/web/dist
 !.env.example
 README.md
 docs
+*.docx
