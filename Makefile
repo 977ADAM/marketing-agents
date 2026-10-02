@@ -113,13 +113,12 @@ docker-build:
 up:
 	docker compose up -d --build
 
-## docker-down: остановить и удалить контейнеры стека
-docker-down:
-	$(COMPOSE) down
+down:
+	docker compose down
 
-## docker-logs: смотреть логи стека
-docker-logs:
-	$(COMPOSE) logs -f
+
+logs:
+	docker compose logs -f
 
 ## docker-ps: состояние сервисов стека
 docker-ps:
