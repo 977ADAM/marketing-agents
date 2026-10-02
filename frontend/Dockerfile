@@ -17,7 +17,12 @@ RUN npm run build
 # 2) рантайм: adapter-node кладёт всё нужное в build/ (зависимости вкомпилированы)
 FROM node:22-alpine
 WORKDIR /app
+# HOST=0.0.0.0 (дефолт adapter-node) обязателен внутри контейнера: с loopback
+# проброс порта не заработает. Наружу сервис не выставлен — docker-compose
+# публикует его только на 127.0.0.1:8080. Для локального запуска без Docker
+# используйте `npm start` (он слушает 127.0.0.1).
 ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
     PORT=8080
 COPY --from=build /app/build ./build
 COPY --from=build /app/package.json ./package.json

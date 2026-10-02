@@ -36,6 +36,14 @@ type Config struct {
 // DefaultSQLitePath — путь к файлу БД по умолчанию (относительно рабочего каталога).
 const DefaultSQLitePath = "data/marketing.db"
 
+// DefaultHTTPAddr — адрес прослушивания по умолчанию: только loopback, чтобы
+// локальный запуск не торчал в сеть (у API по умолчанию выключен basic-auth).
+// В docker-compose переменная переопределяется на ":8080": внутри контейнера
+// слушать нужно все интерфейсы, иначе фронт не достучится до бэкенда по
+// внутренней сети, а проброс порта не заработает. Наружу контейнер при этом
+// не выставлен — порт публикуется только на 127.0.0.1 (см. docker-compose.yml).
+const DefaultHTTPAddr = "127.0.0.1:8080"
+
 // Load читает env, подставляет дефолты и валидирует обязательные поля.
 func Load() (*Config, error) {
 	dbPath, err := sqlitePath()
@@ -43,7 +51,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg := &Config{
-		HTTPAddr:             getStr("HTTP_ADDR", ":8080"),
+		HTTPAddr:             getStr("HTTP_ADDR", DefaultHTTPAddr),
 		SQLitePath:           dbPath,
 		APIKey:               getStr("DEEPSEEK_API_KEY", ""),
 		BaseURL:              getStr("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),

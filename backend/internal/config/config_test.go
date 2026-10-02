@@ -94,3 +94,34 @@ func TestBasicAuthDefaults(t *testing.T) {
 		t.Errorf("auth defaults should be empty, got %q/%q", cfg.BasicAuthUser, cfg.BasicAuthPass)
 	}
 }
+
+// По умолчанию API слушает только loopback: локальный запуск не должен быть
+// доступен из сети (basic-auth по умолчанию выключен).
+func TestLoadDefaultHTTPAddrIsLoopback(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPAddr != "127.0.0.1:8080" {
+		t.Errorf("HTTPAddr = %q, want loopback 127.0.0.1:8080", cfg.HTTPAddr)
+	}
+}
+
+// docker-compose переопределяет адрес на ":8080" — внутри контейнера нужно
+// слушать все интерфейсы, иначе фронт не достучится до API.
+func TestLoadHTTPAddrOverride(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+	os.Setenv("HTTP_ADDR", ":8080")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPAddr != ":8080" {
+		t.Errorf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
+	}
+}
