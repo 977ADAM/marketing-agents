@@ -7,6 +7,12 @@ type Brief struct {
 	Goal     string `json:"goal"`
 	Audience string `json:"audience"`
 	Tone     string `json:"tone"`
+	// Region — geo ID Яндекса для подбора тем: 225 — Россия, 1 — Москва и
+	// область, 213 — Москва. Пусто — регион по умолчанию из конфига.
+	Region string `json:"region,omitempty"`
+	// TopicsCount — сколько статей нужно по медиаплану. Идей предлагаем вдвое
+	// больше (см. TOPICS_MULTIPLIER), в генерацию уходят лучшие.
+	TopicsCount int `json:"topics_count,omitempty"`
 }
 
 // Topic — тема статьи, выданная стратегом.

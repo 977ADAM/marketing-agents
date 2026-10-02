@@ -23,6 +23,11 @@ type Fake struct {
 	Err error
 
 	calls []string
+	// TopParamsLog — параметры запросов спроса: тесты проверяют, что регион и
+	// число фраз действительно уходят в источник.
+	TopParamsLog []TopParams
+	// DynamicsParamsLog — параметры запросов сезонности.
+	DynamicsParamsLog []DynamicsParams
 }
 
 // NewFake создаёт подмену с пустым журналом.
@@ -42,6 +47,7 @@ func (f *Fake) TopRequests(_ context.Context, p TopParams) (*Top, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "top_requests:"+p.Phrase)
+	f.TopParamsLog = append(f.TopParamsLog, p)
 	if f.Err != nil {
 		return nil, f.Err
 	}
@@ -59,6 +65,7 @@ func (f *Fake) Dynamics(_ context.Context, p DynamicsParams) (*Dynamics, error) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "dynamics:"+p.Phrase)
+	f.DynamicsParamsLog = append(f.DynamicsParamsLog, p)
 	if f.Err != nil {
 		return nil, f.Err
 	}

@@ -9,12 +9,15 @@ func TestComputePercent(t *testing.T) {
 		want        int
 	}{
 		{PhaseStrategizing, 0, 0, 5},
+		{PhaseResearching, 0, 0, 5},  // сеялок ещё нет
+		{PhaseResearching, 1, 2, 7},  // 5 + 5*1/2 — сбор спроса идёт
+		{PhaseResearching, 2, 2, 10}, // сбор спроса закончен
 		{PhaseProducing, 0, 2, 10},
 		{PhaseProducing, 1, 2, 52}, // 10 + 85*1/2 = 52 (округление вниз)
 		{PhaseProducing, 2, 2, 95},
 		{PhaseDone, 2, 2, 100},
-		{PhaseProducing, 0, 0, 10},  // total==0 guard returns pctPlanned
-		{PhaseFailed, 3, 5, 0},      // failed path returns 0 (caller ignores it)
+		{PhaseProducing, 0, 0, 10}, // total==0 guard returns pctPlanned
+		{PhaseFailed, 3, 5, 0},     // failed path returns 0 (caller ignores it)
 	}
 	for _, c := range cases {
 		if got := computePercent(c.ph, c.done, c.total); got != c.want {
@@ -31,4 +34,13 @@ func TestNopProgressDoesNotPanic(t *testing.T) {
 	p.TopicReviewing(0, 1)
 	p.TopicRevising(0, 1)
 	p.TopicDone(0, 90)
+
+	// Заглушка реализует и необязательную часть прогресса — подбор тем.
+	rp, ok := p.(ResearchProgress)
+	if !ok {
+		t.Fatal("NopProgress должен реализовывать ResearchProgress")
+	}
+	rp.Researching(StageSeeds)
+	rp.ResearchSeeds([]string{"a"})
+	rp.ResearchSeedDone(0)
 }

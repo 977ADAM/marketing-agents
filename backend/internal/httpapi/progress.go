@@ -18,8 +18,10 @@ type ProgressStore interface {
 
 // CampaignProgress — то, что runner получает от Hub: интерфейс прогресса
 // (для передачи в orchestrator.Run) плюс терминальные методы Done/Failed.
+// Включает и подбор тем: трекер умеет показывать этап researching.
 type CampaignProgress interface {
 	orchestrator.Progress
+	orchestrator.ResearchProgress
 	Done()
 	Failed()
 }
@@ -192,11 +194,48 @@ func (t *tracker) Strategizing() {
 func (t *tracker) TopicsPlanned(titles []string) {
 	t.update(func(s *orchestrator.Snapshot) {
 		s.Phase = orchestrator.PhaseProducing
+		s.Stage = ""
 		s.TopicTotal = len(titles)
+		// Подбор тем мог успеть отметить сеялки готовыми — счётчик начинаем заново,
+		// иначе процент генерации поедет вверх с запасом.
+		s.TopicsDone = 0
 		s.Topics = make([]orchestrator.TopicProgress, len(titles))
 		for i, ti := range titles {
 			s.Topics[i] = orchestrator.TopicProgress{Index: i, Title: ti, State: orchestrator.TopicPending}
 		}
+	})
+}
+
+// --- подбор тем по спросу (необязательная часть прогресса) ---
+
+// Researching объявляет текущий подэтап подбора тем.
+func (t *tracker) Researching(stage orchestrator.ResearchStage) {
+	t.update(func(s *orchestrator.Snapshot) {
+		s.Phase = orchestrator.PhaseResearching
+		s.Stage = string(stage)
+	})
+}
+
+// ResearchSeeds объявляет сеялки единицами работы: по каждой придёт SeedDone.
+func (t *tracker) ResearchSeeds(seeds []string) {
+	t.update(func(s *orchestrator.Snapshot) {
+		s.Phase = orchestrator.PhaseResearching
+		s.TopicTotal = len(seeds)
+		s.TopicsDone = 0
+		s.Topics = make([]orchestrator.TopicProgress, len(seeds))
+		for i, seed := range seeds {
+			s.Topics[i] = orchestrator.TopicProgress{Index: i, Title: seed, State: orchestrator.TopicPending}
+		}
+	})
+}
+
+// ResearchSeedDone отмечает, что спрос по сеялке собран.
+func (t *tracker) ResearchSeedDone(i int) {
+	t.update(func(s *orchestrator.Snapshot) {
+		if i >= 0 && i < len(s.Topics) {
+			s.Topics[i].State = orchestrator.TopicDone
+		}
+		s.TopicsDone++
 	})
 }
 func (t *tracker) TopicWriting(i int) {

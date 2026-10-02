@@ -5,9 +5,24 @@ type Phase string
 
 const (
 	PhaseStrategizing Phase = "strategizing"
+	PhaseResearching  Phase = "researching"
 	PhaseProducing    Phase = "producing"
 	PhaseDone         Phase = "done"
 	PhaseFailed       Phase = "failed"
+)
+
+// ResearchStage — подэтап подбора тем по поисковому спросу.
+type ResearchStage string
+
+const (
+	// StageSeeds — модель предлагает сеялки по брифу.
+	StageSeeds ResearchStage = "seeds"
+	// StageFetching — сбор спроса по сеялкам в Wordstat.
+	StageFetching ResearchStage = "fetching"
+	// StageClustering — группировка собранных фраз в темы.
+	StageClustering ResearchStage = "clustering"
+	// StageSelecting — отбор лучших тем и сезонная поправка.
+	StageSelecting ResearchStage = "selecting"
 )
 
 // TopicState — состояние работы над одной темой.
@@ -37,6 +52,8 @@ type Snapshot struct {
 	TopicTotal int             `json:"topic_total"`
 	TopicsDone int             `json:"topics_done"`
 	Percent    int             `json:"percent"`
+	// Stage — подэтап фазы researching (seeds, fetching, clustering, selecting).
+	Stage string `json:"stage,omitempty"`
 }
 
 // Progress — оркестратор «объявляет», что делает. Реализация concurrency-safe
@@ -51,6 +68,19 @@ type Progress interface {
 	TopicDone(i, score int)
 }
 
+// ResearchProgress — необязательная часть прогресса: события подбора тем.
+// Реализации, которым нечего показывать (заглушки, простые recorder'ы в тестах),
+// могут её не реализовывать — оркестратор просто не будет их пушить.
+type ResearchProgress interface {
+	// Researching объявляет текущий подэтап подбора.
+	Researching(stage ResearchStage)
+	// ResearchSeeds объявляет сеялки как единицы работы: дальше по каждой
+	// приходит ResearchSeedDone.
+	ResearchSeeds(seeds []string)
+	// ResearchSeedDone отмечает, что спрос по сеялке собран.
+	ResearchSeedDone(i int)
+}
+
 // NopProgress — заглушка по умолчанию (для тестов и nil-вызовов).
 type NopProgress struct{}
 
@@ -60,6 +90,11 @@ func (NopProgress) TopicWriting(int)        {}
 func (NopProgress) TopicReviewing(int, int) {}
 func (NopProgress) TopicRevising(int, int)  {}
 func (NopProgress) TopicDone(int, int)      {}
+
+// NopProgress реализует и ResearchProgress — чтобы заглушка была полной.
+func (NopProgress) Researching(ResearchStage) {}
+func (NopProgress) ResearchSeeds([]string)    {}
+func (NopProgress) ResearchSeedDone(int)      {}
 
 // Доли прогресс-бара (настраиваемые).
 const (
@@ -77,6 +112,12 @@ func computePercent(ph Phase, done, total int) int {
 	switch ph {
 	case PhaseStrategizing:
 		return pctStrategizing
+	case PhaseResearching:
+		// Диапазон стратегии: 5% на старте и до 10% по мере сбора спроса.
+		if total == 0 {
+			return pctStrategizing
+		}
+		return pctStrategizing + (pctPlanned-pctStrategizing)*done/total
 	case PhaseProducing:
 		if total == 0 {
 			return pctPlanned

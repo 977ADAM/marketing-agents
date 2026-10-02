@@ -8,6 +8,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/wordstat"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -17,6 +18,26 @@ type Options struct {
 	CostPer1KPrompt     float64
 	CostPer1KCompletion float64
 	MaxTopics           int // 0 = без ограничения; иначе кап на число тем (контроль стоимости/конкуррентности)
+
+	// Wordstat — источник спроса на темы. nil (или nil Semanticist) означает,
+	// что подбор тем выключен: темы даёт стратег, как до появления Wordstat.
+	Wordstat wordstat.Source
+	// Semanticist — агент подбора тем: сеялки, кластеризация, fallback.
+	Semanticist *agents.Semanticist
+	// Select — правила отбора тем (порог объёма, множитель сезонности).
+	Select SelectOptions
+	// TopicsMultiplier — во сколько раз больше тем предлагать, чем нужно статей.
+	TopicsMultiplier int
+	// SeedCount — сколько сеялок просить у модели (0 — дефолт).
+	SeedCount int
+	// NumPhrases — сколько фраз запрашивать у Wordstat на сеялку (0 — дефолт 50).
+	NumPhrases int
+	// MaxWordstatCalls — лимит обращений к Wordstat на прогон (0 — дефолт 60).
+	MaxWordstatCalls int
+	// MaxPhrases — сколько фраз отдавать модели на кластеризацию (0 — дефолт 40).
+	MaxPhrases int
+	// DefaultRegion — geo ID региона, если бриф его не задал.
+	DefaultRegion string
 }
 
 // Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость.
@@ -27,21 +48,32 @@ type Result struct {
 }
 
 type Orchestrator struct {
-	llm        llm.Client
-	strategist *agents.Strategist
-	copywriter *agents.Copywriter
-	critic     *agents.Critic
-	opt        Options
+	llm         llm.Client
+	strategist  *agents.Strategist
+	copywriter  *agents.Copywriter
+	critic      *agents.Critic
+	semanticist *agents.Semanticist
+	opt         Options
 }
 
 func New(c llm.Client, opt Options) *Orchestrator {
-	return &Orchestrator{
-		llm:        c,
-		strategist: agents.NewStrategist(c),
-		copywriter: agents.NewCopywriter(c),
-		critic:     agents.NewCritic(c),
-		opt:        opt,
+	semanticist := opt.Semanticist
+	if semanticist == nil {
+		semanticist = agents.NewSemanticist(c)
 	}
+	return &Orchestrator{
+		llm:         c,
+		strategist:  agents.NewStrategist(c),
+		copywriter:  agents.NewCopywriter(c),
+		critic:      agents.NewCritic(c),
+		semanticist: semanticist,
+		opt:         opt,
+	}
+}
+
+// canResearch сообщает, настроен ли подбор тем по спросу.
+func (o *Orchestrator) canResearch() bool {
+	return o.opt.Wordstat != nil && o.semanticist != nil
 }
 
 func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (Result, error) {
@@ -56,14 +88,35 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (Res
 		mu.Unlock()
 	}
 
-	p.Strategizing()
-	strat, u, err := o.strategist.Run(ctx, b)
-	if err != nil {
-		return Result{}, err
-	}
-	addUsage(u)
+	// Темы: либо подбор на поисковом спросе, либо стратег как раньше.
+	// Позиционирование в обоих случаях даёт стратег.
+	var strat agents.Strategy
+	if o.canResearch() {
+		researched, u, err := o.research(ctx, b, p)
+		if err != nil {
+			return Result{}, err
+		}
+		addUsage(u)
+		strat = researched
 
-	// Кап на число тем: стратег мог вернуть больше, чем хотим обрабатывать.
+		p.Strategizing()
+		st, u, err := o.strategist.Run(ctx, b)
+		if err != nil {
+			return Result{}, err
+		}
+		addUsage(u)
+		strat.Positioning = st.Positioning
+	} else {
+		p.Strategizing()
+		st, u, err := o.strategist.Run(ctx, b)
+		if err != nil {
+			return Result{}, err
+		}
+		addUsage(u)
+		strat = st
+	}
+
+	// Кап на число тем: подбор мог вернуть больше, чем хотим обрабатывать.
 	if o.opt.MaxTopics > 0 && len(strat.Topics) > o.opt.MaxTopics {
 		strat.Topics = strat.Topics[:o.opt.MaxTopics]
 	}

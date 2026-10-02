@@ -16,6 +16,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 func main() {
@@ -48,12 +49,33 @@ func main() {
 	llmClient := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
 	llmClient.SetRoleModel(agents.RoleCopywriter, cfg.ModelFast)
+
+	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
+	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
+	var source wordstat.Source
+	if cfg.WordstatMCPURL != "" {
+		source = wordstat.New(wordstat.Options{
+			URL:  cfg.WordstatMCPURL,
+			User: cfg.WordstatMCPUser,
+			Pass: cfg.WordstatMCPPass,
+		})
+		logger.Info("подбор тем включён", "wordstat", cfg.WordstatMCPURL, "region", cfg.WordstatRegionDefault)
+	} else {
+		logger.Warn("WORDSTAT_MCP_URL не задан: подбор тем по спросу выключен, темы даёт стратег")
+	}
+
 	orch := orchestrator.New(llmClient, orchestrator.Options{
 		CriticMaxIter:       cfg.CriticMaxIter,
 		ScoreThreshold:      cfg.CriticScoreThreshold,
 		CostPer1KPrompt:     cfg.CostPer1KPrompt,
 		CostPer1KCompletion: cfg.CostPer1KCompletion,
 		MaxTopics:           cfg.MaxTopics,
+
+		Wordstat:         source,
+		Select:           orchestrator.SelectOptions{MinVolume: int64(cfg.WordstatMinVolume), SeasonalityFactor: cfg.WordstatSeasonalityFactor},
+		TopicsMultiplier: cfg.TopicsMultiplier,
+		MaxWordstatCalls: cfg.WordstatMaxCallsPerRun,
+		DefaultRegion:    cfg.WordstatRegionDefault,
 	})
 	hub := httpapi.NewHub(baseCtx, st)
 	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger, hub)

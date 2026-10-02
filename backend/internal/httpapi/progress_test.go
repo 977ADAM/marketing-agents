@@ -84,6 +84,53 @@ func TestHubLiveSubscriber(t *testing.T) {
 	}
 }
 
+// Подбор тем: в снимке видна фаза researching, подэтап и сеялки как единицы работы.
+func TestTrackerResearchProgress(t *testing.T) {
+	ps := newFakePS()
+	hub := NewHub(context.Background(), ps)
+	tr := hub.Tracker("r1")
+
+	_, ch, cancel := hub.Subscribe("r1")
+	defer cancel()
+
+	tr.Researching(orchestrator.StageSeeds)
+	tr.ResearchSeeds([]string{"зимняя резина", "какую зимнюю резину"})
+	tr.ResearchSeedDone(0)
+	tr.Researching(orchestrator.StageFetching)
+	tr.ResearchSeedDone(1)
+
+	var last orchestrator.Snapshot
+	for i := 0; i < 5; i++ {
+		last = <-ch
+	}
+	if last.Phase != orchestrator.PhaseResearching {
+		t.Errorf("Phase = %q, want %q", last.Phase, orchestrator.PhaseResearching)
+	}
+	if last.Stage != string(orchestrator.StageFetching) {
+		t.Errorf("Stage = %q, want fetching", last.Stage)
+	}
+	if last.TopicTotal != 2 || last.TopicsDone != 2 {
+		t.Errorf("сеялки: total = %d, done = %d", last.TopicTotal, last.TopicsDone)
+	}
+	if len(last.Topics) != 2 || last.Topics[0].State != orchestrator.TopicDone {
+		t.Errorf("состояния сеялок = %+v", last.Topics)
+	}
+	// Процент фазы подбора растёт в диапазоне стратегии, а не прыгает к 95.
+	if last.Percent < 5 || last.Percent > 10 {
+		t.Errorf("Percent = %d, want 5..10 на этапе подбора", last.Percent)
+	}
+
+	// Переход к генерации: сеялки заменяются темами, счётчик обнуляется.
+	tr.TopicsPlanned([]string{"Тема A"})
+	snap := ps.saved["r1"]
+	if snap.Phase != orchestrator.PhaseProducing || snap.Stage != "" {
+		t.Errorf("после подбора: phase = %q, stage = %q", snap.Phase, snap.Stage)
+	}
+	if snap.TopicsDone != 0 || snap.TopicTotal != 1 {
+		t.Errorf("счётчики генерации = %d/%d, want 0/1", snap.TopicsDone, snap.TopicTotal)
+	}
+}
+
 func TestHubLateSubscriberFromStore(t *testing.T) {
 	ps := newFakePS()
 	ps.camps["done1"] = &store.Campaign{ID: "done1", Status: "done",
