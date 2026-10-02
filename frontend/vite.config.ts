@@ -23,7 +23,13 @@ export default defineConfig({
 		})
 	],
 	server: {
-		// Локальный dev: API живёт на Go-бэкенде (:8080).
-		proxy: { '/api': 'http://localhost:8080' }
+		// Локальный dev: API живёт на Go-бэкенде (:8080). /healthz проксируем по
+		// той же причине, что и /api: его роут (routes/healthz/+server.ts) ходит
+		// по BACKEND_URL, а дефолт там — имя сервиса из docker-compose
+		// (backend:8080), которое вне compose не резолвится.
+		proxy: {
+			'/api': 'http://localhost:8080',
+			'/healthz': 'http://localhost:8080'
+		}
 	}
 });
