@@ -74,6 +74,29 @@ type createReq struct {
 	Goal     string `json:"goal"`
 	Audience string `json:"audience"`
 	Tone     string `json:"tone"`
+	// Region — geo ID Яндекса для подбора тем (225 — Россия, 213 — Москва).
+	// Пусто — регион по умолчанию из конфига.
+	Region string `json:"region"`
+	// TopicsCount — сколько статей нужно по медиаплану; идей подбираем вдвое
+	// больше. 0 — значение по умолчанию.
+	TopicsCount int `json:"topics_count"`
+}
+
+// maxTopicsCount — верхняя граница числа статей в одном брифе: защита от
+// случайного «1000 статей» в поле.
+const maxTopicsCount = 20
+
+// validGeoID проверяет geo ID Яндекса: непустая строка из цифр.
+func validGeoID(v string) bool {
+	if v == "" {
+		return false
+	}
+	for _, r := range v {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *API) postCampaign(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +114,18 @@ func (a *API) postCampaign(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation", "product, goal, audience, tone are required")
 		return
 	}
-	brief := agents.Brief{Product: req.Product, Goal: req.Goal, Audience: req.Audience, Tone: req.Tone}
+	if req.Region != "" && !validGeoID(req.Region) {
+		writeError(w, http.StatusBadRequest, "validation", "region must be a numeric Yandex geo id (for example 225)")
+		return
+	}
+	if req.TopicsCount != 0 && (req.TopicsCount < 1 || req.TopicsCount > maxTopicsCount) {
+		writeError(w, http.StatusBadRequest, "validation", fmt.Sprintf("topics_count must be between 1 and %d", maxTopicsCount))
+		return
+	}
+	brief := agents.Brief{
+		Product: req.Product, Goal: req.Goal, Audience: req.Audience, Tone: req.Tone,
+		Region: req.Region, TopicsCount: req.TopicsCount,
+	}
 	id, err := a.repo.Create(r.Context(), req.ClientID, brief)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not create campaign")

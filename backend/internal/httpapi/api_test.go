@@ -93,7 +93,7 @@ type mockRunner struct {
 	called chan string
 }
 
-func (r *mockRunner) Start(id string, _ agents.Brief) { r.called <- id }
+func (r *mockRunner) Start(id string, _ agents.Brief)                     { r.called <- id }
 func (r *mockRunner) StartReview(id string, _ orchestrator.ReviewRequest) { r.called <- id }
 
 // errRepo возвращает ошибку на всех операциях — для проверки 500-веток.
@@ -143,6 +143,77 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("runner not started")
+	}
+}
+
+// Регион и число статей доезжают до брифа: от них зависит подбор тем.
+func TestPostCampaignPassesRegionAndTopicsCount(t *testing.T) {
+	repo := &mockRepo{}
+	runner := &mockRunner{called: make(chan string, 1)}
+	api := New(repo, runner, nil, 1000)
+
+	body := `{"product":"P","goal":"G","audience":"A","tone":"T","region":"213","topics_count":4}`
+	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("code = %d, want 202: %s", rec.Code, rec.Body.String())
+	}
+	campaign, err := repo.Get(context.Background(), "camp-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if campaign.Brief.Region != "213" {
+		t.Errorf("Region = %q, want 213", campaign.Brief.Region)
+	}
+	if campaign.Brief.TopicsCount != 4 {
+		t.Errorf("TopicsCount = %d, want 4", campaign.Brief.TopicsCount)
+	}
+}
+
+func TestPostCampaignValidatesRegionAndTopicsCount(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"регион не число", `{"product":"P","goal":"G","audience":"A","tone":"T","region":"Москва"}`},
+		{"регион с пробелом", `{"product":"P","goal":"G","audience":"A","tone":"T","region":"21 3"}`},
+		{"слишком много статей", `{"product":"P","goal":"G","audience":"A","tone":"T","topics_count":25}`},
+		{"отрицательное число статей", `{"product":"P","goal":"G","audience":"A","tone":"T","topics_count":-1}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+			req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(tc.body))
+			rec := httptest.NewRecorder()
+			api.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d, want 400: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "validation") {
+				t.Errorf("body = %s, want код validation", rec.Body.String())
+			}
+		})
+	}
+}
+
+// Без региона и числа статей бриф остаётся с нулями — подставит конфиг.
+func TestPostCampaignDefaultsRegionAndTopicsCount(t *testing.T) {
+	repo := &mockRepo{}
+	api := New(repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+
+	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
+	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, req)
+
+	campaign, err := repo.Get(context.Background(), "camp-1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if campaign.Brief.Region != "" || campaign.Brief.TopicsCount != 0 {
+		t.Errorf("ожидались пустые значения, получили %q/%d", campaign.Brief.Region, campaign.Brief.TopicsCount)
 	}
 }
 
@@ -416,9 +487,9 @@ func TestPostReviewCreatesAndStartsRunner(t *testing.T) {
 func TestPostReviewValidates(t *testing.T) {
 	api := New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	cases := []string{
-		`{"texts":[{"title":"T","body":"b"}]}`,                    // нет брифа
-		`{"brief":"б"}`,                                           // нет текстов
-		`{"brief":"б","texts":[{"title":"T","body":"  "}]}`,       // пустое тело
+		`{"texts":[{"title":"T","body":"b"}]}`,              // нет брифа
+		`{"brief":"б"}`,                                     // нет текстов
+		`{"brief":"б","texts":[{"title":"T","body":"  "}]}`, // пустое тело
 	}
 	for _, body := range cases {
 		req := httptest.NewRequest("POST", "/api/reviews", bytes.NewBufferString(body))

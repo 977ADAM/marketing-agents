@@ -23,6 +23,61 @@ func newTestStore(t *testing.T) *Store {
 	return st
 }
 
+// Стратегия с кандидатами тем и счётчиком обращений к Wordstat переживает
+// запись и чтение: стратегия лежит в JSON-поле, поэтому миграция не нужна.
+func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	id, err := s.Create(ctx, "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T", Region: "213", TopicsCount: 2})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	strategy := agents.Strategy{
+		Positioning: "позиционирование",
+		Topics:      []agents.Topic{{Title: "Как выбрать зимние шины", Angle: "поймать в момент выбора", Points: []string{"какую зимнюю резину"}}},
+		TopicCandidates: []agents.TopicCandidate{{
+			ID: "t1", Title: "Как выбрать зимние шины", Goal: "поймать", Task: "дать чек-лист",
+			Source: agents.SourceWordstat, Selected: true, Volume: 92398, Head: "какую зимнюю резину",
+			Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
+			Season:  &agents.Seasonality{Peak: 1700930, PeakMonth: "2025-10", Trough: 192109, Ratio: 8.85, Seasonal: true},
+		}, {
+			ID: "t2", Title: "Тема от модели", Goal: "g", Task: "t", Source: agents.SourceLLM,
+		}},
+		WordstatCalls: 4,
+	}
+	if err := s.Complete(ctx, id, orchestrator.Result{Strategy: strategy}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	got, err := s.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Brief.Region != "213" || got.Brief.TopicsCount != 2 {
+		t.Errorf("бриф: region = %q, topics_count = %d", got.Brief.Region, got.Brief.TopicsCount)
+	}
+	if got.Strategy == nil || len(got.Strategy.TopicCandidates) != 2 {
+		t.Fatalf("кандидаты не сохранились: %+v", got.Strategy)
+	}
+	first := got.Strategy.TopicCandidates[0]
+	if first.Volume != 92398 || first.Source != agents.SourceWordstat || !first.Selected {
+		t.Errorf("кандидат 1 = %+v", first)
+	}
+	if first.Season == nil || first.Season.Peak != 1700930 || !first.Season.Seasonal {
+		t.Errorf("сезонность = %+v", first.Season)
+	}
+	if len(first.Queries) != 1 || first.Queries[0].Phrase != "какую зимнюю резину" {
+		t.Errorf("цитаты = %+v", first.Queries)
+	}
+	if got.Strategy.WordstatCalls != 4 {
+		t.Errorf("WordstatCalls = %d, want 4", got.Strategy.WordstatCalls)
+	}
+	if got.Strategy.TopicCandidates[1].Source != agents.SourceLLM {
+		t.Errorf("источник кандидата 2 = %q", got.Strategy.TopicCandidates[1].Source)
+	}
+}
+
 func TestCampaignRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
