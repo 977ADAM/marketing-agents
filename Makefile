@@ -9,7 +9,7 @@ API_URL  ?= http://127.0.0.1:8080
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-frontend check check-frontend verify \
         backend frontend start-frontend dev \
-        docker-build docker-up docker-down docker-logs docker-ps health clean
+        docker-build up docker-down docker-logs docker-ps health clean
 
 # --- подготовка окружения ---
 
@@ -110,9 +110,8 @@ dev: env
 docker-build:
 	$(COMPOSE) build
 
-## docker-up: поднять стек (фронт публикуется на 127.0.0.1:8080)
-docker-up: env
-	$(COMPOSE) up -d --build
+up:
+	docker compose up -d --build
 
 ## docker-down: остановить и удалить контейнеры стека
 docker-down:
