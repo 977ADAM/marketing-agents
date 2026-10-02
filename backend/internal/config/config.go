@@ -34,6 +34,17 @@ type Config struct {
 
 	BasicAuthUser string
 	BasicAuthPass string
+
+	// Wordstat — подбор тем по поисковому спросу через MCP-сервер.
+	// Пустой URL означает, что подбор выключен: темы генерирует стратег, как раньше.
+	WordstatMCPURL            string
+	WordstatMCPUser           string
+	WordstatMCPPass           string
+	WordstatRegionDefault     string  // geo ID Яндекса: 225 Россия, 1 Москва и область, 213 Москва
+	WordstatMinVolume         int     // минимальный объём темы, показов за 30 дней
+	WordstatSeasonalityFactor float64 // во сколько раз пик за 12 месяцев должен превышать порог
+	WordstatMaxCallsPerRun    int     // лимит обращений к Wordstat на прогон
+	TopicsMultiplier          int     // сколько идей предлагать на одну статью (×2)
 }
 
 // DefaultSQLitePath — путь к файлу БД по умолчанию (относительно рабочего каталога).
@@ -46,6 +57,9 @@ const DefaultSQLitePath = "data/marketing.db"
 // внутренней сети, а проброс порта не заработает. Наружу контейнер при этом
 // не выставлен — порт публикуется только на 127.0.0.1 (см. docker-compose.yml).
 const DefaultHTTPAddr = "127.0.0.1:8080"
+
+// DefaultWordstatRegion — регион по умолчанию для подбора тем: 225 — Россия.
+const DefaultWordstatRegion = "225"
 
 // Load читает env, подставляет дефолты и валидирует обязательные поля.
 func Load() (*Config, error) {
@@ -78,6 +92,15 @@ func Load() (*Config, error) {
 
 		CostPer1KPrompt:     getFloat("COST_PER_1K_PROMPT", 0.00027),
 		CostPer1KCompletion: getFloat("COST_PER_1K_COMPLETION", 0.0011),
+
+		WordstatMCPURL:            getStr("WORDSTAT_MCP_URL", ""),
+		WordstatMCPUser:           getStr("WORDSTAT_MCP_USER", ""),
+		WordstatMCPPass:           getStr("WORDSTAT_MCP_PASS", ""),
+		WordstatRegionDefault:     getStr("WORDSTAT_REGION_DEFAULT", DefaultWordstatRegion),
+		WordstatMinVolume:         getInt("WORDSTAT_MIN_VOLUME", 300),
+		WordstatSeasonalityFactor: getFloat("WORDSTAT_SEASONALITY_FACTOR", 3),
+		WordstatMaxCallsPerRun:    getInt("WORDSTAT_MAX_CALLS_PER_RUN", 60),
+		TopicsMultiplier:          getInt("TOPICS_MULTIPLIER", 2),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -129,7 +152,44 @@ func (c *Config) validate() error {
 	if c.CostPer1KCompletion < 0 {
 		return fmt.Errorf("COST_PER_1K_COMPLETION должен быть >= 0, получено %v", c.CostPer1KCompletion)
 	}
+
+	// Wordstat: креды задаются парой, как и basic-auth, а URL проверяем на схему —
+	// иначе запуск с опечаткой в адресе падал бы только на первом прогоне.
+	if (c.WordstatMCPUser == "") != (c.WordstatMCPPass == "") {
+		return fmt.Errorf("WORDSTAT_MCP_USER и WORDSTAT_MCP_PASS должны быть заданы вместе")
+	}
+	if c.WordstatMCPURL != "" && !strings.HasPrefix(c.WordstatMCPURL, "http://") && !strings.HasPrefix(c.WordstatMCPURL, "https://") {
+		return fmt.Errorf("WORDSTAT_MCP_URL должен начинаться с http:// или https://, получено %q", c.WordstatMCPURL)
+	}
+	if !isGeoID(c.WordstatRegionDefault) {
+		return fmt.Errorf("WORDSTAT_REGION_DEFAULT должен быть geo ID Яндекса (только цифры), получено %q", c.WordstatRegionDefault)
+	}
+	if c.WordstatMinVolume < 0 {
+		return fmt.Errorf("WORDSTAT_MIN_VOLUME должен быть >= 0, получено %d", c.WordstatMinVolume)
+	}
+	if c.WordstatSeasonalityFactor < 1 {
+		return fmt.Errorf("WORDSTAT_SEASONALITY_FACTOR должен быть >= 1, получено %v", c.WordstatSeasonalityFactor)
+	}
+	if c.WordstatMaxCallsPerRun <= 0 {
+		return fmt.Errorf("WORDSTAT_MAX_CALLS_PER_RUN должен быть > 0, получено %d", c.WordstatMaxCallsPerRun)
+	}
+	if c.TopicsMultiplier < 1 {
+		return fmt.Errorf("TOPICS_MULTIPLIER должен быть >= 1, получено %d", c.TopicsMultiplier)
+	}
 	return nil
+}
+
+// isGeoID проверяет, что значение — geo ID Яндекса: непустая строка из цифр.
+func isGeoID(v string) bool {
+	if v == "" {
+		return false
+	}
+	for _, r := range v {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // sqlitePath выбирает файл БД: SQLITE_PATH, иначе DATABASE_URL (совместимость

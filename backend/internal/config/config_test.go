@@ -125,3 +125,135 @@ func TestLoadHTTPAddrOverride(t *testing.T) {
 		t.Errorf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
 	}
 }
+
+// Wordstat не настроен — сервис всё равно поднимается, подбор тем выключен,
+// а дефолты порогов и множителя тем уже проставлены.
+func TestWordstatDefaults(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.WordstatMCPURL != "" {
+		t.Errorf("WordstatMCPURL = %q, want пусто", cfg.WordstatMCPURL)
+	}
+	if cfg.WordstatRegionDefault != "225" {
+		t.Errorf("WordstatRegionDefault = %q, want 225", cfg.WordstatRegionDefault)
+	}
+	if cfg.WordstatMinVolume != 300 {
+		t.Errorf("WordstatMinVolume = %d, want 300", cfg.WordstatMinVolume)
+	}
+	if cfg.WordstatSeasonalityFactor != 3 {
+		t.Errorf("WordstatSeasonalityFactor = %v, want 3", cfg.WordstatSeasonalityFactor)
+	}
+	if cfg.WordstatMaxCallsPerRun != 60 {
+		t.Errorf("WordstatMaxCallsPerRun = %d, want 60", cfg.WordstatMaxCallsPerRun)
+	}
+	if cfg.TopicsMultiplier != 2 {
+		t.Errorf("TopicsMultiplier = %d, want 2", cfg.TopicsMultiplier)
+	}
+}
+
+func TestWordstatOverrides(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+	os.Setenv("WORDSTAT_MCP_URL", "https://example.test/wordstat-mcp/mcp")
+	os.Setenv("WORDSTAT_MCP_USER", "admin")
+	os.Setenv("WORDSTAT_MCP_PASS", "secret")
+	os.Setenv("WORDSTAT_REGION_DEFAULT", "213")
+	os.Setenv("WORDSTAT_MIN_VOLUME", "1000")
+	os.Setenv("WORDSTAT_SEASONALITY_FACTOR", "2.5")
+	os.Setenv("WORDSTAT_MAX_CALLS_PER_RUN", "20")
+	os.Setenv("TOPICS_MULTIPLIER", "3")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.WordstatMCPURL != "https://example.test/wordstat-mcp/mcp" {
+		t.Errorf("WordstatMCPURL = %q", cfg.WordstatMCPURL)
+	}
+	if cfg.WordstatMCPUser != "admin" || cfg.WordstatMCPPass != "secret" {
+		t.Errorf("креды = %q/%q", cfg.WordstatMCPUser, cfg.WordstatMCPPass)
+	}
+	if cfg.WordstatRegionDefault != "213" {
+		t.Errorf("WordstatRegionDefault = %q, want 213", cfg.WordstatRegionDefault)
+	}
+	if cfg.WordstatMinVolume != 1000 || cfg.WordstatSeasonalityFactor != 2.5 {
+		t.Errorf("пороги = %d/%v", cfg.WordstatMinVolume, cfg.WordstatSeasonalityFactor)
+	}
+	if cfg.WordstatMaxCallsPerRun != 20 || cfg.TopicsMultiplier != 3 {
+		t.Errorf("лимиты = %d/%d", cfg.WordstatMaxCallsPerRun, cfg.TopicsMultiplier)
+	}
+}
+
+// Креды Wordstat задаются парой: половина пары — почти наверняка опечатка.
+func TestWordstatAuthPairing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		user string
+		pass string
+		want string
+	}{
+		{"только логин", "admin", "", "WORDSTAT_MCP_PASS"},
+		{"только пароль", "", "secret", "WORDSTAT_MCP_USER"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Clearenv()
+			os.Setenv("DEEPSEEK_API_KEY", "k")
+			os.Setenv("WORDSTAT_MCP_USER", tc.user)
+			os.Setenv("WORDSTAT_MCP_PASS", tc.pass)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("ожидалась ошибка про неполную пару кред")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want упоминание %s", err, tc.want)
+			}
+		})
+	}
+
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+	os.Setenv("WORDSTAT_MCP_USER", "admin")
+	os.Setenv("WORDSTAT_MCP_PASS", "secret")
+	if _, err := Load(); err != nil {
+		t.Errorf("полная пара кред должна приниматься: %v", err)
+	}
+}
+
+func TestWordstatValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"url без схемы", map[string]string{"WORDSTAT_MCP_URL": "example.test/mcp"}, "WORDSTAT_MCP_URL"},
+		{"регион не число", map[string]string{"WORDSTAT_REGION_DEFAULT": "Москва"}, "WORDSTAT_REGION_DEFAULT"},
+		{"пустой регион", map[string]string{"WORDSTAT_REGION_DEFAULT": ""}, "WORDSTAT_REGION_DEFAULT"},
+		{"отрицательный объём", map[string]string{"WORDSTAT_MIN_VOLUME": "-1"}, "WORDSTAT_MIN_VOLUME"},
+		{"нулевой множитель сезонности", map[string]string{"WORDSTAT_SEASONALITY_FACTOR": "0.5"}, "WORDSTAT_SEASONALITY_FACTOR"},
+		{"нулевой лимит вызовов", map[string]string{"WORDSTAT_MAX_CALLS_PER_RUN": "0"}, "WORDSTAT_MAX_CALLS_PER_RUN"},
+		{"нулевой множитель тем", map[string]string{"TOPICS_MULTIPLIER": "0"}, "TOPICS_MULTIPLIER"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			os.Clearenv()
+			os.Setenv("DEEPSEEK_API_KEY", "k")
+			for k, v := range tc.env {
+				os.Setenv(k, v)
+			}
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("ожидалась ошибка валидации")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %v, want упоминание %s", err, tc.want)
+			}
+		})
+	}
+}
