@@ -1,24 +1,14 @@
-# Makefile — короткие команды для проекта marketing-agents.
-#
-# Список всех целей: `make` или `make help`.
-# Переменные переопределяются снаружи, например: make test GO=go1.25 NPM=pnpm
-#
-# Роли сервисов: backend/ — Go API (127.0.0.1:8080 локально), frontend/ —
-# SvelteKit, который отдаёт UI и проксирует /api на API. Подробности — README.md.
-
 GO       ?= go
 NPM      ?= npm
 COMPOSE  ?= docker compose
 BACKEND  ?= backend
 FRONTEND ?= frontend
-# Адрес API, на который смотрит прод-сервер фронта (`make start-frontend`).
-# Адрес самого API локально задаётся HTTP_ADDR — в backend/.env или в окружении.
 API_URL  ?= http://127.0.0.1:8080
 
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-frontend check check-frontend verify \
-        run-backend run-frontend start-frontend dev \
+        backend run-frontend start-frontend dev \
         docker-build docker-up docker-down docker-logs docker-ps health clean
 
 # --- подготовка окружения ---
@@ -96,9 +86,8 @@ verify: build check test
 
 # --- локальный запуск (без Docker) ---
 
-## run-backend: API на 127.0.0.1:8080, окружение из backend/.env
-run-backend: env
-	@set -a; . $(BACKEND)/.env; set +a; cd $(BACKEND) && $(GO) run ./cmd/server
+backend:
+	cd backend && go run ./cmd/server
 
 ## run-frontend: dev-сервер фронта на 127.0.0.1:5173 (/api и /healthz → :8080)
 run-frontend: $(FRONTEND)/node_modules
