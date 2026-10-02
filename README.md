@@ -16,19 +16,24 @@
 ```
 backend/            Go-сервис (отдельный модуль): API /api/*, /healthz, SQLite
   cmd/server/       точка входа
-  internal/         agents, llm, orchestrator, store, httpapi, web
+  internal/         agents, llm, orchestrator, store, httpapi
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
   Dockerfile        образ API: distroless + SQLite
 frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   src/routes/       страницы /, /campaigns/[id], /reviews, /reviews/[id]
   src/routes/api/   прокси /api/* на Go-API (endpoint-роут +server.ts)
   src/lib/          api (запросы), stores (состояние, SSE), components, styles
+  src/test/         хелперы юнит-тестов (заглушка $app/paths, подмена EventSource)
+  vitest.config.ts  конфигурация юнит-тестов (vitest)
   src/env.ts        объявление переменных окружения фронта
   Dockerfile        образ фронта: сборка + Node-сервер SvelteKit
 docker-compose.yml  стек из двух сервисов: backend (внутренний) + frontend (порт 8080)
 ```
 
 Go-команды запускаются из `backend/`, фронтовые — из `frontend/`.
+
+Веб-интерфейс отдаёт только фронт: бэкенд — чистый API (на `/` отвечает короткой
+подсказкой), поэтому и в проде, и локально UI доступен по адресу фронта.
 
 ## Запуск
 
@@ -52,15 +57,22 @@ curl localhost:8080/healthz            # ok (запрос уходит чере�
 cd backend
 cp .env.example .env       # при первом запуске: указать DEEPSEEK_API_KEY
 set -a; source .env; set +a
-go run ./cmd/server        # БД → backend/data/marketing.db
+go run ./cmd/server        # API на :8080, БД → backend/data/marketing.db
 ```
 ```bash
 cd frontend
 npm ci
-npm run dev                # http://localhost:5173, /api проксируется на :8080
+npm run dev                # http://localhost:5173, /api и /healthz проксируются на :8080
 ```
 Файл `.env` приложением автоматически не читается (это env процесса), поэтому
 переменные нужно экспортировать — как выше, либо задать их в окружении.
+
+Dev-сервер Vite проксирует `/api` и `/healthz` на `localhost:8080` (см.
+`server.proxy` в `frontend/vite.config.ts`), так что для разработки UI хватает
+запущенного Go-API. У собранного фронта (`npm run build` → `node build`) адрес API
+берётся из `BACKEND_URL`, а его дефолт рассчитан на compose (имя сервиса
+`backend`), поэтому без Docker запускать так:
+`BACKEND_URL=http://localhost:8080 node build`.
 
 ## API
 
@@ -106,9 +118,10 @@ curl -XPOST localhost:8080/api/reviews -H 'Content-Type: application/json' \
 
 ```bash
 cd frontend
-npm run dev      # разработка (Vite, /api → localhost:8080)
+npm run dev      # разработка (Vite, /api и /healthz → localhost:8080)
 npm run build    # сборка в build/ (Node-сервер)
 npm run check    # svelte-check: типы и замечания Svelte
+npm test         # юнит-тесты (vitest)
 ```
 
 Детали, важные при доработке:
@@ -134,7 +147,16 @@ npm run check    # svelte-check: типы и замечания Svelte
 ```bash
 cd backend && go test ./...     # агенты, оркестратор, httpapi, стор (SQLite во временном каталоге)
 cd frontend && npm run check    # svelte-check: типы и Svelte-диагностики
+cd frontend && npm test         # vitest: api-клиент, сторы (в т.ч. SSE-прогресс), словари, формат
 ```
+
+Фронтовые юнит-тесты идут в node-окружении и покрывают модули без DOM:
+`src/lib/api/client.ts`, `src/lib/stores/{progress,run,history}.ts`,
+`src/lib/{labels,format}.ts`. Виртуальный модуль `$app/paths` подменяется
+заглушкой `src/test/app-paths.stub.ts`, сеть и `EventSource` — моками;
+Svelte-компоненты юнит-тестами не покрыты (их проверяет `npm run check`).
+`npm test` сам вызывает `svelte-kit sync` — без сгенерированного
+`node_modules/$app/tsconfig.json` трансформер не соберёт TypeScript.
 
 ## Хранилище данных
 
@@ -163,17 +185,28 @@ sqlite3 backend/data/marketing.db ".backup backup.db"
 (`DATABASE_URL` с путём к файлу ещё принимается для совместимости). Модели
 разнесены по ролям: `MODEL_DEFAULT` (`deepseek-v4-pro`) — стратег и критик,
 `MODEL_FAST` (`deepseek-v4-flash`) — копирайтеры; привязка ролей — через
-`SetRoleModel` (см. `backend/cmd/server/main.go`). Доступ к API закрыт
-basic-auth (`BASIC_AUTH_USER`/`BASIC_AUTH_PASS`); `/healthz` всегда открыт.
+`SetRoleModel` (см. `backend/cmd/server/main.go`). Доступ к API закрывается
+basic-auth, если задан `BASIC_AUTH_USER` (`BASIC_AUTH_PASS` — пароль);
+при пустом имени пользователя доступ открыт, это режим для локалки. `/healthz`
+всегда открыт. Браузер получает запрос пароля от фронта и передаёт заголовок
+через прокси, так что отдельная настройка на фронте не нужна.
 
 **Фронтенд** — объявлены в `frontend/src/env.ts`:
 - `BACKEND_URL` (приватная, рантайм) — адрес Go-API для прокси, по умолчанию
   `http://backend:8080`;
 - `PUBLIC_BASE` (build-arg образа) — базовый путь приложения, по умолчанию `/`.
 
-## Известное ограничение
+## Известные ограничения
 
-Если процесс упадёт во время прогона, кампания останется в статусе `running`,
-а работа LLM потеряется. Восстановление после сбоя — предмет Фазы 2 (частично
-закрыто: прогресс персистится, при рестарте `RecoverInterrupted` помечает
-зависшие прогоны как `failed`).
+- **Сбой во время прогона.** Если процесс упадёт, кампания останется в статусе
+  `running`, а работа LLM потеряется. Восстановление после сбоя — предмет Фазы 2
+  (частично закрыто: прогресс персистится, при рестарте `RecoverInterrupted`
+  помечает зависшие кампании и проверки как `failed`).
+- **Лимит запросов общий на процесс.** `RATE_LIMIT_PER_MIN` — один лимитер на
+  весь сервис, а не на клиента: за прокси (SvelteKit, затем nginx) бэкенд видит
+  только адрес фронта, поэтому per-IP-лимит без доверия к `X-Forwarded-For`
+  смысла не имеет. Если понадобится гранулярность — считать её на фронте или
+  договориться о доверенных прокси.
+- **Basic-auth по умолчанию выключен.** Пустой `BASIC_AUTH_USER` = открытый
+  доступ; для публичного развёртывания его нужно задать в `backend/.env`
+  (файл в git не попадает).
