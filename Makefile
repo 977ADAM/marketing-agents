@@ -8,7 +8,7 @@ API_URL  ?= http://127.0.0.1:8080
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-frontend check check-frontend verify \
-        backend run-frontend start-frontend dev \
+        backend frontend start-frontend dev \
         docker-build docker-up docker-down docker-logs docker-ps health clean
 
 # --- подготовка окружения ---
@@ -90,7 +90,7 @@ backend:
 	cd backend && go run ./cmd/server
 
 frontend:
-	cd frontend && $ npm run dev -- --host 127.0.0.1
+	cd frontend && $ npm run dev
 
 ## start-frontend: прод-сервер фронта из build/ на 127.0.0.1:3000
 start-frontend: build-frontend
