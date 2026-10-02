@@ -1,31 +1,19 @@
 services:
-  # Go API: /api/* и /healthz, данные — SQLite на именованном volume.
   backend:
     build: ./backend
-    # Настройки бэкенда лежат рядом с ним: cp backend/.env.example backend/.env
     env_file: ./backend/.env
     environment:
-      # SQLite-файл на volume: данные переживают down/up и пересборку.
       SQLITE_PATH: /data/marketing.db
-      # Внутри контейнера слушаем все интерфейсы: иначе фронт не достучится до
-      # API по внутренней сети compose. Наружу не выставлено — порт не
-      # публикуется (см. expose ниже), так что 0.0.0.0 здесь локален для сети
-      # контейнера. Для локального запуска без Docker дефолт — 127.0.0.1:8080.
       HTTP_ADDR: ":8080"
     volumes:
       - sqlite:/data
     expose:
-      # наружу не публикуем: с фронтом общается по внутренней сети compose
       - "8080"
 
-  # Фронт: SvelteKit (adapter-node) — отдаёт приложение и проксирует /api и SSE
-  # на backend (src/routes/api/[...path]/+server.ts). Единственная опубликованная
-  # точка входа — её и проксирует nginx сервера.
   frontend:
     build:
       context: ./frontend
       args:
-        # '/marketing/' — если приложение смонтировано в подпуть (interpool).
         PUBLIC_BASE: ${PUBLIC_BASE:-/}
     environment:
       BACKEND_URL: http://backend:8080
