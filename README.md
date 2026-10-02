@@ -57,22 +57,35 @@ curl localhost:8080/healthz            # ok (запрос уходит чере�
 cd backend
 cp .env.example .env       # при первом запуске: указать DEEPSEEK_API_KEY
 set -a; source .env; set +a
-go run ./cmd/server        # API на :8080, БД → backend/data/marketing.db
+go run ./cmd/server        # API на 127.0.0.1:8080, БД → backend/data/marketing.db
 ```
 ```bash
 cd frontend
 npm ci
-npm run dev                # http://localhost:5173, /api и /healthz проксируются на :8080
+npm run dev                # http://localhost:5173, /api и /healthz проксируются на 127.0.0.1:8080
 ```
 Файл `.env` приложением автоматически не читается (это env процесса), поэтому
 переменные нужно экспортировать — как выше, либо задать их в окружении.
 
 Dev-сервер Vite проксирует `/api` и `/healthz` на `localhost:8080` (см.
 `server.proxy` в `frontend/vite.config.ts`), так что для разработки UI хватает
-запущенного Go-API. У собранного фронта (`npm run build` → `node build`) адрес API
-берётся из `BACKEND_URL`, а его дефолт рассчитан на compose (имя сервиса
-`backend`), поэтому без Docker запускать так:
-`BACKEND_URL=http://localhost:8080 node build`.
+запущенного Go-API.
+
+Собранный фронт запускается командой `npm start` — это прод-сервер SvelteKit на
+`127.0.0.1:3000`; адрес API он берёт из `BACKEND_URL`, чей дефолт рассчитан на
+compose (имя сервиса `backend`), поэтому без Docker:
+```bash
+cd frontend
+npm run build
+BACKEND_URL=http://127.0.0.1:8080 npm start   # UI → http://localhost:3000
+```
+
+**Сетевой доступ.** Локально оба сервиса слушают только loopback: у API дефолт
+`HTTP_ADDR=127.0.0.1:8080`, `npm start` поднимает фронт на `127.0.0.1:3000` — с
+других машин они недоступны. В compose адреса другие, и это осознанно: фронт
+публикуется только на `127.0.0.1:8080` (наружу ничего не выставлено), а внутри
+контейнера он и бэкенд слушают все интерфейсы — иначе проброс портов и общение
+контейнеров по внутренней сети не работают.
 
 ## API
 
@@ -181,7 +194,9 @@ sqlite3 backend/data/marketing.db ".backup backup.db"
 
 ## Конфигурация
 
-**Бэкенд** — env, см. `backend/.env.example`. Файл БД — `SQLITE_PATH`
+**Бэкенд** — env, см. `backend/.env.example`. Адрес прослушивания — `HTTP_ADDR`,
+по умолчанию `127.0.0.1:8080` (только локально; в compose переопределяется на
+`:8080` — внутри контейнера нужны все интерфейсы). Файл БД — `SQLITE_PATH`
 (`DATABASE_URL` с путём к файлу ещё принимается для совместимости). Модели
 разнесены по ролям: `MODEL_DEFAULT` (`deepseek-v4-pro`) — стратег и критик,
 `MODEL_FAST` (`deepseek-v4-flash`) — копирайтеры; привязка ролей — через

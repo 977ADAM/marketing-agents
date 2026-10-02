@@ -21,6 +21,7 @@ SvelteKit 3 (Svelte 5, runes) в режиме SPA (`ssr = false`), адапте�
 npm ci
 npm run dev        # dev-сервер на :5173, /api и /healthz уходят на Go-API :8080
 npm run build      # сборка в build/ (Node-сервер)
+npm start          # прод-сервер из build/ на 127.0.0.1:3000 (только этот хост)
 npm run preview    # локальный просмотр сборки
 npm run check      # svelte-check: типы и Svelte-диагностики
 npm test           # юнит-тесты (vitest), один прогон
@@ -31,12 +32,17 @@ npm run test:watch # юнит-тесты в watch-режиме
 (`cd ../backend && go run ./cmd/server`): `/api` и `/healthz` проксирует Vite
 (`server.proxy` в `vite.config.ts`).
 
-Локальный запуск собранного приложения без Docker требует явного адреса API —
-дефолт `BACKEND_URL` рассчитан на docker-compose (имя сервиса `backend`):
+`npm start` слушает только loopback (`HOST=127.0.0.1`, `PORT=3000`) — порт 3000,
+а не 8080, потому что на 8080 локально живёт Go-API. Адрес API для прод-сервера
+задаётся через `BACKEND_URL`, чей дефолт рассчитан на docker-compose (имя
+сервиса `backend`):
 
 ```bash
-BACKEND_URL=http://localhost:8080 node build
+BACKEND_URL=http://127.0.0.1:8080 npm start   # UI → http://localhost:3000
 ```
+
+В образе (`Dockerfile`) `HOST=0.0.0.0` — это обязательно для проброса порта;
+наружу сервис не выставлен, docker-compose публикует его только на `127.0.0.1:8080`.
 
 ## Структура
 
