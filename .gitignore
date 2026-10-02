@@ -6,7 +6,6 @@
 # brainstorming visual companion
 .superpowers/
 
-/backend/internal/web/dist/assets/
 /frontend/node_modules/
 
 # SQLite: файл БД и его WAL-сайдкары

@@ -16,7 +16,6 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
-	"github.com/977ADAM/marketing-agents/internal/web"
 )
 
 func main() {
@@ -60,12 +59,21 @@ func main() {
 	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger, hub)
 	api := httpapi.New(st, runner, hub, cfg.RateLimitPerMin)
 
-	// общий роутинг: /api/* и /healthz → API, всё остальное → SPA.
+	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
+	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и
+	// проксирует /api на этот сервис. На корне — подсказка для curl.
 	root := http.NewServeMux()
 	apiHandler := api.Handler()
 	root.Handle("/api/", apiHandler)
 	root.Handle("/healthz", apiHandler)
-	root.Handle("/", web.Handler())
+	root.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("marketing-agents API: /api/*, /healthz. Веб-интерфейс отдаёт фронтенд (frontend/).\n"))
+	})
 
 	handler := httpapi.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler}
