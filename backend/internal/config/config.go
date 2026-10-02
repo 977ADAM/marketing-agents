@@ -2,11 +2,14 @@
 package config
 
 import (
+	"log"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -70,7 +73,7 @@ func Load() (*Config, error) {
 		BasicAuthPass:        getStr("BASIC_AUTH_PASS", ""),
 	}
 	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("DEEPSEEK_API_KEY is required")
+		return nil, fmt.Errorf("DEEPSEEK_API_KEY не задан")
 	}
 	return cfg, nil
 }
@@ -92,6 +95,11 @@ func sqlitePath() (string, error) {
 }
 
 func getStr(k, def string) string {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Ошибка загрузки .env файла")
+	}
+
 	if v := os.Getenv(k); v != "" {
 		return v
 	}
