@@ -3,6 +3,7 @@ module github.com/977ADAM/marketing-agents
 go 1.25.0
 
 require (
+	github.com/joho/godotenv v1.5.1
 	github.com/sashabaranov/go-openai v1.41.2
 	golang.org/x/sync v0.21.0
 	golang.org/x/time v0.15.0
@@ -12,7 +13,6 @@ require (
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
