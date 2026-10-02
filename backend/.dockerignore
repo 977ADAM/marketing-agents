@@ -1,8 +1,6 @@
 # Контекст — backend/ (см. backend/Dockerfile).
 # Секреты и локальные артефакты в образ попадать не должны: переменные
 # передаются в контейнер через env_file (docker-compose).
-.env
-*.env
 data
 bin
 *.db
