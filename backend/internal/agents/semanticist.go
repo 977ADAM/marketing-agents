@@ -12,8 +12,9 @@ import (
 // Роли агента подбора тем. Идут на MODEL_DEFAULT: здесь важнее рассуждения,
 // чем скорость.
 const (
-	RoleSeeds   = "semanticist_seeds"
-	RoleCluster = "semanticist_cluster"
+	RoleSeeds    = "semanticist_seeds"
+	RoleCluster  = "semanticist_cluster"
+	RoleFallback = "semanticist_fallback"
 )
 
 // DefaultSeedCount — сколько сеялок просим у модели, если не задано иное.
@@ -116,6 +117,58 @@ func (s *Semanticist) Cluster(ctx context.Context, b Brief, phrases []string, wa
 	}
 	return drafts, usage, nil
 }
+
+// Fallback просит темы «от себя», когда спроса нет или его не хватило на
+// нужное число тем: строго по ЦА, продукту и задаче из брифа. Такие темы
+// помечаются источником llm и в отчёте идут без цифр — это гипотеза, а не данные.
+func (s *Semanticist) Fallback(ctx context.Context, b Brief, want int, avoid []string) ([]TopicDraft, llm.Usage, error) {
+	if want <= 0 {
+		return nil, llm.Usage{}, nil
+	}
+	avoidNote := ""
+	if len(avoid) > 0 {
+		avoidNote = "\nНе повторяй эти темы: " + strings.Join(avoid, "; ") + "."
+	}
+	user := fmt.Sprintf(
+		"Продукт: %s\nЦель: %s\nАудитория: %s\nТон: %s\n\nПредложи %d тем для нативных статей.%s",
+		b.Product, b.Goal, b.Audience, b.Tone, want, avoidNote)
+
+	var out struct {
+		Topics []TopicDraft `json:"topics"`
+	}
+	usage, err := s.llm.Complete(ctx, RoleFallback, fallbackSystem, user, &out)
+	if err != nil {
+		return nil, usage, fmt.Errorf("semanticist fallback: %w", err)
+	}
+
+	drafts := make([]TopicDraft, 0, len(out.Topics))
+	for _, d := range out.Topics {
+		d.Title = strings.TrimSpace(d.Title)
+		d.Goal = strings.TrimSpace(d.Goal)
+		d.Task = strings.TrimSpace(d.Task)
+		d.Intent = strings.ToLower(strings.TrimSpace(d.Intent))
+		d.Queries = nil // у тем без данных цитат быть не может
+		if d.Title == "" || d.Goal == "" || d.Task == "" {
+			continue
+		}
+		drafts = append(drafts, d)
+	}
+	if len(drafts) == 0 {
+		return nil, usage, fmt.Errorf("semanticist fallback: модель не вернула пригодных тем")
+	}
+	return drafts, usage, nil
+}
+
+const fallbackSystem = `Ты — редактор нативных статей. Поисковых данных по продукту нет или их мало,
+поэтому предложи темы сам — строго по продукту, целевой аудитории и задаче из брифа.
+Ответ строго в JSON:
+{"topics": [{"title": "...", "goal": "...", "task": "...", "intent": "..."}]}.
+Правила:
+- title — хук: понятная формулировка вопроса плюс обещание пользы;
+- goal — кого и в какой момент мы ловим этой статьёй;
+- task — что статья даёт читателю;
+- intent — одно слово: вопрос, выбор, сравнение, инструкция или коммерческий;
+- никаких чисел, частотностей и процентов: данных нет, выдумывать их нельзя.`
 
 // cleanSeeds приводит сеялки к единому виду: обрезает пробелы, убирает пустые и
 // повторы, сохраняя порядок.

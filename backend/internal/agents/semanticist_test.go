@@ -173,3 +173,53 @@ func TestSemanticistClusterEmptyTopicsIsError(t *testing.T) {
 		t.Fatal("ожидалась ошибка на пустом списке тем")
 	}
 }
+
+func TestSemanticistFallback(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses[RoleFallback] = []string{`{"topics":[
+		{"title":"Как выбрать офис","goal":"поймать перед сделкой","task":"дать чек-лист","intent":"Выбор",
+		 "queries":["выдуманный запрос"]},
+		{"title":"","goal":"g","task":"t"}]}`}
+
+	drafts, _, err := NewSemanticist(fake).Fallback(context.Background(), testBrief(), 2, []string{"Старая тема"})
+	if err != nil {
+		t.Fatalf("Fallback: %v", err)
+	}
+	// Тема без title отброшена, у оставшейся цитаты вычищены: данных нет.
+	if len(drafts) != 1 {
+		t.Fatalf("drafts = %d, want 1", len(drafts))
+	}
+	if len(drafts[0].Queries) != 0 {
+		t.Errorf("у темы без данных не должно быть цитат: %v", drafts[0].Queries)
+	}
+	if drafts[0].Intent != "выбор" {
+		t.Errorf("intent = %q, want выбор", drafts[0].Intent)
+	}
+
+	req, _ := fake.LastRequest()
+	if req.Role != RoleFallback {
+		t.Errorf("role = %q, want %q", req.Role, RoleFallback)
+	}
+	if !strings.Contains(req.User, "Старая тема") {
+		t.Errorf("в промпте нет списка тем-исключений: %q", req.User)
+	}
+}
+
+func TestSemanticistFallbackZeroWantSkipsLLM(t *testing.T) {
+	fake := llm.NewFake()
+	drafts, _, err := NewSemanticist(fake).Fallback(context.Background(), testBrief(), 0, nil)
+	if err != nil || drafts != nil {
+		t.Fatalf("drafts = %v, err = %v; при want=0 модель звать не нужно", drafts, err)
+	}
+	if len(fake.Requests) != 0 {
+		t.Error("LLM не должен вызываться")
+	}
+}
+
+func TestSemanticistFallbackAllInvalidIsError(t *testing.T) {
+	fake := llm.NewFake()
+	fake.Responses[RoleFallback] = []string{`{"topics":[{"title":"T","goal":"","task":""}]}`}
+	if _, _, err := NewSemanticist(fake).Fallback(context.Background(), testBrief(), 1, nil); err == nil {
+		t.Fatal("ожидалась ошибка: пригодных тем нет")
+	}
+}
