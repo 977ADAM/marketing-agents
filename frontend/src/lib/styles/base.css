@@ -1,0 +1,96 @@
+/* База: сброс, каркас приложения (сайдбар + контент), типографика. */
+:root {
+	font-family: system-ui, sans-serif;
+	color: var(--c-text);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--c-bg);
+}
+
+h2,
+h3,
+h4 {
+	margin: 0 0 8px;
+}
+
+.app {
+	display: flex;
+	min-height: 100vh;
+}
+
+.sidebar {
+	flex: 0 0 260px;
+	background: var(--c-bg-sidebar);
+	border-right: 1px solid var(--c-border);
+	padding: 16px;
+}
+
+.main {
+	flex: 1;
+	padding: 24px 32px;
+	max-width: 900px;
+}
+
+.sidebar-actions {
+	display: grid;
+	gap: 8px;
+}
+
+.history-label {
+	font-size: 11px;
+	text-transform: uppercase;
+	color: var(--c-muted);
+	margin: 16px 0 6px;
+}
+
+.history {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.history a {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 4px;
+	text-decoration: none;
+	color: inherit;
+	border-radius: 4px;
+}
+
+.history a:hover {
+	background: var(--c-bg-hover);
+}
+
+/* Длинные заголовки обрезаем вёрсткой, а не вычислениями в JS. */
+.hist-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
+.muted {
+	color: var(--c-muted);
+}
+
+.error {
+	color: var(--c-bad);
+}
+
+.failed h2,
+.result h2 {
+	margin-bottom: 12px;
+}
+
+.positioning {
+	margin-bottom: 8px;
+}

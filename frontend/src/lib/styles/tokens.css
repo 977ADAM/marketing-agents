@@ -1,0 +1,36 @@
+/* Токены оформления: цвета, радиусы, тени. Здесь же — единственное место,
+   где градации API (good/warn/bad) получают конкретный цвет. */
+:root {
+	--c-text: #1a1a1a;
+	--c-muted: #888;
+	--c-text-soft: #555;
+	--c-border: #e2e4e8;
+	--c-border-soft: #f0f0f0;
+
+	--c-bg: #fff;
+	--c-bg-sidebar: #f4f5f7;
+	--c-bg-hover: #e9ebef;
+	--c-bg-subtle: #f1f5f9;
+
+	--c-primary: #2a6dd8;
+	--c-primary-strong: #2563eb;
+	--c-primary-contrast: #fff;
+
+	--c-good: #2e7d32;
+	--c-warn: #e6a700;
+	--c-bad: #c62828;
+	--c-good-text: #16a34a;
+	--c-neutral: #888;
+
+	--c-danger-border: #fca5a5;
+	--c-danger-text: #b91c1c;
+	--c-slate-300: #cbd5e1;
+	--c-gray-500: #6b7280;
+
+	--radius: 8px;
+	--radius-sm: 6px;
+	--radius-pill: 10px;
+
+	--shadow-modal: 0 12px 32px rgba(0, 0, 0, 0.18);
+	--shadow-toast: 0 6px 20px rgba(0, 0, 0, 0.16);
+}

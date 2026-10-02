@@ -1,0 +1,425 @@
+/* Компоненты интерфейса: кнопки, поля, бейджи, карточки, прогресс, отчёты,
+   модалка, скелетоны, тосты. Значения цветов — только из tokens.css. */
+
+/* --- кнопки --- */
+.btn {
+	font: inherit;
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+	text-align: center;
+	text-decoration: none;
+	display: inline-block;
+}
+
+.btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.btn-block {
+	width: 100%;
+	padding: 8px;
+	font-weight: 600;
+}
+
+.btn-primary {
+	padding: 8px 14px;
+	font-weight: 600;
+	background: var(--c-primary-strong);
+	color: var(--c-primary-contrast);
+	border: 1px solid var(--c-primary-strong);
+}
+
+.btn-primary.btn-block {
+	padding: 8px;
+}
+
+.btn-secondary {
+	padding: 6px 10px;
+	font-size: 0.9em;
+	background: var(--c-bg);
+	border: 1px solid var(--c-slate-300);
+	color: inherit;
+}
+
+.btn-secondary:hover {
+	background: var(--c-bg-subtle);
+}
+
+.btn-ghost {
+	padding: 2px 8px;
+	background: transparent;
+	border: none;
+	font-size: 1em;
+}
+
+.btn-danger {
+	padding: 6px 10px;
+	font-size: 0.9em;
+	background: var(--c-bg);
+	border: 1px solid var(--c-danger-border);
+	color: var(--c-danger-text);
+}
+
+/* --- поля --- */
+.field {
+	display: block;
+	margin-bottom: 12px;
+}
+
+.field-label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.field-hint {
+	display: block;
+	font-size: 12px;
+	color: var(--c-muted);
+	margin-top: 4px;
+}
+
+.control {
+	display: block;
+	width: 100%;
+	font: inherit;
+	padding: 6px;
+	border: 1px solid var(--c-border);
+	border-radius: 4px;
+}
+
+textarea.control {
+	min-height: 56px;
+}
+
+.new-campaign .btn {
+	margin-top: 4px;
+}
+
+/* --- чипы и оценки --- */
+.chip {
+	font-size: 11px;
+	padding: 0 6px;
+	border-radius: var(--radius);
+	color: var(--c-primary-contrast);
+	white-space: nowrap;
+}
+
+.chip-pending {
+	background: var(--c-neutral);
+}
+.chip-running {
+	background: var(--c-primary);
+}
+.chip-done {
+	background: var(--c-good);
+}
+.chip-failed {
+	background: var(--c-bad);
+}
+
+.score {
+	color: var(--c-primary-contrast);
+	border-radius: var(--radius-pill);
+	padding: 0 8px;
+	font-weight: 700;
+}
+
+.score-good {
+	background: var(--c-good);
+}
+.score-warn {
+	background: var(--c-warn);
+}
+.score-bad {
+	background: var(--c-bad);
+}
+
+/* --- статьи --- */
+.articles {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 14px;
+	margin-top: 16px;
+}
+
+.article-card {
+	border: 1px solid var(--c-border);
+	border-radius: var(--radius);
+	padding: 12px;
+}
+
+.article-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: start;
+	gap: 8px;
+}
+
+.verdict {
+	font-size: 13px;
+	color: var(--c-text-soft);
+}
+
+.cta {
+	font-weight: 600;
+}
+
+.article-body {
+	white-space: pre-wrap;
+	line-height: 1.5;
+}
+
+/* --- модальное окно --- */
+.modal {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 16px;
+}
+
+.modal-backdrop {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	border: none;
+	background: rgba(0, 0, 0, 0.4);
+	cursor: default;
+}
+
+.modal-body {
+	position: relative;
+	z-index: 1;
+	background: var(--c-bg);
+	border-radius: var(--radius);
+	padding: 24px;
+	max-width: 640px;
+	max-height: 80vh;
+	overflow: auto;
+	box-shadow: var(--shadow-modal);
+}
+
+.modal-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: start;
+	gap: 8px;
+}
+
+/* --- прогресс --- */
+.bar {
+	height: 8px;
+	background: #e5e7eb;
+	border-radius: 4px;
+	overflow: hidden;
+	margin: 12px 0;
+}
+
+.bar-fill {
+	height: 100%;
+	background: var(--c-primary-strong);
+	transition: width 0.3s ease;
+}
+
+.topics {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.topic {
+	display: flex;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--c-border-soft);
+}
+
+.topic-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.topic-state {
+	color: var(--c-gray-500);
+	font-size: 0.9em;
+	white-space: nowrap;
+}
+
+.topic-done .topic-state {
+	color: var(--c-good-text);
+}
+
+/* --- проверка текстов --- */
+.review-texts-label {
+	font-weight: 600;
+	margin: 8px 0;
+}
+
+.review-text {
+	border: 1px solid var(--c-border);
+	border-radius: var(--radius);
+	padding: 12px;
+	margin-bottom: 12px;
+}
+
+.review-text .control {
+	margin-bottom: 8px;
+}
+
+.review-text textarea.control {
+	min-height: 160px;
+}
+
+.review-text-actions {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.reports {
+	display: grid;
+	gap: 16px;
+	margin-top: 16px;
+}
+
+.report-card {
+	border: 1px solid var(--c-border);
+	border-left-width: 4px;
+	border-radius: var(--radius);
+	padding: 14px;
+}
+
+.report-pass {
+	border-left-color: var(--c-good);
+}
+.report-fix {
+	border-left-color: var(--c-warn);
+}
+
+.report-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: start;
+	gap: 8px;
+}
+
+.report-title {
+	font-weight: 700;
+}
+
+.report-verdict {
+	font-size: 13px;
+	color: var(--c-text-soft);
+	white-space: nowrap;
+}
+
+.report-overall {
+	margin: 8px 0;
+	font-weight: 600;
+}
+
+.check-block {
+	margin-top: 10px;
+}
+
+.check-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	font-weight: 600;
+}
+
+.issues {
+	margin: 6px 0 0;
+	padding-left: 20px;
+	color: var(--c-text);
+	line-height: 1.45;
+}
+
+.brief-box {
+	margin-top: 12px;
+	border: 1px solid var(--c-border);
+	border-radius: var(--radius-sm);
+	padding: 8px 12px;
+}
+
+.brief-text {
+	white-space: pre-wrap;
+	font-size: 0.92em;
+	color: var(--c-text-soft);
+}
+
+/* --- состояния и скелетоны --- */
+.state {
+	margin-top: 8px;
+}
+
+.state-error {
+	display: grid;
+	gap: 8px;
+	justify-items: start;
+}
+
+.skeleton {
+	display: inline-block;
+	border-radius: 4px;
+	background: linear-gradient(90deg, #eceef1 25%, #f6f7f9 37%, #eceef1 63%);
+	background-size: 400% 100%;
+	animation: skeleton 1.4s ease infinite;
+}
+
+.skeleton-lines {
+	display: grid;
+	gap: 10px;
+}
+
+@keyframes skeleton {
+	0% {
+		background-position: 100% 50%;
+	}
+	100% {
+		background-position: 0 50%;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.skeleton,
+	.bar-fill {
+		animation: none;
+		transition: none;
+	}
+}
+
+/* --- тосты --- */
+.toasts {
+	position: fixed;
+	right: 16px;
+	bottom: 16px;
+	display: grid;
+	gap: 8px;
+	z-index: 10;
+}
+
+.toast {
+	padding: 10px 14px;
+	border-radius: var(--radius-sm);
+	background: var(--c-text);
+	color: var(--c-primary-contrast);
+	box-shadow: var(--shadow-toast);
+	max-width: 360px;
+}
+
+.toast-error {
+	background: var(--c-bad);
+}
+.toast-success {
+	background: var(--c-good);
+}

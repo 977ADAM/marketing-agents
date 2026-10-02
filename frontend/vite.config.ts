@@ -1,22 +1,29 @@
-/// <reference types="vitest" />
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import adapter from '@sveltejs/adapter-node';
+import { sveltekit } from '@sveltejs/kit/vite';
+import { defineConfig } from 'vite';
+
+// Базовый путь приложения: '' для standalone, '/marketing' под interpool.
+// Задаётся build-arg PUBLIC_BASE (см. frontend/Dockerfile); от него зависят
+// ссылки на ассеты, клиентские роуты и префикс /api.
+const base = ((process.env.PUBLIC_BASE || '/').replace(/\/+$/, '') || '') as '' | `/${string}`;
 
 export default defineConfig({
-  // Базовый путь сборки. По умолчанию '/' (standalone), под interpool
-  // приложение монтируется на /marketing/ — задаётся build-arg PUBLIC_BASE.
-  base: process.env.PUBLIC_BASE || '/',
-  plugins: [react()],
-  build: {
-    outDir: '../internal/web/dist',
-    emptyOutDir: true,
-  },
-  server: {
-    proxy: { '/api': 'http://localhost:8080' },
-  },
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: './src/test/setup.ts',
-  },
-})
+	plugins: [
+		sveltekit({
+			compilerOptions: {
+				// Runes-режим для всего проекта (как в сгенерированном скелете).
+				runes: ({ filename }) =>
+					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+			},
+
+			// Прод-рантайм: Node-сервер SvelteKit (frontend/Dockerfile).
+			adapter: adapter(),
+
+			paths: { base }
+		})
+	],
+	server: {
+		// Локальный dev: API живёт на Go-бэкенде (:8080).
+		proxy: { '/api': 'http://localhost:8080' }
+	}
+});

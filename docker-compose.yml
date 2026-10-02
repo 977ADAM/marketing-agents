@@ -1,33 +1,34 @@
 services:
-  db:
-    image: postgres:16
+  # Go API: /api/* и /healthz, данные — SQLite на именованном volume.
+  backend:
+    build: ./backend
+    # Настройки бэкенда лежат рядом с ним: cp backend/.env.example backend/.env
+    env_file: ./backend/.env
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: marketing
+      # SQLite-файл на volume: данные переживают down/up и пересборку.
+      SQLITE_PATH: /data/marketing.db
     volumes:
-      # именованный volume: данные БД переживают docker compose down/up
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      # только localhost: БД не должна торчать в интернет (dev-compose)
-      - "127.0.0.1:5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d marketing"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - sqlite:/data
+    expose:
+      # наружу не публикуем: с фронтом общается по внутренней сети compose
+      - "8080"
 
-  app:
-    build: .
-    env_file: .env
+  # Фронт: SvelteKit (adapter-node) — отдаёт приложение и проксирует /api и SSE
+  # на backend (src/routes/api/[...path]/+server.ts). Единственная опубликованная
+  # точка входа — её и проксирует nginx сервера.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # '/marketing/' — если приложение смонтировано в подпуть (interpool).
+        PUBLIC_BASE: ${PUBLIC_BASE:-/}
     environment:
-      DATABASE_URL: postgres://app:app@db:5432/marketing?sslmode=disable
-    ports:
-      # только localhost: наружу marketing идёт только через Caddy (/marketing)
-      - "127.0.0.1:8080:8080"
+      BACKEND_URL: http://backend:8080
+      PORT: "8080"
     depends_on:
-      db:
-        condition: service_healthy
+      - backend
+    ports:
+      - "127.0.0.1:8080:8080"
 
 volumes:
-  pgdata:
+  sqlite:

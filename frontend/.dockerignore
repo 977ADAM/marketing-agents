@@ -1,0 +1,7 @@
+# Контекст — frontend/ (см. frontend/Dockerfile): зависимости ставит npm ci внутри образа.
+node_modules
+.svelte-kit
+build
+.env
+.env.*
+.DS_Store

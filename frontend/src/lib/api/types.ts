@@ -1,0 +1,157 @@
+// Типы, которыми обменивается фронт и API. Один источник правды по контракту:
+// здесь только wire-формат (snake_case как в JSON), без UI-состояний.
+
+export type Status = 'pending' | 'running' | 'done' | 'failed';
+
+/** Градация оценки: считает бэкенд, фронт только красит по ней бейдж. */
+export type Severity = 'good' | 'warn' | 'bad';
+
+// --- кампании ---
+
+export interface Brief {
+	product: string;
+	goal: string;
+	audience: string;
+	tone: string;
+}
+
+export interface Topic {
+	title: string;
+	angle: string;
+	points: string[];
+}
+
+export interface Strategy {
+	positioning: string;
+	topics: Topic[];
+}
+
+// issues опционален: Go сериализует nil-срез как null, не как [].
+export interface Review {
+	score: number;
+	issues?: string[];
+	verdict: string;
+	severity: Severity;
+}
+
+export interface Deliverable {
+	topic: string;
+	title: string;
+	body: string;
+	cta: string;
+	review: Review;
+}
+
+export interface Campaign {
+	id: string;
+	client_id: string;
+	status: Status;
+	brief: Brief;
+	strategy?: Strategy;
+	deliverables?: Deliverable[];
+	progress?: Snapshot;
+	cost_usd?: number;
+	error?: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface CampaignSummary {
+	id: string;
+	status: Status;
+	brief: Brief;
+	cost_usd?: number;
+	created_at: string;
+}
+
+// --- проверка готовых текстов ---
+
+export interface ReviewText {
+	title: string;
+	body: string;
+}
+
+export interface ReviewRequest {
+	brief: string;
+	texts: ReviewText[];
+}
+
+export interface CheckScore {
+	score: number;
+	issues?: string[];
+	severity: Severity;
+}
+
+export interface TextReport {
+	title: string;
+	compliance: CheckScore;
+	quality: CheckScore;
+	overall: number;
+	verdict: 'pass' | 'fix';
+	severity: Severity;
+}
+
+export interface ReviewResult {
+	items: TextReport[];
+	/** Сколько текстов прошло проверку — сводку считает API. */
+	passed: number;
+	cost_usd: number;
+}
+
+export interface ReviewRun {
+	id: string;
+	client_id: string;
+	status: Status;
+	brief_text: string;
+	result?: ReviewResult;
+	progress?: Snapshot;
+	cost_usd?: number;
+	error?: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface ReviewRunSummary {
+	id: string;
+	status: Status;
+	brief_text: string;
+	/** Первая строка брифа — заголовок для списка, готовит API. */
+	brief_title?: string;
+	cost_usd?: number;
+	created_at: string;
+}
+
+/** Результат разбора .docx: API уже разделил текст на заголовок и тело. */
+export interface ExtractedDoc {
+	title: string;
+	body: string;
+	text: string;
+}
+
+// --- общее ---
+
+export interface CreateRunResponse {
+	id: string;
+	status: Status;
+}
+
+// --- прогресс прогона (SSE) ---
+
+export type Phase = 'strategizing' | 'producing' | 'done' | 'failed';
+export type TopicState = 'pending' | 'writing' | 'reviewing' | 'revising' | 'done';
+
+export interface TopicProgress {
+	index: number;
+	title: string;
+	state: TopicState;
+	iter?: number;
+	score?: number;
+}
+
+export interface Snapshot {
+	phase: Phase;
+	topics: TopicProgress[];
+	topic_total: number;
+	topics_done: number;
+	percent: number;
+}
