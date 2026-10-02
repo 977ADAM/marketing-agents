@@ -3,8 +3,11 @@ import {
 	ARTICLE_VERDICT_LABELS,
 	PHASE_LABELS,
 	REPORT_VERDICT_LABELS,
+	RESEARCH_STAGE_LABELS,
+	RESEARCH_TOPIC_LABELS,
 	REVIEW_PHASE_LABELS,
 	REVIEW_TOPIC_LABELS,
+	SOURCE_LABELS,
 	statusLabel,
 	TOPIC_LABELS
 } from './labels.js';
@@ -26,11 +29,21 @@ describe('statusLabel', () => {
 describe('словари подписей', () => {
 	it('покрывают все фазы и состояния тем', () => {
 		expect(Object.keys(PHASE_LABELS).sort()).toEqual(
-			['done', 'failed', 'producing', 'strategizing'].sort()
+			['done', 'failed', 'producing', 'researching', 'strategizing'].sort()
 		);
 		expect(Object.keys(TOPIC_LABELS).sort()).toEqual(
 			['done', 'pending', 'reviewing', 'revising', 'writing'].sort()
 		);
+	});
+
+	it('описывают подбор тем: подэтапы и источник темы', () => {
+		expect(Object.keys(RESEARCH_STAGE_LABELS).sort()).toEqual(
+			['clustering', 'fetching', 'seeds', 'selecting'].sort()
+		);
+		expect(RESEARCH_STAGE_LABELS.fetching).toContain('Wordstat');
+		expect(SOURCE_LABELS.wordstat).toBe('по спросу');
+		expect(SOURCE_LABELS.llm).toBe('гипотеза');
+		expect(RESEARCH_TOPIC_LABELS.done).toBe('собрано');
 	});
 
 	it('для проверки текстов переопределяют только свои состояния', () => {

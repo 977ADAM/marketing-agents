@@ -1,7 +1,7 @@
 // Подписи состояний и вердиктов. Это словарь интерфейса: сопоставление
 // «значение из API → текст», без вычислений и порогов.
 
-import type { Phase, Status, TopicState } from './api/types';
+import type { Phase, ResearchStage, Status, TopicSource, TopicState } from './api/types';
 
 const STATUS_LABELS: Record<Status, string> = {
 	pending: 'В очереди',
@@ -17,9 +17,31 @@ export function statusLabel(status: Status, runningLabel?: string): string {
 
 export const PHASE_LABELS: Record<Phase, string> = {
 	strategizing: 'Стратегия',
+	researching: 'Подбор тем по спросу',
 	producing: 'Генерация статей',
 	done: 'Готово',
 	failed: 'Ошибка'
+};
+
+/** Подэтапы подбора тем: показываются, пока идёт фаза researching. */
+export const RESEARCH_STAGE_LABELS: Record<ResearchStage, string> = {
+	seeds: 'Придумываем поисковые фразы',
+	fetching: 'Собираем спрос в Wordstat',
+	clustering: 'Собираем темы из запросов',
+	selecting: 'Отбираем лучшие темы'
+};
+
+/** Источник темы: подтверждена спросом или придумана моделью. */
+export const SOURCE_LABELS: Record<TopicSource, string> = {
+	wordstat: 'по спросу',
+	llm: 'гипотеза'
+};
+
+/** Подписи состояний сеялок на этапе сбора спроса. */
+export const RESEARCH_TOPIC_LABELS: Partial<Record<TopicState, string>> = {
+	pending: 'в очереди',
+	writing: 'собираем',
+	done: 'собрано'
 };
 
 export const TOPIC_LABELS: Record<TopicState, string> = {

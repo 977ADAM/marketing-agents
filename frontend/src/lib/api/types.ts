@@ -13,6 +13,10 @@ export interface Brief {
 	goal: string;
 	audience: string;
 	tone: string;
+	/** geo ID Яндекса для подбора тем: 225 — Россия, 213 — Москва. */
+	region?: string;
+	/** Сколько статей нужно по медиаплану; идей подбираем вдвое больше. */
+	topics_count?: number;
 }
 
 export interface Topic {
@@ -24,6 +28,61 @@ export interface Topic {
 export interface Strategy {
 	positioning: string;
 	topics: Topic[];
+	/** Все рассмотренные темы (вдвое больше, чем статей) с доказательствами. */
+	topic_candidates?: TopicCandidate[];
+	/** Сколько обращений к Wordstat потребовал подбор тем. */
+	wordstat_calls?: number;
+}
+
+// --- подбор тем по поисковому спросу ---
+
+export type TopicSource = 'wordstat' | 'llm';
+
+/** Подэтап фазы researching. */
+export type ResearchStage = 'seeds' | 'fetching' | 'clustering' | 'selecting';
+
+export interface PhraseCount {
+	phrase: string;
+	count: number;
+}
+
+/** Сезонная поправка: окно Wordstat — 30 дней, у сезонных тем спрос скачет. */
+export interface Seasonality {
+	peak: number;
+	peak_month?: string;
+	trough: number;
+	ratio: number;
+	seasonal: boolean;
+}
+
+export interface RegionShare {
+	region_id: string;
+	name?: string;
+	count: number;
+	share: number;
+	affinity_index: number;
+}
+
+/**
+ * Тема, рассмотренная при подборе. Volume — максимальная частотность среди
+ * цитат (нижняя оценка спроса), а не сумма формулировок: популярные запросы
+ * являются подмножествами широкой частотности. У тем source='llm' цифр нет.
+ */
+export interface TopicCandidate {
+	id: string;
+	title: string;
+	goal: string;
+	task: string;
+	source: TopicSource;
+	selected: boolean;
+	volume: number;
+	head: string;
+	queries: PhraseCount[];
+	season?: Seasonality;
+	regions?: RegionShare[];
+	intent?: string;
+	/** Почему тема не пошла в генерацию (пусто — прошла отбор). */
+	reject?: string;
 }
 
 // issues опционален: Go сериализует nil-срез как null, не как [].
@@ -137,7 +196,7 @@ export interface CreateRunResponse {
 
 // --- прогресс прогона (SSE) ---
 
-export type Phase = 'strategizing' | 'producing' | 'done' | 'failed';
+export type Phase = 'strategizing' | 'researching' | 'producing' | 'done' | 'failed';
 export type TopicState = 'pending' | 'writing' | 'reviewing' | 'revising' | 'done';
 
 export interface TopicProgress {
@@ -154,4 +213,6 @@ export interface Snapshot {
 	topic_total: number;
 	topics_done: number;
 	percent: number;
+	/** Подэтап фазы researching (приходит только на этапе подбора тем). */
+	stage?: ResearchStage;
 }
