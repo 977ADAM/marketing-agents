@@ -2,7 +2,6 @@
 package config
 
 import (
-	"log"
 	"fmt"
 	"os"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config — конфигурация сервиса, собранная из переменных окружения.
 type Config struct {
 	HTTPAddr     string
 	SQLitePath   string // файл БД (SQLite); каталог создаётся при старте
@@ -49,86 +49,161 @@ const DefaultHTTPAddr = "127.0.0.1:8080"
 
 // Load читает env, подставляет дефолты и валидирует обязательные поля.
 func Load() (*Config, error) {
+	// .env опционален: если файла нет — читаем только реальное окружение.
+	_ = godotenv.Load()
+
 	dbPath, err := sqlitePath()
 	if err != nil {
 		return nil, err
 	}
+
 	cfg := &Config{
-		HTTPAddr:             getStr("HTTP_ADDR", DefaultHTTPAddr),
-		SQLitePath:           dbPath,
-		APIKey:               getStr("DEEPSEEK_API_KEY", ""),
-		BaseURL:              getStr("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-		ModelDefault:         getStr("MODEL_DEFAULT", "deepseek-v4-pro"),
-		ModelFast:            getStr("MODEL_FAST", "deepseek-v4-flash"),
+		HTTPAddr:     getStr("HTTP_ADDR", DefaultHTTPAddr),
+		SQLitePath:   dbPath,
+		APIKey:       getStr("DEEPSEEK_API_KEY", ""),
+		BaseURL:      getStr("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+		ModelDefault: getStr("MODEL_DEFAULT", "deepseek-v4-pro"),
+		ModelFast:    getStr("MODEL_FAST", "deepseek-v4-flash"),
+		LogLevel:     getStr("LOG_LEVEL", "info"),
+
+		BasicAuthUser: getStr("BASIC_AUTH_USER", ""),
+		BasicAuthPass: getStr("BASIC_AUTH_PASS", ""),
+
 		LLMMaxRetries:        getInt("LLM_MAX_RETRIES", 3),
 		RunTimeout:           getDur("RUN_TIMEOUT", 10*time.Minute),
 		CriticMaxIter:        getInt("CRITIC_MAX_ITER", 3),
 		CriticScoreThreshold: getInt("CRITIC_SCORE_THRESHOLD", 80),
 		MaxTopics:            getInt("MAX_TOPICS", 5),
-		CostPer1KPrompt:      getFloat("COST_PER_1K_PROMPT", 0.00027),
-		CostPer1KCompletion:  getFloat("COST_PER_1K_COMPLETION", 0.0011),
 		RateLimitPerMin:      getInt("RATE_LIMIT_PER_MIN", 30),
-		LogLevel:             getStr("LOG_LEVEL", "info"),
-		BasicAuthUser:        getStr("BASIC_AUTH_USER", ""),
-		BasicAuthPass:        getStr("BASIC_AUTH_PASS", ""),
+
+		CostPer1KPrompt:     getFloat("COST_PER_1K_PROMPT", 0.00027),
+		CostPer1KCompletion: getFloat("COST_PER_1K_COMPLETION", 0.0011),
 	}
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("DEEPSEEK_API_KEY не задан")
+
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
 
+// validate проверяет обязательные и диапазонные ограничения.
+func (c *Config) validate() error {
+	if c.APIKey == "" {
+		return fmt.Errorf("DEEPSEEK_API_KEY не задан")
+	}
+	if c.HTTPAddr == "" {
+		return fmt.Errorf("HTTP_ADDR не может быть пустым")
+	}
+	if c.SQLitePath == "" {
+		return fmt.Errorf("SQLitePath не может быть пустым")
+	}
+	if c.BaseURL == "" {
+		return fmt.Errorf("DEEPSEEK_BASE_URL не может быть пустым")
+	}
+
+	if (c.BasicAuthUser == "") != (c.BasicAuthPass == "") {
+		return fmt.Errorf("BASIC_AUTH_USER и BASIC_AUTH_PASS должны быть заданы вместе")
+	}
+
+	if c.LLMMaxRetries < 0 {
+		return fmt.Errorf("LLM_MAX_RETRIES должен быть >= 0, получено %d", c.LLMMaxRetries)
+	}
+	if c.RunTimeout <= 0 {
+		return fmt.Errorf("RUN_TIMEOUT должен быть > 0, получено %s", c.RunTimeout)
+	}
+	if c.CriticMaxIter < 0 {
+		return fmt.Errorf("CRITIC_MAX_ITER должен быть >= 0, получено %d", c.CriticMaxIter)
+	}
+	if c.CriticScoreThreshold < 0 || c.CriticScoreThreshold > 100 {
+		return fmt.Errorf("CRITIC_SCORE_THRESHOLD должен быть в диапазоне 0..100, получено %d", c.CriticScoreThreshold)
+	}
+	if c.MaxTopics <= 0 {
+		return fmt.Errorf("MAX_TOPICS должен быть > 0, получено %d", c.MaxTopics)
+	}
+	if c.RateLimitPerMin < 0 {
+		return fmt.Errorf("RATE_LIMIT_PER_MIN должен быть >= 0, получено %d", c.RateLimitPerMin)
+	}
+	if c.CostPer1KPrompt < 0 {
+		return fmt.Errorf("COST_PER_1K_PROMPT должен быть >= 0, получено %v", c.CostPer1KPrompt)
+	}
+	if c.CostPer1KCompletion < 0 {
+		return fmt.Errorf("COST_PER_1K_COMPLETION должен быть >= 0, получено %v", c.CostPer1KCompletion)
+	}
+	return nil
+}
+
 // sqlitePath выбирает файл БД: SQLITE_PATH, иначе DATABASE_URL (совместимость
 // с прежней конфигурацией, если там путь/URI файла, а не строка подключения
-// к Postgres), иначе дефолт.
+// к сетевой СУБД), иначе дефолт.
 func sqlitePath() (string, error) {
 	if p := strings.TrimSpace(os.Getenv("SQLITE_PATH")); p != "" {
 		return p, nil
 	}
 	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
-		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-			return "", fmt.Errorf("DATABASE_URL looks like a Postgres DSN, but this build stores data in SQLite: set SQLITE_PATH (file path) instead")
+		// Отклоняем любые URL-схемы, кроме file:// — этот билд хранит данные
+		// в SQLite, а не в сетевой СУБД.
+		if i := strings.Index(dsn, "://"); i > 0 {
+			scheme := strings.ToLower(dsn[:i])
+			if scheme != "file" {
+				return "", fmt.Errorf(
+					"DATABASE_URL=%q looks like a connection string (%s://), but this build stores data in SQLite: set SQLITE_PATH (file path) instead",
+					dsn, scheme,
+				)
+			}
 		}
 		return dsn, nil
 	}
 	return DefaultSQLitePath, nil
 }
 
+// getStr читает строковую переменную окружения, возвращая def, если она не задана.
 func getStr(k, def string) string {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Ошибка загрузки .env файла")
-	}
-
-	if v := os.Getenv(k); v != "" {
+	if v, ok := os.LookupEnv(k); ok {
 		return v
 	}
 	return def
 }
 
+// getInt читает int из окружения. При невалидном значении возвращает def и
+// оставляет предупреждение в stderr через fmt.Fprintf — чтобы опечатка в .env
+// не осталась незамеченной.
 func getInt(k string, def int) int {
-	if v := os.Getenv(k); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
+	v, ok := os.LookupEnv(k)
+	if !ok || v == "" {
+		return def
 	}
-	return def
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %s=%q is not an int, using default %d: %v\n", k, v, def, err)
+		return def
+	}
+	return n
 }
 
+// getFloat читает float64 из окружения.
 func getFloat(k string, def float64) float64 {
-	if v := os.Getenv(k); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			return f
-		}
+	v, ok := os.LookupEnv(k)
+	if !ok || v == "" {
+		return def
 	}
-	return def
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %s=%q is not a float, using default %v: %v\n", k, v, def, err)
+		return def
+	}
+	return f
 }
 
+// getDur читает time.Duration из окружения (например, "10m", "30s").
 func getDur(k string, def time.Duration) time.Duration {
-	if v := os.Getenv(k); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
+	v, ok := os.LookupEnv(k)
+	if !ok || v == "" {
+		return def
 	}
-	return def
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %s=%q is not a duration, using default %s: %v\n", k, v, def, err)
+		return def
+	}
+	return d
 }
