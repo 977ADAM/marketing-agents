@@ -1,0 +1,3 @@
+event: message
+data: {"jsonrpc":"2.0","id":8,"result":{"content":[{"type":"text","text":"invalid argument: invalid region \"abc\": expected numeric geo id"}],"structuredContent":{"associations":[],"cacheHit":false,"code":"invalid_argument","devices":[],"hasData":false,"message":"invalid argument: invalid region \"abc\": expected numeric geo id","phrase":"","regions":[],"requests":[],"retryable":false,"totalCount":0},"isError":true}}
+
