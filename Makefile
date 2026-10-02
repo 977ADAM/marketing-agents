@@ -89,9 +89,8 @@ verify: build check test
 backend:
 	cd backend && go run ./cmd/server
 
-## run-frontend: dev-сервер фронта на 127.0.0.1:5173 (/api и /healthz → :8080)
-run-frontend: $(FRONTEND)/node_modules
-	cd $(FRONTEND) && $(NPM) run dev -- --host 127.0.0.1
+frontend:
+	cd frontend && $ npm run dev -- --host 127.0.0.1
 
 ## start-frontend: прод-сервер фронта из build/ на 127.0.0.1:3000
 start-frontend: build-frontend
