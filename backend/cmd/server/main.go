@@ -58,7 +58,11 @@ func main() {
 		MaxPayloadBytes: cfg.TraceMaxPayloadBytes,
 		OnError:         func(err error) { logger.Warn("trace", "err", err) },
 	})
-	if mode != trace.ModeOff && cfg.TraceRetentionDays > 0 {
+	// Уборку делаем независимо от режима: если трассу выключили, старые события
+	// всё равно надо чистить, иначе БД будет расти без ограничения.
+	logger.Info("trace", "mode", string(mode), "retention_days", cfg.TraceRetentionDays,
+		"max_payload_bytes", cfg.TraceMaxPayloadBytes)
+	if cfg.TraceRetentionDays > 0 {
 		cutoff := time.Now().AddDate(0, 0, -cfg.TraceRetentionDays)
 		if n, err := st.DeleteRunEventsBefore(baseCtx, cutoff); err != nil {
 			logger.Warn("trace retention", "err", err)
