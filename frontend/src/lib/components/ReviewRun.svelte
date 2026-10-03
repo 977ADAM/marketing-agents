@@ -4,6 +4,7 @@
 	import ProgressPanel from './ProgressPanel.svelte';
 	import ReportCard from './ReportCard.svelte';
 	import SkeletonLines from './SkeletonLines.svelte';
+	import TrajectoryPanel from './TrajectoryPanel.svelte';
 	import { formatCost } from '#lib/format.js';
 	import { REVIEW_PHASE_LABELS, REVIEW_TOPIC_LABELS } from '#lib/labels.js';
 	import { refreshHistory } from '#lib/stores/history.js';
@@ -15,7 +16,7 @@
 	// (см. {#key} в +page.svelte), поэтому захват начального значения корректен
 	const run = reviewRun(id);
 	const { data: review, error, loading } = run;
-	const { snapshot } = run.progress;
+	const { snapshot, terminal } = run.progress;
 
 	const unsubscribe = run.progress.terminal.subscribe((done) => {
 		if (done) void refreshHistory();
@@ -62,3 +63,5 @@
 		showIter={false}
 	/>
 {/if}
+
+<TrajectoryPanel kind="review" {id} done={$terminal} />

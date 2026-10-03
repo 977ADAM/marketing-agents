@@ -4,6 +4,7 @@
 	import ErrorState from './ErrorState.svelte';
 	import ProgressPanel from './ProgressPanel.svelte';
 	import SkeletonLines from './SkeletonLines.svelte';
+	import TrajectoryPanel from './TrajectoryPanel.svelte';
 	import { formatCost } from '#lib/format.js';
 	import { refreshHistory } from '#lib/stores/history.js';
 	import { campaignRun } from '#lib/stores/run.js';
@@ -16,7 +17,7 @@
 	// (см. {#key} в +page.svelte), поэтому захват начального значения корректен
 	const run = campaignRun(id);
 	const { data: campaign, error, loading } = run;
-	const { snapshot, reconnecting } = run.progress;
+	const { snapshot, reconnecting, terminal } = run.progress;
 
 	// Прогон завершился — обновляем историю в сайдбаре.
 	const unsubscribe = run.progress.terminal.subscribe((done) => {
@@ -60,3 +61,6 @@
 		<p class="muted">Переподключение…</p>
 	{/if}
 {/if}
+
+<!-- Трасса видна всегда: она объясняет и удачный прогон, и провалившийся. -->
+<TrajectoryPanel kind="campaign" {id} done={$terminal} />
