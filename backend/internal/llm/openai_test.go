@@ -54,7 +54,9 @@ func TestCompleteRetriesOn5xx(t *testing.T) {
 func TestCompleteParsesJSONAndUsage(t *testing.T) {
 	var gotModel string
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		var payload struct{ Model string `json:"model"` }
+		var payload struct {
+			Model string `json:"model"`
+		}
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &payload)
 		gotModel = payload.Model
@@ -181,5 +183,55 @@ func TestCompleteBadJSONContent(t *testing.T) {
 	// usage возвращается даже при ошибке парсинга
 	if u.PromptTokens != 3 || u.CompletionTokens != 2 {
 		t.Errorf("usage = %+v, want {3 2}", u)
+	}
+}
+
+// Живой прогон показал: модель возвращает эхо response_format рядом с ответом,
+// пояснения и markdown-ограждения. Всё это не должно валить прогон.
+func TestCompleteTolerantJSONParsing(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{"чистый JSON", `{"score":90,"issues":[]}`, 90},
+		{"обёртка response_format перед ответом", "{\"type\": \"json_object\"}\n{\"score\": 81,\"issues\":[]}", 81},
+		{"обёртка после ответа", "{\"score\":72}\n{\"type\":\"json_object\"}", 72},
+		{"пояснение перед JSON", "Вот ответ:\n{\"score\": 65}", 65},
+		{"markdown-ограждение", "```json\n{\"score\": 55,\"issues\":[]}\n```", 55},
+		{"вложенный объект", `{"score":44,"meta":{"a":{"b":[1,2,3]}}}`, 44},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return jsonResponse("m", tc.content, 1, 1), nil
+			})
+			c := New("sk", "https://api.deepseek.com/v1", "m", 0, &http.Client{Transport: rt})
+
+			var out struct {
+				Score int `json:"score"`
+			}
+			if _, err := c.Complete(context.Background(), "any", "s", "u", &out); err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if out.Score != tc.want {
+				t.Errorf("Score = %d, want %d", out.Score, tc.want)
+			}
+		})
+	}
+}
+
+// Если JSON в ответе нет вовсе — ошибка, а не пустой результат.
+func TestCompleteNoJSONAtAll(t *testing.T) {
+	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse("m", "извините, не могу", 1, 1), nil
+	})
+	c := New("sk", "https://api.deepseek.com/v1", "m", 0, &http.Client{Transport: rt})
+
+	var out struct {
+		Score int `json:"score"`
+	}
+	if _, err := c.Complete(context.Background(), "any", "s", "u", &out); err == nil {
+		t.Fatal("ожидалась ошибка парсинга")
 	}
 }

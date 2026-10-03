@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -64,10 +66,84 @@ func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, 
 	content := resp.Choices[0].Message.Content
 	usage := Usage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}
 
-	if err := json.Unmarshal([]byte(content), out); err != nil {
-		return usage, fmt.Errorf("llm: parse JSON: %w (content=%q)", err, content)
+	if err := decodeJSON(content, out); err != nil {
+		return usage, fmt.Errorf("llm: parse JSON: %w (content=%q)", err, truncate(content, 400))
 	}
 	return usage, nil
+}
+
+// decodeJSON разбирает ответ модели в out, терпя типичные вольности: обёртку
+// вида {"type":"json_object"} рядом с настоящим ответом, пояснения до или после
+// JSON, markdown-ограждения. Наблюдалось на живом прогоне: модель возвращала эхо
+// response_format, и строгий json.Unmarshal валил весь прогон.
+//
+// Кандидаты перебираются от самого длинного к самому короткому: полезная
+// нагрузка почти всегда крупнее обёртки, а порядок значений в ответе модели не
+// гарантирован.
+func decodeJSON(content string, out any) error {
+	values := jsonValues(content)
+	if len(values) == 0 {
+		return fmt.Errorf("no JSON value found")
+	}
+	sort.SliceStable(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+
+	var lastErr error
+	for _, candidate := range values {
+		if isFormatEcho(candidate) {
+			continue // эхо response_format — не ответ модели
+		}
+		if err := json.Unmarshal(candidate, out); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	if lastErr == nil {
+		return fmt.Errorf("only response_format echo found, no payload")
+	}
+	return fmt.Errorf("no JSON object with the expected shape: %w", lastErr)
+}
+
+// isFormatEcho распознаёт объект вида {"type":"json_object"} — служебное эхо
+// response_format, которое некоторые провайдеры подмешивают в content.
+func isFormatEcho(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || len(fields) != 1 {
+		return false
+	}
+	value, ok := fields["type"]
+	if !ok {
+		return false
+	}
+	var kind string
+	return json.Unmarshal(value, &kind) == nil && kind == "json_object"
+}
+
+// jsonValues вытаскивает все JSON-значения верхнего уровня из текста модели,
+// начиная с первой скобки (до неё могут идти пояснения).
+func jsonValues(content string) []json.RawMessage {
+	start := strings.IndexAny(content, "{[")
+	if start < 0 {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(content[start:]))
+	var values []json.RawMessage
+	for {
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			break
+		}
+		values = append(values, raw)
+	}
+	return values
+}
+
+// truncate обрезает длинный текст для сообщения об ошибке.
+func truncate(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "…"
 }
 
 // callWithRetry повторяет вызов с экспоненциальным backoff на временные ошибки.

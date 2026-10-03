@@ -8,10 +8,10 @@ func TestComputePercent(t *testing.T) {
 		done, total int
 		want        int
 	}{
-		{PhaseStrategizing, 0, 0, 5},
-		{PhaseResearching, 0, 0, 5},  // сеялок ещё нет
-		{PhaseResearching, 1, 2, 7},  // 5 + 5*1/2 — сбор спроса идёт
-		{PhaseResearching, 2, 2, 10}, // сбор спроса закончен
+		{PhaseStrategizing, 0, 0, 10}, // позиционирование идёт после подбора тем
+		{PhaseResearching, 0, 0, 5},   // сеялок ещё нет
+		{PhaseResearching, 1, 2, 7},   // 5 + 5*1/2 — сбор спроса идёт
+		{PhaseResearching, 2, 2, 10},  // сбор спроса закончен
 		{PhaseProducing, 0, 2, 10},
 		{PhaseProducing, 1, 2, 52}, // 10 + 85*1/2 = 52 (округление вниз)
 		{PhaseProducing, 2, 2, 95},

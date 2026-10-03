@@ -111,7 +111,10 @@ func Percent(ph Phase, done, total int) int { return computePercent(ph, done, to
 func computePercent(ph Phase, done, total int) int {
 	switch ph {
 	case PhaseStrategizing:
-		return pctStrategizing
+		// Позиционирование идёт после подбора тем (10% уже набраны) или вместо
+		// него, когда подбор выключен. Держим 10%, чтобы полоса не откатывалась
+		// назад при переходе от researching к strategizing.
+		return pctPlanned
 	case PhaseResearching:
 		// Диапазон стратегии: 5% на старте и до 10% по мере сбора спроса.
 		if total == 0 {
