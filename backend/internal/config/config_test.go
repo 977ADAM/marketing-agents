@@ -257,3 +257,51 @@ func TestWordstatValidation(t *testing.T) {
 		})
 	}
 }
+
+// Трасса: дефолты и проверка режима.
+func TestTraceDefaults(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TraceMode != "summary" {
+		t.Errorf("TraceMode = %q, want summary", cfg.TraceMode)
+	}
+	if cfg.TraceRetentionDays != 30 {
+		t.Errorf("TraceRetentionDays = %d, want 30", cfg.TraceRetentionDays)
+	}
+	if cfg.TraceMaxPayloadBytes != 32768 {
+		t.Errorf("TraceMaxPayloadBytes = %d, want 32768", cfg.TraceMaxPayloadBytes)
+	}
+}
+
+func TestTraceOverridesAndValidation(t *testing.T) {
+	os.Clearenv()
+	os.Setenv("DEEPSEEK_API_KEY", "k")
+	os.Setenv("TRACE_MODE", "off")
+	os.Setenv("TRACE_RETENTION_DAYS", "7")
+	os.Setenv("TRACE_MAX_PAYLOAD_BYTES", "1024")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TraceMode != "off" || cfg.TraceRetentionDays != 7 || cfg.TraceMaxPayloadBytes != 1024 {
+		t.Errorf("переопределения не применились: %+v", cfg)
+	}
+
+	// Опечатка в режиме — ошибка конфига, а не молчаливое «выключено».
+	os.Setenv("TRACE_MODE", "verbose")
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидалась ошибка на неизвестном режиме трассы")
+	}
+
+	os.Setenv("TRACE_MODE", "summary")
+	os.Setenv("TRACE_MAX_PAYLOAD_BYTES", "0")
+	if _, err := Load(); err == nil {
+		t.Fatal("ожидалась ошибка на нулевом лимите payload")
+	}
+}

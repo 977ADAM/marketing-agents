@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // Config — конфигурация сервиса, собранная из переменных окружения.
@@ -45,6 +47,11 @@ type Config struct {
 	WordstatSeasonalityFactor float64 // во сколько раз пик за 12 месяцев должен превышать порог
 	WordstatMaxCallsPerRun    int     // лимит обращений к Wordstat на прогон
 	TopicsMultiplier          int     // сколько идей предлагать на одну статью (×2)
+
+	// Трасса прогона: журнал того, что делали агенты.
+	TraceMode            string // off | summary | full
+	TraceRetentionDays   int    // срок хранения событий
+	TraceMaxPayloadBytes int    // обрезка одного payload
 }
 
 // DefaultSQLitePath — путь к файлу БД по умолчанию (относительно рабочего каталога).
@@ -101,6 +108,10 @@ func Load() (*Config, error) {
 		WordstatSeasonalityFactor: getFloat("WORDSTAT_SEASONALITY_FACTOR", 3),
 		WordstatMaxCallsPerRun:    getInt("WORDSTAT_MAX_CALLS_PER_RUN", 60),
 		TopicsMultiplier:          getInt("TOPICS_MULTIPLIER", 2),
+
+		TraceMode:            getStr("TRACE_MODE", string(trace.ModeSummary)),
+		TraceRetentionDays:   getInt("TRACE_RETENTION_DAYS", 30),
+		TraceMaxPayloadBytes: getInt("TRACE_MAX_PAYLOAD_BYTES", trace.DefaultMaxPayloadBytes),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -175,6 +186,18 @@ func (c *Config) validate() error {
 	}
 	if c.TopicsMultiplier < 1 {
 		return fmt.Errorf("TOPICS_MULTIPLIER должен быть >= 1, получено %d", c.TopicsMultiplier)
+	}
+
+	// Трасса: режим проверяем разбором, чтобы опечатка в .env не превращалась
+	// молча в «выключено».
+	if _, err := trace.ParseMode(c.TraceMode); err != nil {
+		return fmt.Errorf("TRACE_MODE: %w", err)
+	}
+	if c.TraceRetentionDays < 0 {
+		return fmt.Errorf("TRACE_RETENTION_DAYS должен быть >= 0, получено %d", c.TraceRetentionDays)
+	}
+	if c.TraceMaxPayloadBytes <= 0 {
+		return fmt.Errorf("TRACE_MAX_PAYLOAD_BYTES должен быть > 0, получено %d", c.TraceMaxPayloadBytes)
 	}
 	return nil
 }

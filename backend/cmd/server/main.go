@@ -16,6 +16,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -46,19 +47,40 @@ func main() {
 	} else if n > 0 {
 		logger.Info("recovered interrupted campaigns", "count", n)
 	}
-	llmClient := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
+	// Трасса прогона: журнал событий (по умолчанию summary — без тел промптов).
+	mode, err := trace.ParseMode(cfg.TraceMode)
+	if err != nil {
+		logger.Error("trace mode", "err", err)
+		os.Exit(1)
+	}
+	recorder := trace.New(st, trace.Config{
+		Mode:            mode,
+		MaxPayloadBytes: cfg.TraceMaxPayloadBytes,
+		OnError:         func(err error) { logger.Warn("trace", "err", err) },
+	})
+	if mode != trace.ModeOff && cfg.TraceRetentionDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -cfg.TraceRetentionDays)
+		if n, err := st.DeleteRunEventsBefore(baseCtx, cutoff); err != nil {
+			logger.Warn("trace retention", "err", err)
+		} else if n > 0 {
+			logger.Info("trace retention", "deleted", n, "days", cfg.TraceRetentionDays)
+		}
+	}
+
+	baseLLM := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
-	llmClient.SetRoleModel(agents.RoleCopywriter, cfg.ModelFast)
+	baseLLM.SetRoleModel(agents.RoleCopywriter, cfg.ModelFast)
+	llmClient := llm.NewTracing(baseLLM, recorder)
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
 	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
 	var source wordstat.Source
 	if cfg.WordstatMCPURL != "" {
-		source = wordstat.New(wordstat.Options{
+		source = wordstat.NewTracing(wordstat.New(wordstat.Options{
 			URL:  cfg.WordstatMCPURL,
 			User: cfg.WordstatMCPUser,
 			Pass: cfg.WordstatMCPPass,
-		})
+		}), recorder)
 		logger.Info("подбор тем включён", "wordstat", cfg.WordstatMCPURL, "region", cfg.WordstatRegionDefault)
 	} else {
 		logger.Warn("WORDSTAT_MCP_URL не задан: подбор тем по спросу выключен, темы даёт стратег")
@@ -76,6 +98,8 @@ func main() {
 		TopicsMultiplier: cfg.TopicsMultiplier,
 		MaxWordstatCalls: cfg.WordstatMaxCallsPerRun,
 		DefaultRegion:    cfg.WordstatRegionDefault,
+
+		Recorder: recorder,
 	})
 	hub := httpapi.NewHub(baseCtx, st)
 	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger, hub)

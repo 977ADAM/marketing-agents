@@ -8,6 +8,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // BackgroundRunner выполняет пайплайн в фоне и пишет результат в стор.
@@ -35,6 +36,8 @@ func (r *BackgroundRunner) Start(id string, b agents.Brief) {
 		defer func() { <-r.wg }()
 		ctx, cancel := context.WithTimeout(r.baseCtx, r.runTimeout)
 		defer cancel()
+		// Помечаем прогон: по этому идентификатору трасса привязывает события.
+		ctx = trace.WithRunID(ctx, id)
 
 		tr := r.hub.Tracker(id)
 		if err := r.store.MarkRunning(ctx, id); err != nil {
@@ -74,6 +77,7 @@ func (r *BackgroundRunner) StartReview(id string, req orchestrator.ReviewRequest
 		defer func() { <-r.wg }()
 		ctx, cancel := context.WithTimeout(r.baseCtx, r.runTimeout)
 		defer cancel()
+		ctx = trace.WithRunID(ctx, id)
 
 		tr := r.hub.ReviewTracker(id)
 		if err := r.store.MarkReviewRunning(ctx, id); err != nil {
