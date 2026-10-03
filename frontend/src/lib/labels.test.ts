@@ -9,6 +9,8 @@ import {
 	REVIEW_TOPIC_LABELS,
 	SOURCE_LABELS,
 	statusLabel,
+	TRACE_KIND_LABELS,
+	TRACE_STATUS_LABELS,
 	TOPIC_LABELS
 } from './labels.js';
 
@@ -58,5 +60,16 @@ describe('словари подписей', () => {
 		expect(ARTICLE_VERDICT_LABELS.revise).toBe('На доработку');
 		expect(REPORT_VERDICT_LABELS.pass).toContain('готово к публикации');
 		expect(REPORT_VERDICT_LABELS.fix).toContain('требует доработки');
+	});
+});
+
+describe('словари трассы прогона', () => {
+	it('покрывают все виды событий и оба исхода', () => {
+		expect(Object.keys(TRACE_KIND_LABELS).sort()).toEqual(
+			['decision', 'llm', 'phase', 'result', 'wordstat'].sort()
+		);
+		expect(Object.keys(TRACE_STATUS_LABELS).sort()).toEqual(['error', 'ok'].sort());
+		expect(TRACE_KIND_LABELS.wordstat).toBe('Wordstat');
+		expect(TRACE_STATUS_LABELS.error).toBe('ошибка');
 	});
 });

@@ -216,3 +216,34 @@ export interface Snapshot {
 	/** Подэтап фазы researching (приходит только на этапе подбора тем). */
 	stage?: ResearchStage;
 }
+
+// --- трасса прогона ---
+
+export type TraceKind = 'llm' | 'wordstat' | 'decision' | 'phase' | 'result';
+export type TraceStatus = 'ok' | 'error';
+
+/**
+ * Одно событие трассы. Тело (промпт и ответ) приходит только в детальном
+ * запросе — в ленте его нет, там лишь признак has_payload.
+ */
+export interface TrajectoryEvent {
+	seq: number;
+	at: string;
+	kind: TraceKind;
+	name: string;
+	status: TraceStatus;
+	summary: string;
+	duration_ms: number;
+	prompt_tokens: number;
+	completion_tokens: number;
+	has_payload: boolean;
+	error?: string;
+	payload?: unknown;
+}
+
+/** Лента событий прогона: что делали агенты и инструменты. */
+export interface Trajectory {
+	id: string;
+	total: number;
+	events: TrajectoryEvent[];
+}

@@ -1,7 +1,15 @@
 // Подписи состояний и вердиктов. Это словарь интерфейса: сопоставление
 // «значение из API → текст», без вычислений и порогов.
 
-import type { Phase, ResearchStage, Status, TopicSource, TopicState } from './api/types';
+import type {
+	Phase,
+	ResearchStage,
+	Status,
+	TopicSource,
+	TopicState,
+	TraceKind,
+	TraceStatus
+} from './api/types';
 
 const STATUS_LABELS: Record<Status, string> = {
 	pending: 'В очереди',
@@ -71,4 +79,19 @@ export const ARTICLE_VERDICT_LABELS: Record<string, string> = {
 export const REPORT_VERDICT_LABELS: Record<'pass' | 'fix', string> = {
 	pass: '✅ готово к публикации',
 	fix: '⚠️ требует доработки'
+};
+
+/** Виды событий трассы прогона. */
+export const TRACE_KIND_LABELS: Record<TraceKind, string> = {
+	llm: 'Модель',
+	wordstat: 'Wordstat',
+	decision: 'Решение',
+	phase: 'Этап',
+	result: 'Итог'
+};
+
+/** Исход события трассы. */
+export const TRACE_STATUS_LABELS: Record<TraceStatus, string> = {
+	ok: 'ок',
+	error: 'ошибка'
 };
