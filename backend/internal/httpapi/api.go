@@ -24,6 +24,9 @@ type Repo interface {
 	CreateReview(ctx context.Context, clientID, briefText string) (string, error)
 	GetReview(ctx context.Context, id string) (*store.Review, error)
 	ListReviews(ctx context.Context, limit int) ([]store.ReviewSummary, error)
+	// Трасса прогона: лента событий и одно событие с телом.
+	RunEvents(ctx context.Context, runID string, limit int) ([]store.RunEventRow, error)
+	RunEvent(ctx context.Context, runID string, seq int64) (*store.RunEventRow, error)
 }
 
 // Runner запускает фоновый прогон кампании или проверки текстов (асинхронно).
@@ -56,10 +59,14 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /api/campaigns", a.listCampaigns)
 	mux.HandleFunc("GET /api/campaigns/{id}", a.getCampaign)
 	mux.HandleFunc("GET /api/campaigns/{id}/events", a.campaignEvents)
+	mux.HandleFunc("GET /api/campaigns/{id}/trajectory", a.campaignTrajectory)
+	mux.HandleFunc("GET /api/campaigns/{id}/trajectory/{seq}", a.campaignTrajectoryEvent)
 	mux.HandleFunc("POST /api/reviews", a.postReview)
 	mux.HandleFunc("GET /api/reviews", a.listReviews)
 	mux.HandleFunc("GET /api/reviews/{id}", a.getReview)
 	mux.HandleFunc("GET /api/reviews/{id}/events", a.reviewEvents)
+	mux.HandleFunc("GET /api/reviews/{id}/trajectory", a.reviewTrajectory)
+	mux.HandleFunc("GET /api/reviews/{id}/trajectory/{seq}", a.reviewTrajectoryEvent)
 	mux.HandleFunc("POST /api/reviews/extract", a.extractDocx)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -26,6 +26,31 @@ type mockRepo struct {
 	created   string
 	campaigns map[string]*store.Campaign
 	reviews   map[string]*store.Review
+	events    map[string][]store.RunEventRow
+}
+
+// RunEvents отдаёт ленту событий прогона.
+func (m *mockRepo) RunEvents(_ context.Context, runID string, limit int) ([]store.RunEventRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rows := m.events[runID]
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return append([]store.RunEventRow(nil), rows...), nil
+}
+
+// RunEvent отдаёт одно событие по номеру.
+func (m *mockRepo) RunEvent(_ context.Context, runID string, seq int64) (*store.RunEventRow, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, row := range m.events[runID] {
+		if row.Seq == seq {
+			cp := row
+			return &cp, nil
+		}
+	}
+	return nil, store.ErrNotFound
 }
 
 func (m *mockRepo) Create(_ context.Context, _ string, b agents.Brief) (string, error) {
@@ -115,6 +140,12 @@ func (errRepo) GetReview(context.Context, string) (*store.Review, error) {
 	return nil, errors.New("boom")
 }
 func (errRepo) ListReviews(context.Context, int) ([]store.ReviewSummary, error) {
+	return nil, errors.New("boom")
+}
+func (errRepo) RunEvents(context.Context, string, int) ([]store.RunEventRow, error) {
+	return nil, errors.New("boom")
+}
+func (errRepo) RunEvent(context.Context, string, int64) (*store.RunEventRow, error) {
 	return nil, errors.New("boom")
 }
 
