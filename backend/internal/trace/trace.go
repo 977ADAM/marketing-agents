@@ -98,16 +98,35 @@ type Sink interface {
 // Recorder — то, что нужно вызывающему коду: записать событие прогона.
 type Recorder interface {
 	// Event записывает событие; ошибки не возвращаются наружу.
-	Event(ctx context.Context, runID string, ev Event)
+	Event(ctx context.Context, ev Event)
 	// Enabled сообщает, пишется ли трасса вообще.
 	Enabled() bool
+}
+
+// --- прогон в контексте ---
+
+type runIDKey struct{}
+
+// WithRunID помечает контекст прогоном: все события трассы внутри него будут
+// привязаны к этому run_id.
+func WithRunID(ctx context.Context, runID string) context.Context {
+	return context.WithValue(ctx, runIDKey{}, runID)
+}
+
+// RunIDFrom достаёт идентификатор прогона из контекста (пусто — не размечен).
+func RunIDFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	runID, _ := ctx.Value(runIDKey{}).(string)
+	return runID
 }
 
 // Nop — рекордер-заглушка: трасса выключена или не настроена.
 type Nop struct{}
 
-func (Nop) Event(context.Context, string, Event) {}
-func (Nop) Enabled() bool                        { return false }
+func (Nop) Event(context.Context, Event) {}
+func (Nop) Enabled() bool                { return false }
 
 // OrNop подстраховывает от nil-рекордера.
 func OrNop(r Recorder) Recorder {
@@ -163,9 +182,13 @@ func (r *recorder) Enabled() bool { return r != nil }
 
 // Event записывает событие прогона. Ошибка сериализации или записи не влияет на
 // прогон: она уходит в OnError (если задан) и всё.
-func (r *recorder) Event(ctx context.Context, runID string, ev Event) {
+func (r *recorder) Event(ctx context.Context, ev Event) {
 	if !r.Enabled() {
 		return
+	}
+	runID := RunIDFrom(ctx)
+	if runID == "" {
+		return // событие не к чему привязать
 	}
 	if ev.Status == "" {
 		ev.Status = StatusOK

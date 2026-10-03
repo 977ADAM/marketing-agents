@@ -36,6 +36,11 @@ func (f *fakeSink) all() []Record {
 
 func fixedClock(t time.Time) func() time.Time { return func() time.Time { return t } }
 
+// runCtx помечает контекст прогоном: события без него не пишутся.
+func runCtx(runID string) context.Context {
+	return WithRunID(context.Background(), runID)
+}
+
 func TestParseMode(t *testing.T) {
 	cases := map[string]Mode{
 		"":        ModeSummary,
@@ -65,13 +70,13 @@ func TestNopWritesNothing(t *testing.T) {
 	if rec.Enabled() {
 		t.Error("Nop не должен считаться включённым")
 	}
-	rec.Event(context.Background(), "run-1", Event{Kind: KindLLM, Name: "strategist"})
+	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "strategist"})
 	if sink.calls != 0 {
 		t.Error("Nop не должен писать в хранилище")
 	}
 
 	var nilRec *recorder
-	OrNop(nilRec).Event(context.Background(), "run-1", Event{}) // не должно паниковать
+	OrNop(nilRec).Event(runCtx("run-1"), Event{}) // не должно паниковать
 }
 
 func TestOffModeSkipsSink(t *testing.T) {
@@ -80,7 +85,7 @@ func TestOffModeSkipsSink(t *testing.T) {
 	if rec.Enabled() {
 		t.Error("в режиме off трасса выключена")
 	}
-	rec.Event(context.Background(), "run-1", Event{Kind: KindLLM, Name: "strategist"})
+	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "strategist"})
 	if sink.calls != 0 {
 		t.Errorf("в режиме off записей быть не должно, получили %d", sink.calls)
 	}
@@ -89,13 +94,11 @@ func TestOffModeSkipsSink(t *testing.T) {
 func TestSeqIsMonotonicPerRun(t *testing.T) {
 	sink := &fakeSink{}
 	rec := New(sink, Config{Mode: ModeSummary})
-	ctx := context.Background()
-
-	rec.Event(ctx, "run-a", Event{Kind: KindLLM, Name: "seeds"})
-	rec.Event(ctx, "run-b", Event{Kind: KindLLM, Name: "seeds"})
-	rec.Event(ctx, "run-a", Event{Kind: KindLLM, Name: "cluster"})
-	rec.Event(ctx, "run-b", Event{Kind: KindDecision, Name: "select"})
-	rec.Event(ctx, "run-a", Event{Kind: KindResult, Name: "done"})
+	rec.Event(runCtx("run-a"), Event{Kind: KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-b"), Event{Kind: KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-a"), Event{Kind: KindLLM, Name: "cluster"})
+	rec.Event(runCtx("run-b"), Event{Kind: KindDecision, Name: "select"})
+	rec.Event(runCtx("run-a"), Event{Kind: KindResult, Name: "done"})
 
 	want := map[string][]int64{"run-a": {1, 2, 3}, "run-b": {1, 2}}
 	for runID, seqs := range want {
@@ -118,12 +121,11 @@ func TestSeqIsMonotonicPerRun(t *testing.T) {
 }
 
 func TestSummaryDropsPayloadAndFullKeepsIt(t *testing.T) {
-	ctx := context.Background()
 	at := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 
 	summarySink := &fakeSink{}
 	summary := New(summarySink, Config{Mode: ModeSummary, Now: fixedClock(at)})
-	summary.Event(ctx, "run-1", Event{
+	summary.Event(runCtx("run-1"), Event{
 		Kind: KindLLM, Name: "copywriter",
 		Payload: map[string]string{"system": "ты копирайтер", "user": "бриф"},
 	})
@@ -137,7 +139,7 @@ func TestSummaryDropsPayloadAndFullKeepsIt(t *testing.T) {
 
 	fullSink := &fakeSink{}
 	full := New(fullSink, Config{Mode: ModeFull})
-	full.Event(ctx, "run-1", Event{
+	full.Event(runCtx("run-1"), Event{
 		Kind: KindLLM, Name: "copywriter",
 		Payload: map[string]string{"system": "ты копирайтер"},
 	})
@@ -150,7 +152,7 @@ func TestSummaryDropsPayloadAndFullKeepsIt(t *testing.T) {
 func TestPayloadTruncated(t *testing.T) {
 	sink := &fakeSink{}
 	rec := New(sink, Config{Mode: ModeFull, MaxPayloadBytes: 40})
-	rec.Event(context.Background(), "run-1", Event{
+	rec.Event(runCtx("run-1"), Event{
 		Kind: KindLLM, Name: "copywriter",
 		Payload: map[string]string{"body": strings.Repeat("ш", 200)},
 	})
@@ -167,7 +169,7 @@ func TestPayloadTruncated(t *testing.T) {
 func TestStatusDefaultsToOK(t *testing.T) {
 	sink := &fakeSink{}
 	rec := New(sink, Config{Mode: ModeSummary})
-	rec.Event(context.Background(), "run-1", Event{Kind: KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "seeds"})
 	if got := sink.all()[0].Status; got != StatusOK {
 		t.Errorf("Status = %q, want %q", got, StatusOK)
 	}
@@ -179,10 +181,8 @@ func TestSinkErrorDoesNotBreakRecording(t *testing.T) {
 	sink := &fakeSink{err: errors.New("диск переполнен")}
 	var reported []error
 	rec := New(sink, Config{Mode: ModeSummary, OnError: func(err error) { reported = append(reported, err) }})
-	ctx := context.Background()
-
-	rec.Event(ctx, "run-1", Event{Kind: KindLLM, Name: "seeds"})
-	rec.Event(ctx, "run-1", Event{Kind: KindLLM, Name: "cluster"})
+	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "cluster"})
 
 	if sink.calls != 2 {
 		t.Errorf("вызовов хранилища %d, want 2", sink.calls)
@@ -198,7 +198,7 @@ func TestSinkErrorDoesNotBreakRecording(t *testing.T) {
 func TestEventCarriesMetrics(t *testing.T) {
 	sink := &fakeSink{}
 	rec := New(sink, Config{Mode: ModeSummary})
-	rec.Event(context.Background(), "run-1", Event{
+	rec.Event(runCtx("run-1"), Event{
 		Kind: KindLLM, Name: "copywriter", Summary: "статья про шины",
 		DurationMS: 1234, PromptTokens: 500, CompletionTokens: 900,
 	})
@@ -209,5 +209,21 @@ func TestEventCarriesMetrics(t *testing.T) {
 	}
 	if got.Summary != "статья про шины" {
 		t.Errorf("summary = %q", got.Summary)
+	}
+}
+
+// Событие без прогона в контексте не пишется: привязать его не к чему.
+func TestNoRunIDSkipsSink(t *testing.T) {
+	sink := &fakeSink{}
+	rec := New(sink, Config{Mode: ModeSummary})
+	rec.Event(context.Background(), Event{Kind: KindLLM, Name: "seeds"})
+	if sink.calls != 0 {
+		t.Errorf("без run_id записей быть не должно, получили %d", sink.calls)
+	}
+	if got := RunIDFrom(context.Background()); got != "" {
+		t.Errorf("RunIDFrom пустого контекста = %q, want пусто", got)
+	}
+	if got := RunIDFrom(WithRunID(context.Background(), "run-7")); got != "run-7" {
+		t.Errorf("RunIDFrom = %q, want run-7", got)
 	}
 }

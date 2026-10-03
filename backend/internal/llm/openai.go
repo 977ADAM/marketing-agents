@@ -39,7 +39,9 @@ func New(apiKey, baseURL, defaultModel string, maxRetries int, httpClient *http.
 // SetRoleModel переопределяет модель для роли (для будущего разнесения моделей).
 func (c *OpenAIClient) SetRoleModel(role, model string) { c.roleModel[role] = model }
 
-func (c *OpenAIClient) modelFor(role string) string {
+// ModelFor возвращает модель, назначенную роли: нужна трассе, чтобы в событии
+// был виден фактически использованный вариант (сильная модель против быстрой).
+func (c *OpenAIClient) ModelFor(role string) string {
 	if m, ok := c.roleModel[role]; ok {
 		return m
 	}
@@ -48,7 +50,7 @@ func (c *OpenAIClient) modelFor(role string) string {
 
 func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, out any) (Usage, error) {
 	req := openai.ChatCompletionRequest{
-		Model: c.modelFor(role),
+		Model: c.ModelFor(role),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: system},
 			{Role: openai.ChatMessageRoleUser, Content: user},
