@@ -86,11 +86,13 @@ verify: build check test
 
 # --- локальный запуск (без Docker) ---
 
+## backend: API на 127.0.0.1:8080 (окружение читается из backend/.env)
 backend:
-	cd backend && go run ./cmd/server
+	cd $(BACKEND) && $(GO) run ./cmd/server
 
+## frontend: dev-сервер фронта на 127.0.0.1:5173 (/api и /healthz → :8080)
 frontend:
-	cd frontend && $ npm run dev
+	cd $(FRONTEND) && $(NPM) run dev -- --host 127.0.0.1
 
 ## start-frontend: прод-сервер фронта из build/ на 127.0.0.1:3000
 start-frontend: build-frontend
@@ -110,15 +112,17 @@ dev: env
 docker-build:
 	$(COMPOSE) build
 
+## up: поднять стек compose (фронт публикуется на 127.0.0.1:8080)
 up:
-	docker compose up -d --build
+	$(COMPOSE) up -d --build
 
+## down: остановить и удалить контейнеры стека
 down:
-	docker compose down
+	$(COMPOSE) down
 
-
+## logs: смотреть логи стека
 logs:
-	docker compose logs -f
+	$(COMPOSE) logs -f
 
 ## docker-ps: состояние сервисов стека
 docker-ps:
