@@ -8,6 +8,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 	"golang.org/x/sync/errgroup"
 )
@@ -38,13 +39,18 @@ type Options struct {
 	MaxPhrases int
 	// DefaultRegion — geo ID региона, если бриф его не задал.
 	DefaultRegion string
+	// Recorder — журнал событий прогона (nil — трасса не пишется).
+	Recorder trace.Recorder
 }
 
-// Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость.
+// Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость и расход.
 type Result struct {
 	Strategy     agents.Strategy
 	Deliverables []agents.Deliverable
 	CostUSD      float64
+	// Usage — суммарные токены прогона (трасса показывает их по ролям в событиях,
+	// здесь — общий итог).
+	Usage llm.Usage
 }
 
 type Orchestrator struct {
@@ -53,6 +59,7 @@ type Orchestrator struct {
 	copywriter  *agents.Copywriter
 	critic      *agents.Critic
 	semanticist *agents.Semanticist
+	trace       trace.Recorder
 	opt         Options
 }
 
@@ -67,6 +74,7 @@ func New(c llm.Client, opt Options) *Orchestrator {
 		copywriter:  agents.NewCopywriter(c),
 		critic:      agents.NewCritic(c),
 		semanticist: semanticist,
+		trace:       trace.OrNop(opt.Recorder),
 		opt:         opt,
 	}
 }
@@ -76,7 +84,7 @@ func (o *Orchestrator) canResearch() bool {
 	return o.opt.Wordstat != nil && o.semanticist != nil
 }
 
-func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (Result, error) {
+func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (res Result, err error) {
 	if p == nil {
 		p = NopProgress{}
 	}
@@ -87,6 +95,14 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (Res
 		total = total.Add(u)
 		mu.Unlock()
 	}
+	// Итог прогона пишем в трассу в любом случае: и при успехе, и при ошибке —
+	// иначе провалившийся прогон остаётся без объяснения, ради чего трасса и нужна.
+	defer func() {
+		mu.Lock()
+		res.Usage = total
+		mu.Unlock()
+		o.traceResult(ctx, res, err)
+	}()
 
 	// Темы: либо подбор на поисковом спросе, либо стратег как раньше.
 	// Позиционирование в обоих случаях даёт стратег.
@@ -171,6 +187,13 @@ func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Str
 		if err != nil {
 			return agents.Deliverable{}, total, err
 		}
+		o.traceDecision(ctx, "critic", fmt.Sprintf("«%s»: итерация %d — %d/100, %s, замечаний %d",
+			t.Title, iter+1, rev.Score, verdictNote(rev.Verdict), len(rev.Issues)),
+			map[string]any{
+				"topic": t.Title, "iteration": iter + 1, "score": rev.Score,
+				"verdict": rev.Verdict, "issues": rev.Issues,
+			})
+
 		if !bestSet || rev.Score > best.Review.Score {
 			best = agents.Deliverable{Article: art, Review: rev}
 			bestSet = true
@@ -191,6 +214,14 @@ func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Str
 	}
 	p.TopicDone(i, best.Review.Score)
 	return best, total, nil
+}
+
+// verdictNote переводит вердикт критика в человеческое слово для ленты трассы.
+func verdictNote(verdict string) string {
+	if verdict == "accept" {
+		return "принято"
+	}
+	return "на доработку"
 }
 
 func (o *Orchestrator) cost(u llm.Usage) float64 {

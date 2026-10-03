@@ -59,6 +59,9 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 	if hasRP {
 		rp.ResearchSeeds(seeds)
 	}
+	o.traceDecision(ctx, "seeds",
+		fmt.Sprintf("сеялок: %d", len(seeds)),
+		map[string]any{"seeds": seeds, "requested": o.seedCount()})
 
 	// 2) Спрос по каждой сеялке.
 	stage(StageFetching)
@@ -77,8 +80,16 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 		if err != nil {
 			return agents.Strategy{}, total, fmt.Errorf("подбор тем: спрос по %q: %w", seed, err)
 		}
+		before := len(counts)
 		collectCounts(counts, top)
 		processed = i + 1
+		o.traceDecision(ctx, "seed_collected",
+			fmt.Sprintf("«%s»: +%d фраз, всего %d", seed, len(counts)-before, len(counts)),
+			map[string]any{
+				"seed": seed, "new_phrases": len(counts) - before,
+				"total_phrases": len(counts), "has_data": top.HasData,
+				"total_count": top.TotalCount, "cache_hit": top.CacheHit,
+			})
 		if hasRP {
 			rp.ResearchSeedDone(i)
 		}
@@ -101,6 +112,9 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 		if err != nil {
 			return agents.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
 		}
+		o.traceDecision(ctx, "clustering",
+			fmt.Sprintf("из %d фраз модель собрала %d тем (просили %d)", len(phrases), len(drafts), want*mult),
+			map[string]any{"phrases": len(phrases), "drafts": len(drafts), "want": want * mult})
 	}
 
 	// 4) Сезонная поправка по головной фразе каждой темы.
@@ -131,6 +145,17 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 	}
 
 	cands := SelectTopics(inputs, want, o.opt.Select)
+	for _, c := range cands {
+		o.traceDecision(ctx, "topic_decision",
+			fmt.Sprintf("«%s»: объём %d — %s", c.Title, c.Volume, decisionNote(c)),
+			map[string]any{
+				"id": c.ID, "title": c.Title, "head": c.Head, "volume": c.Volume,
+				"source": c.Source, "selected": c.Selected, "reject": c.Reject,
+				"intent": c.Intent, "seasonal": c.Season != nil && c.Season.Seasonal,
+				"min_volume":         o.opt.Select.MinVolume,
+				"seasonality_factor": o.opt.Select.SeasonalityFactor,
+			})
+	}
 
 	// 5) Fallback: спроса нет или подтверждённых тем не хватило.
 	if selected := countSelected(cands); selected < want {
@@ -141,6 +166,11 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 			return agents.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
 		case err == nil:
 			cands = SelectTopics(append(inputs, FallbackInputs(fallback)...), want, o.opt.Select)
+			o.traceDecision(ctx, "fallback",
+				fmt.Sprintf("тем от модели добавлено: %d (подтверждённых спросом было %d из %d)",
+					len(fallback), selected, want),
+				map[string]any{"added": len(fallback), "selected": selected, "want": want,
+					"no_demand": len(counts) == 0})
 		}
 	}
 
@@ -181,6 +211,18 @@ func (o *Orchestrator) maxWordstatCalls() int {
 		return o.opt.MaxWordstatCalls
 	}
 	return DefaultMaxWordstatCalls
+}
+
+// decisionNote описывает решение по теме для ленты трассы.
+func decisionNote(c agents.TopicCandidate) string {
+	switch {
+	case c.Reject != "":
+		return c.Reject
+	case c.Selected:
+		return "отобрана в генерацию"
+	default:
+		return "не хватило мест"
+	}
 }
 
 // regionList собирает фильтр регионов: из брифа, иначе регион по умолчанию.
