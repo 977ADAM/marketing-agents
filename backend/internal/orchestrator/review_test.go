@@ -1,4 +1,4 @@
-package orchestrator
+package orchestrator_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 )
 
 // Review: два текста, у каждого два агента (compliance, quality).
@@ -21,9 +22,9 @@ func TestReviewTwoTexts(t *testing.T) {
 		`{"score":85,"issues":["мелкая опечатка"]}`,
 		`{"score":95,"issues":[]}`,
 	}
-	o := New(fake, Options{CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
-	req := ReviewRequest{BriefText: "бриф", Texts: []agents.TextToReview{
+	req := orchestrator.ReviewRequest{BriefText: "бриф", Texts: []agents.TextToReview{
 		{Title: "Статья 1", Body: "текст 1"},
 		{Title: "Статья 2", Body: "текст 2"},
 	}}
@@ -60,11 +61,11 @@ func TestReviewTitleFallback(t *testing.T) {
 	fake := llm.NewFake()
 	fake.Responses[agents.RoleCompliance] = []string{`{"score":81,"issues":[]}`}
 	fake.Responses[agents.RoleQuality] = []string{`{"score":82,"issues":[]}`}
-	o := New(fake, Options{})
+	o := orchestrator.New(fake, orchestrator.Options{})
 
 	var got []string
 	rec := &recordingProgress{onPlanned: func(titles []string) { got = append(got, titles...) }}
-	req := ReviewRequest{BriefText: "б", Texts: []agents.TextToReview{{Body: "x"}}}
+	req := orchestrator.ReviewRequest{BriefText: "б", Texts: []agents.TextToReview{{Body: "x"}}}
 	if _, err := o.Review(context.Background(), req, rec); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
@@ -77,9 +78,9 @@ type recordingProgress struct {
 	onPlanned func(titles []string)
 }
 
-func (r *recordingProgress) Strategizing()           {}
+func (r *recordingProgress) Strategizing()            {}
 func (r *recordingProgress) TopicsPlanned(t []string) { r.onPlanned(t) }
-func (r *recordingProgress) TopicWriting(int)        {}
-func (r *recordingProgress) TopicReviewing(int, int) {}
-func (r *recordingProgress) TopicRevising(int, int)  {}
-func (r *recordingProgress) TopicDone(int, int)      {}
+func (r *recordingProgress) TopicWriting(int)         {}
+func (r *recordingProgress) TopicReviewing(int, int)  {}
+func (r *recordingProgress) TopicRevising(int, int)   {}
+func (r *recordingProgress) TopicDone(int, int)       {}

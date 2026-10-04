@@ -1,4 +1,4 @@
-package wordstat
+package wordstat_test
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // Фикстуры — сырые тела ответов живого MCP-сервера (SSE-обёртка целиком),
@@ -141,15 +143,15 @@ func standardFixtures(t *testing.T) map[string]string {
 	}
 }
 
-func newTestClient(f *fakeMCP) *Client {
-	return New(Options{URL: f.URL, User: "admin", Pass: "123", HTTP: f.Client(), MaxRetries: 1})
+func newTestClient(f *fakeMCP) *wordstat.Client {
+	return wordstat.New(wordstat.Options{URL: f.URL, User: "admin", Pass: "123", HTTP: f.Client(), MaxRetries: 1})
 }
 
 func TestTopRequestsParsesStructuredContent(t *testing.T) {
 	f := newFakeMCP(t, standardFixtures(t))
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), TopParams{Phrase: "зимняя резина", NumPhrases: 50})
+	top, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 50})
 	if err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
@@ -197,7 +199,7 @@ func TestTopRequestsRegionFilter(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "top_requests_region.sse" }
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), TopParams{
+	top, err := c.TopRequests(context.Background(), wordstat.TopParams{
 		Phrase: "зимняя резина", NumPhrases: 50, Regions: []string{"213"},
 	})
 	if err != nil {
@@ -223,7 +225,7 @@ func TestTopRequestsNoDataIsNotAnError(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "top_requests_nodata.sse" }
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), TopParams{Phrase: "ыфвыфв ыфва", NumPhrases: 5})
+	top, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "ыфвыфв ыфва", NumPhrases: 5})
 	if err != nil {
 		t.Fatalf("отсутствие спроса не должно быть ошибкой: %v", err)
 	}
@@ -237,7 +239,7 @@ func TestRegionsIncludeNames(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "regions_named.sse" }
 	c := newTestClient(f)
 
-	res, err := c.Regions(context.Background(), RegionsParams{
+	res, err := c.Regions(context.Background(), wordstat.RegionsParams{
 		Phrase: "аренда офиса", RegionMode: "regions", IncludeNames: true,
 	})
 	if err != nil {
@@ -266,7 +268,7 @@ func TestDynamicsMonthly(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "dynamics_monthly.sse" }
 	c := newTestClient(f)
 
-	res, err := c.Dynamics(context.Background(), DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
+	res, err := c.Dynamics(context.Background(), wordstat.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
 	if err != nil {
 		t.Fatalf("Dynamics: %v", err)
 	}
@@ -291,14 +293,14 @@ func TestToolErrorInvalidArgument(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "error_invalid_argument.sse" }
 	c := newTestClient(f)
 
-	_, err := c.TopRequests(context.Background(), TopParams{Phrase: "зимняя резина", Regions: []string{"abc"}})
+	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина", Regions: []string{"abc"}})
 	if err == nil {
 		t.Fatal("ожидалась ошибка")
 	}
-	if !errors.Is(err, ErrInvalidArgument) {
+	if !errors.Is(err, wordstat.ErrInvalidArgument) {
 		t.Errorf("errors.Is(ErrInvalidArgument) = false, err = %v", err)
 	}
-	if Retryable(err) {
+	if wordstat.Retryable(err) {
 		t.Error("invalid_argument не должен считаться retryable")
 	}
 	if !strings.Contains(err.Error(), "invalid region") {
@@ -311,14 +313,14 @@ func TestUnknownToolIsInternal(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "error_unknown_tool.sse" }
 	c := newTestClient(f)
 
-	_, err := c.TopRequests(context.Background(), TopParams{Phrase: "зимняя резина"})
+	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка")
 	}
-	if !errors.Is(err, ErrInternal) {
+	if !errors.Is(err, wordstat.ErrInternal) {
 		t.Errorf("errors.Is(ErrInternal) = false, err = %v", err)
 	}
-	if Retryable(err) {
+	if wordstat.Retryable(err) {
 		t.Error("ошибка протокола не должна считаться retryable")
 	}
 }
@@ -328,7 +330,7 @@ func TestSessionReconnectOnLostSession(t *testing.T) {
 	f.failFirstToolCall = true
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), TopParams{Phrase: "зимняя резина", NumPhrases: 50})
+	top, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 50})
 	if err != nil {
 		t.Fatalf("после переподключения ожидался успех: %v", err)
 	}
@@ -353,12 +355,12 @@ func TestUnauthorizedIsInternal(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c := New(Options{URL: srv.URL, User: "admin", Pass: "wrong", HTTP: srv.Client()})
-	_, err := c.TopRequests(context.Background(), TopParams{Phrase: "зимняя резина"})
+	c := wordstat.New(wordstat.Options{URL: srv.URL, User: "admin", Pass: "wrong", HTTP: srv.Client()})
+	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка авторизации")
 	}
-	if !errors.Is(err, ErrInternal) {
+	if !errors.Is(err, wordstat.ErrInternal) {
 		t.Errorf("errors.Is(ErrInternal) = false, err = %v", err)
 	}
 	if !strings.Contains(err.Error(), "401") {
@@ -370,8 +372,8 @@ func TestEmptyPhraseFailsFast(t *testing.T) {
 	f := newFakeMCP(t, standardFixtures(t))
 	c := newTestClient(f)
 
-	_, err := c.TopRequests(context.Background(), TopParams{Phrase: "   "})
-	if !errors.Is(err, ErrInvalidArgument) {
+	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "   "})
+	if !errors.Is(err, wordstat.ErrInvalidArgument) {
 		t.Fatalf("err = %v, want ErrInvalidArgument", err)
 	}
 
@@ -395,7 +397,7 @@ func TestParseExtractJSON(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := extractJSON([]byte(tc.in))
+			got, err := wordstat.ExtractJSON([]byte(tc.in))
 			if err != nil {
 				t.Fatalf("extractJSON: %v", err)
 			}
@@ -405,7 +407,7 @@ func TestParseExtractJSON(t *testing.T) {
 		})
 	}
 
-	if _, err := extractJSON([]byte("event: message\n\n")); err == nil {
+	if _, err := wordstat.ExtractJSON([]byte("event: message\n\n")); err == nil {
 		t.Error("ожидалась ошибка на теле без data-строки")
 	}
 }

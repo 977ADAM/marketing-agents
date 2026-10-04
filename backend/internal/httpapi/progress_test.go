@@ -1,10 +1,11 @@
-package httpapi
+package httpapi_test
 
 import (
 	"context"
 	"sync"
 	"testing"
 
+	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
@@ -59,7 +60,7 @@ func (f *fakeProgressStore) GetReview(_ context.Context, id string) (*store.Revi
 
 func TestHubLiveSubscriber(t *testing.T) {
 	ps := newFakePS()
-	hub := NewHub(context.Background(), ps)
+	hub := httpapi.NewHub(context.Background(), ps)
 	tr := hub.Tracker("c1")
 
 	snap0, ch, cancel := hub.Subscribe("c1")
@@ -87,7 +88,7 @@ func TestHubLiveSubscriber(t *testing.T) {
 // Подбор тем: в снимке видна фаза researching, подэтап и сеялки как единицы работы.
 func TestTrackerResearchProgress(t *testing.T) {
 	ps := newFakePS()
-	hub := NewHub(context.Background(), ps)
+	hub := httpapi.NewHub(context.Background(), ps)
 	tr := hub.Tracker("r1")
 
 	_, ch, cancel := hub.Subscribe("r1")
@@ -135,7 +136,7 @@ func TestHubLateSubscriberFromStore(t *testing.T) {
 	ps := newFakePS()
 	ps.camps["done1"] = &store.Campaign{ID: "done1", Status: "done",
 		Progress: &orchestrator.Snapshot{Phase: orchestrator.PhaseDone, Percent: 100}}
-	hub := NewHub(context.Background(), ps)
+	hub := httpapi.NewHub(context.Background(), ps)
 
 	snap, ch, cancel := hub.Subscribe("done1")
 	defer cancel()
@@ -148,7 +149,7 @@ func TestHubLateSubscriberFromStore(t *testing.T) {
 }
 
 func TestHubFinishClosesSubscribers(t *testing.T) {
-	hub := NewHub(context.Background(), newFakePS())
+	hub := httpapi.NewHub(context.Background(), newFakePS())
 	tr := hub.Tracker("c2")
 	_, ch, cancel := hub.Subscribe("c2")
 	defer cancel()
@@ -164,7 +165,7 @@ func TestHubFinishClosesSubscribers(t *testing.T) {
 }
 
 func TestHubUpdateAfterCancelNoPanic(t *testing.T) {
-	hub := NewHub(context.Background(), newFakePS())
+	hub := httpapi.NewHub(context.Background(), newFakePS())
 	tr := hub.Tracker("c3")
 	_, _, cancel := hub.Subscribe("c3")
 

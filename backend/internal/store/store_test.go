@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -9,13 +9,14 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
 // и не требуют внешнего сервера (в отличие от прежнего Postgres-варианта).
-func newTestStore(t *testing.T) *Store {
+func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -119,7 +120,7 @@ func TestCampaignRoundTrip(t *testing.T) {
 
 func TestGetNotFound(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Get(context.Background(), "00000000-0000-0000-0000-0000000000ff"); err != ErrNotFound {
+	if _, err := s.Get(context.Background(), "00000000-0000-0000-0000-0000000000ff"); err != store.ErrNotFound {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -354,7 +355,7 @@ func TestReviewRoundTrip(t *testing.T) {
 		t.Errorf("ListReviews = %+v", items)
 	}
 
-	if _, err := st.GetReview(ctx, "нет-такой-проверки"); err != ErrNotFound {
+	if _, err := st.GetReview(ctx, "нет-такой-проверки"); err != store.ErrNotFound {
 		t.Errorf("GetReview(unknown) err = %v, want ErrNotFound", err)
 	}
 }
@@ -364,7 +365,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "reopen.db")
 
-	first, err := Open(ctx, path)
+	first, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -383,7 +384,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	second, err := Open(ctx, path)
+	second, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -403,17 +404,17 @@ func TestMigrateIdempotent(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 
-	if err := Migrate(ctx, st.db); err != nil {
+	if err := store.Migrate(ctx, st.DB()); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
 	var applied, campaigns int
-	if err := st.db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
+	if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
 		t.Fatalf("count schema_migrations: %v", err)
 	}
 	if applied == 0 {
 		t.Error("schema_migrations is empty")
 	}
-	if err := st.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='campaigns'`).Scan(&campaigns); err != nil {
+	if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='campaigns'`).Scan(&campaigns); err != nil {
 		t.Fatalf("count campaigns table: %v", err)
 	}
 	if campaigns != 1 {
@@ -425,7 +426,7 @@ func TestMigrateIdempotent(t *testing.T) {
 func TestForeignKeysEnforced(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if _, err := st.db.ExecContext(ctx,
+	if _, err := st.DB().ExecContext(ctx,
 		`INSERT INTO deliverables (id, campaign_id, topic, title, body, cta, review)
 		 VALUES ('d-1','00000000-0000-0000-0000-00000000dead','t','a','b','c','{}')`); err == nil {
 		t.Fatal("ожидали ошибку FOREIGN KEY: pragma foreign_keys=1 не применилась")
@@ -434,17 +435,17 @@ func TestForeignKeysEnforced(t *testing.T) {
 
 // DSN: нужные pragma на месте, готовый URI не переписывается.
 func TestDSN(t *testing.T) {
-	dsn := DSN("data/x.db")
+	dsn := store.DSN("data/x.db")
 	for _, want := range []string{"file:data/x.db?", "busy_timeout(5000)", "journal_mode(WAL)", "foreign_keys(1)", "_txlock=immediate"} {
 		if !strings.Contains(dsn, want) {
 			t.Errorf("DSN = %q, нет %q", dsn, want)
 		}
 	}
 	custom := "file:/tmp/x.db?_pragma=foreign_keys(1)"
-	if got := DSN(custom); got != custom {
+	if got := store.DSN(custom); got != custom {
 		t.Errorf("DSN(готовый URI) = %q, want %q", got, custom)
 	}
-	if dsn := DSN(":memory:"); dsn == "" || strings.Contains(dsn, "journal_mode") {
+	if dsn := store.DSN(":memory:"); dsn == "" || strings.Contains(dsn, "journal_mode") {
 		t.Errorf("DSN(:memory:) = %q — WAL для памяти не нужен", dsn)
 	}
 }

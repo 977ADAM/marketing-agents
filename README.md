@@ -42,6 +42,7 @@ backend/            Go-сервис (отдельный модуль): API /api/
   internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
+  tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
   Dockerfile        образ API: distroless + SQLite
 frontend/           SvelteKit 3 (Svelte 5, adapter-node)
@@ -212,11 +213,25 @@ npm test         # юнит-тесты (vitest)
 
 ## Тесты
 
+Раскладка Go-тестов: юнит-тесты лежат рядом с кодом как black-box пакеты
+(`package <pkg>_test` — тестируется только публичный API), доступ к внутренним
+деталям — через отдельные швы в `export_test.go` (файл компилируется лишь в
+тест-бинарь пакета, в прод-сборку не попадает). Сквозные тесты, которым нужны
+сразу несколько слоёв, живут в `backend/tests/`:
+
+- `tests/e2e` — прогон целиком: стор, трасса, декораторы LLM/Wordstat,
+  оркестратор и раннер в одном сценарии;
+- `tests/live` — opt-in дымовой тест против настоящего MCP-сервера.
+
 ```bash
-cd backend && go test ./...     # агенты, оркестратор, httpapi, стор, wordstat (SQLite во временном каталоге)
+cd backend && go test ./...     # все Go-тесты: internal + tests/e2e + tests/live (SQLite во временном каталоге)
 cd frontend && npm run check    # svelte-check: типы и Svelte-диагностики
 cd frontend && npm test         # vitest: api-клиент, сторы (в т.ч. SSE-прогресс), словари, формат
 ```
+
+То же через Makefile: `make test-unit` (только юнит-тесты `internal/`),
+`make test-e2e` (сквозные), `make test-live` (живой MCP), `make test-backend`
+(всё Go), `make test` (Go + фронт).
 
 Подбор тем покрыт тестами на **реальных ответах Wordstat**: фикстуры живого MCP
 лежат в `backend/internal/wordstat/testdata` (сырые тела ответов, включая фразу
@@ -234,7 +249,7 @@ cd frontend && npm test         # vitest: api-клиент, сторы (в т.ч
 ```bash
 cd backend
 WORDSTAT_MCP_URL=https://…/wordstat-mcp/mcp WORDSTAT_MCP_USER=… WORDSTAT_MCP_PASS=… \
-  go test ./internal/wordstat/ -run TestLiveMCP -v
+  go test ./tests/live/ -run TestLiveMCP -v
 ```
 
 Фронтовые юнит-тесты идут в node-окружении и покрывают модули без DOM:

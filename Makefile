@@ -7,7 +7,7 @@ API_URL  ?= http://127.0.0.1:8080
 
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
-        test test-backend test-frontend check check-frontend verify \
+        test test-backend test-unit test-e2e test-live test-frontend check check-frontend verify \
         backend frontend start-frontend dev \
         docker-build up docker-down docker-logs docker-ps health clean
 
@@ -67,9 +67,21 @@ build-frontend: $(FRONTEND)/node_modules
 ## test: тесты бэкенда и фронта
 test: test-backend test-frontend
 
-## test-backend: go test по всем пакетам (агенты, оркестратор, API, стор)
+## test-backend: go test по всем пакетам (internal + tests/e2e + tests/live)
 test-backend:
 	cd $(BACKEND) && $(GO) test ./...
+
+## test-unit: только юнит-тесты пакетов internal (без сквозных)
+test-unit:
+	cd $(BACKEND) && $(GO) test ./internal/...
+
+## test-e2e: сквозные тесты (стор → трасса → оркестратор → раннер)
+test-e2e:
+	cd $(BACKEND) && $(GO) test ./tests/e2e/...
+
+## test-live: дымовой тест против живого MCP (ходит в сеть и тратит квоту; нужны WORDSTAT_MCP_*)
+test-live:
+	cd $(BACKEND) && $(GO) test ./tests/live/ -run TestLiveMCP -v
 
 ## test-frontend: юнит-тесты фронта (vitest)
 test-frontend: $(FRONTEND)/node_modules

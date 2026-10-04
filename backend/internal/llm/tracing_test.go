@@ -1,4 +1,4 @@
-package llm
+package llm_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
@@ -19,12 +20,12 @@ func (c *captureRecorder) Enabled() bool                           { return true
 
 // stubLLM — подменённый клиент модели.
 type stubLLM struct {
-	usage Usage
+	usage llm.Usage
 	err   error
 	model string
 }
 
-func (s *stubLLM) Complete(context.Context, string, string, string, any) (Usage, error) {
+func (s *stubLLM) Complete(context.Context, string, string, string, any) (llm.Usage, error) {
 	return s.usage, s.err
 }
 
@@ -32,7 +33,7 @@ func (s *stubLLM) ModelFor(string) string { return s.model }
 
 func TestTracingClientRecordsCall(t *testing.T) {
 	rec := &captureRecorder{}
-	client := NewTracing(&stubLLM{usage: Usage{PromptTokens: 120, CompletionTokens: 340}, model: "deepseek-v4-flash"}, rec)
+	client := llm.NewTracing(&stubLLM{usage: llm.Usage{PromptTokens: 120, CompletionTokens: 340}, model: "deepseek-v4-flash"}, rec)
 
 	usage, err := client.Complete(context.Background(), "copywriter", "система", "пользователь", &struct{}{})
 	if err != nil {
@@ -73,7 +74,7 @@ func TestTracingClientRecordsCall(t *testing.T) {
 
 func TestTracingClientRecordsError(t *testing.T) {
 	rec := &captureRecorder{}
-	client := NewTracing(&stubLLM{err: errors.New("модель недоступна")}, rec)
+	client := llm.NewTracing(&stubLLM{err: errors.New("модель недоступна")}, rec)
 
 	if _, err := client.Complete(context.Background(), "critic", "s", "u", &struct{}{}); err == nil {
 		t.Fatal("ожидалась ошибка")
@@ -90,7 +91,7 @@ func TestTracingClientRecordsError(t *testing.T) {
 
 // Без рекордера (или с nil) клиент обязан работать как обычно.
 func TestTracingClientWithoutRecorderStillWorks(t *testing.T) {
-	client := NewTracing(&stubLLM{usage: Usage{PromptTokens: 1, CompletionTokens: 1}}, nil)
+	client := llm.NewTracing(&stubLLM{usage: llm.Usage{PromptTokens: 1, CompletionTokens: 1}}, nil)
 	if _, err := client.Complete(context.Background(), "role", "s", "u", &struct{}{}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}

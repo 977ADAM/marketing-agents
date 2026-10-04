@@ -1,16 +1,17 @@
-package orchestrator
+package orchestrator_test
 
 import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // Числа в тестах — из живых фикстур Wordstat (backend/internal/wordstat/testdata):
 // «зимняя резина» 1 028 481 за 30 дней, «какую зимнюю резину» 92 398,
 // «купить зимнюю резину» 289 429, сумма 50 формулировок — 3 487 006.
-var selectOpts = SelectOptions{MinVolume: 300, SeasonalityFactor: 3}
+var selectOpts = orchestrator.SelectOptions{MinVolume: 300, SeasonalityFactor: 3}
 
 func draft(title, goal string) agents.TopicDraft {
 	return agents.TopicDraft{Title: title, Goal: goal, Task: "задача"}
@@ -29,7 +30,7 @@ func winterDynamics() []wordstat.DynamicsPoint {
 
 // Объём темы — максимум по цитатам, а не сумма: сумма завысила бы спрос в 3+ раза.
 func TestSelectTopicsVolumeIsMaxNotSum(t *testing.T) {
-	inputs := []DraftInput{{
+	inputs := []orchestrator.DraftInput{{
 		Draft: draft("Как выбрать зимние шины", "поймать в момент выбора"),
 		Queries: []agents.PhraseCount{
 			{Phrase: "зимняя резина", Count: 1028481},
@@ -38,7 +39,7 @@ func TestSelectTopicsVolumeIsMaxNotSum(t *testing.T) {
 		},
 	}}
 
-	cands := SelectTopics(inputs, 1, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 1, selectOpts)
 	if len(cands) != 1 {
 		t.Fatalf("кандидатов %d, want 1", len(cands))
 	}
@@ -55,7 +56,7 @@ func TestSelectTopicsVolumeIsMaxNotSum(t *testing.T) {
 
 // Размеры и типоразмеры — не темы, даже если спрос по ним большой.
 func TestSelectTopicsDropsTechnicalTopics(t *testing.T) {
-	inputs := []DraftInput{
+	inputs := []orchestrator.DraftInput{
 		{Draft: draft("Зимняя резина 205 55 16", "размер"), Queries: []agents.PhraseCount{
 			{Phrase: "зимняя резина 205 55 16", Count: 16880},
 			{Phrase: "зимняя резина r16", Count: 35202},
@@ -65,13 +66,13 @@ func TestSelectTopicsDropsTechnicalTopics(t *testing.T) {
 		}},
 	}
 
-	cands := SelectTopics(inputs, 2, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
 	if len(cands) != 2 {
 		t.Fatalf("кандидатов %d, want 2 (отклонённые остаются с причиной)", len(cands))
 	}
 	for _, c := range cands {
 		if c.Head == "зимняя резина r16" {
-			if c.Reject != rejectTechnical {
+			if c.Reject != orchestrator.RejectTechnical {
 				t.Errorf("техническая тема не помечена: %+v", c)
 			}
 			if c.Selected {
@@ -86,12 +87,12 @@ func TestSelectTopicsDropsTechnicalTopics(t *testing.T) {
 
 // Порог: тема ниже минимума не идёт в генерацию, но видна с причиной.
 func TestSelectTopicsMinVolume(t *testing.T) {
-	inputs := []DraftInput{
+	inputs := []orchestrator.DraftInput{
 		{Draft: draft("Сильная тема", "g"), Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}}},
 		{Draft: draft("Слабая тема", "g"), Queries: []agents.PhraseCount{{Phrase: "резина для квадроцикла зима", Count: 120}}},
 	}
 
-	cands := SelectTopics(inputs, 2, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
 	var weak *agents.TopicCandidate
 	for i := range cands {
 		if cands[i].Title == "Слабая тема" {
@@ -101,7 +102,7 @@ func TestSelectTopicsMinVolume(t *testing.T) {
 	if weak == nil {
 		t.Fatal("слабая тема потерялась из результата")
 	}
-	if weak.Reject != rejectLowVolume || weak.Selected {
+	if weak.Reject != orchestrator.RejectLowVolume || weak.Selected {
 		t.Errorf("слабая тема: reject = %q, selected = %v", weak.Reject, weak.Selected)
 	}
 }
@@ -109,7 +110,7 @@ func TestSelectTopicsMinVolume(t *testing.T) {
 // Сезонная тема: спрос в межсезонье ниже порога, но пик за 12 месяцев — выше,
 // и размах больше множителя. Порог не должен её убивать.
 func TestSelectTopicsSeasonalRescue(t *testing.T) {
-	season := SeasonalityOf(winterDynamics(), selectOpts.SeasonalityFactor)
+	season := orchestrator.SeasonalityOf(winterDynamics(), selectOpts.SeasonalityFactor)
 	if season == nil || !season.Seasonal {
 		t.Fatalf("сезонность не распознана: %+v", season)
 	}
@@ -120,13 +121,13 @@ func TestSelectTopicsSeasonalRescue(t *testing.T) {
 		t.Errorf("размах = %.2f, want ≈8.85", season.Ratio)
 	}
 
-	inputs := []DraftInput{{
+	inputs := []orchestrator.DraftInput{{
 		Draft:   draft("Когда менять резину на зимнюю", "сезонный вопрос"),
 		Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 200}},
 		Season:  season,
 	}}
 
-	cands := SelectTopics(inputs, 1, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 1, selectOpts)
 	if len(cands) != 1 {
 		t.Fatalf("кандидатов %d, want 1", len(cands))
 	}
@@ -140,32 +141,32 @@ func TestSelectTopicsSeasonalRescue(t *testing.T) {
 	if cands[0].Volume != 200 {
 		t.Errorf("Volume = %d, want 200 (фактический спрос окна)", cands[0].Volume)
 	}
-	if rankVolume(cands[0]) != 1700930 {
-		t.Errorf("rankVolume = %d, want пик 1700930", rankVolume(cands[0]))
+	if orchestrator.RankVolume(cands[0]) != 1700930 {
+		t.Errorf("rankVolume = %d, want пик 1700930", orchestrator.RankVolume(cands[0]))
 	}
 }
 
 // Сезонность без большого размаха — не спасение: тема остаётся ниже порога.
 func TestSelectTopicsFlatSeasonalityDoesNotRescue(t *testing.T) {
-	flat := SeasonalityOf([]wordstat.DynamicsPoint{
+	flat := orchestrator.SeasonalityOf([]wordstat.DynamicsPoint{
 		{Date: "2026-01-01T00:00:00Z", Count: 500},
 		{Date: "2026-02-01T00:00:00Z", Count: 450},
 	}, selectOpts.SeasonalityFactor)
-	inputs := []DraftInput{{
+	inputs := []orchestrator.DraftInput{{
 		Draft:   draft("Ровный спрос", "g"),
 		Queries: []agents.PhraseCount{{Phrase: "офисная мебель для переговорной", Count: 100}},
 		Season:  flat,
 	}}
 
-	cands := SelectTopics(inputs, 1, selectOpts)
-	if cands[0].Reject != rejectLowVolume {
-		t.Errorf("reject = %q, want %q", cands[0].Reject, rejectLowVolume)
+	cands := orchestrator.SelectTopics(inputs, 1, selectOpts)
+	if cands[0].Reject != orchestrator.RejectLowVolume {
+		t.Errorf("reject = %q, want %q", cands[0].Reject, orchestrator.RejectLowVolume)
 	}
 }
 
 // Отбор N из 2N: сверху по объёму, отобранные идут первыми.
 func TestSelectTopicsPicksTopNOfDouble(t *testing.T) {
-	inputs := []DraftInput{
+	inputs := []orchestrator.DraftInput{
 		{Draft: draft("Тема A", "g"), Queries: []agents.PhraseCount{{Phrase: "a", Count: 1000}}},
 		{Draft: draft("Тема B", "g"), Queries: []agents.PhraseCount{{Phrase: "b", Count: 5000}}},
 		{Draft: draft("Тема C", "g"), Queries: []agents.PhraseCount{{Phrase: "c", Count: 3000}}},
@@ -174,7 +175,7 @@ func TestSelectTopicsPicksTopNOfDouble(t *testing.T) {
 		{Draft: draft("Тема F", "g"), Queries: []agents.PhraseCount{{Phrase: "f", Count: 2000}}},
 	}
 
-	cands := SelectTopics(inputs, 3, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 3, selectOpts)
 	if len(cands) != 6 {
 		t.Fatalf("кандидатов %d, want 6 (все рассмотренные)", len(cands))
 	}
@@ -201,16 +202,16 @@ func TestSelectTopicsPicksTopNOfDouble(t *testing.T) {
 
 // Fallback: подтверждённых тем не хватило — добираем темами от модели, без цифр.
 func TestSelectTopicsFallbackFillsGap(t *testing.T) {
-	inputs := []DraftInput{{
+	inputs := []orchestrator.DraftInput{{
 		Draft:   draft("С подтверждённым спросом", "g"),
 		Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
 	}}
-	inputs = append(inputs, FallbackInputs([]agents.TopicDraft{
+	inputs = append(inputs, orchestrator.FallbackInputs([]agents.TopicDraft{
 		draft("Тема от модели 1", "g"),
 		draft("Тема от модели 2", "g"),
 	})...)
 
-	cands := SelectTopics(inputs, 2, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
 	var selected []agents.TopicCandidate
 	for _, c := range cands {
 		if c.Selected {
@@ -236,13 +237,13 @@ func TestSelectTopicsFallbackFillsGap(t *testing.T) {
 
 // Когда данных хватает, темы от модели остаются в списке, но не отбираются.
 func TestSelectTopicsFallbackNotUsedWhenEnoughData(t *testing.T) {
-	inputs := []DraftInput{
+	inputs := []orchestrator.DraftInput{
 		{Draft: draft("A", "g"), Queries: []agents.PhraseCount{{Phrase: "a", Count: 5000}}},
 		{Draft: draft("B", "g"), Queries: []agents.PhraseCount{{Phrase: "b", Count: 4000}}},
 	}
-	inputs = append(inputs, FallbackInputs([]agents.TopicDraft{draft("Модель", "g")})...)
+	inputs = append(inputs, orchestrator.FallbackInputs([]agents.TopicDraft{draft("Модель", "g")})...)
 
-	cands := SelectTopics(inputs, 2, selectOpts)
+	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
 	for _, c := range cands {
 		if c.Source == agents.SourceLLM && c.Selected {
 			t.Error("тема от модели не должна отбираться, когда данных хватает")
@@ -251,7 +252,7 @@ func TestSelectTopicsFallbackNotUsedWhenEnoughData(t *testing.T) {
 }
 
 func TestSelectedTopicsMapsToPipelineTopics(t *testing.T) {
-	inputs := []DraftInput{{
+	inputs := []orchestrator.DraftInput{{
 		Draft: draft("Как выбрать зимние шины: 6 простых правил", "поймать в момент выбора"),
 		Queries: []agents.PhraseCount{
 			{Phrase: "какую зимнюю резину", Count: 92398},
@@ -259,7 +260,7 @@ func TestSelectedTopicsMapsToPipelineTopics(t *testing.T) {
 		},
 	}}
 
-	topics := SelectedTopics(SelectTopics(inputs, 1, selectOpts))
+	topics := orchestrator.SelectedTopics(orchestrator.SelectTopics(inputs, 1, selectOpts))
 	if len(topics) != 1 {
 		t.Fatalf("тем %d, want 1", len(topics))
 	}
@@ -295,14 +296,14 @@ func TestIntentOf(t *testing.T) {
 		"подобрать резину на зиму":  "выбор",
 	}
 	for phrase, want := range cases {
-		if got := IntentOf(phrase); got != want {
+		if got := orchestrator.IntentOf(phrase); got != want {
 			t.Errorf("IntentOf(%q) = %q, want %q", phrase, got, want)
 		}
 	}
 }
 
 func TestSeasonalityOfEmptyPoints(t *testing.T) {
-	if s := SeasonalityOf(nil, 3); s != nil {
+	if s := orchestrator.SeasonalityOf(nil, 3); s != nil {
 		t.Errorf("без точек сезонности быть не может: %+v", s)
 	}
 }

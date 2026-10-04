@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
@@ -81,10 +82,10 @@ func TestRunEventsRoundTrip(t *testing.T) {
 	if _, err := s.RunEvent(ctx, "run-2", 1); err != nil {
 		t.Errorf("своё событие второго прогона должно читаться: %v", err)
 	}
-	if _, err := s.RunEvent(ctx, "run-1", 99); !errors.Is(err, ErrNotFound) {
+	if _, err := s.RunEvent(ctx, "run-1", 99); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
-	if _, err := s.RunEvent(ctx, "run-2", 2); !errors.Is(err, ErrNotFound) {
+	if _, err := s.RunEvent(ctx, "run-2", 2); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("чужой seq: err = %v, want ErrNotFound", err)
 	}
 }
@@ -135,7 +136,7 @@ func TestRunEventsMigrationIdempotent(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 2; i++ {
-		s, err := Open(ctx, path)
+		s, err := store.Open(ctx, path)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i+1, err)
 		}
@@ -147,7 +148,7 @@ func TestRunEventsMigrationIdempotent(t *testing.T) {
 		}
 	}
 
-	s, err := Open(ctx, path)
+	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open после перезапуска: %v", err)
 	}

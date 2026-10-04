@@ -1,4 +1,4 @@
-package orchestrator
+package orchestrator_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 )
 
 func brief() agents.Brief {
@@ -28,7 +29,7 @@ func TestRunFanOutAcceptsImmediately(t *testing.T) {
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":88,"issues":[],"verdict":"accept"}`,
 	}
-	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -56,7 +57,7 @@ func TestRunCriticReviseLoop(t *testing.T) {
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
-	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -84,7 +85,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 		`{"score":70,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
-	o := New(fake, Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -100,7 +101,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 
 func TestRunFailsWhenStrategistErrors(t *testing.T) {
 	fake := llm.NewFake() // нет ответов → стратег вернёт ошибку
-	o := New(fake, Options{CriticMaxIter: 1, ScoreThreshold: 80})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80})
 	if _, err := o.Run(context.Background(), brief(), nil); err == nil {
 		t.Fatal("expected error")
 	}
@@ -120,7 +121,7 @@ func TestRunCapsTopics(t *testing.T) {
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
-	o := New(fake, Options{CriticMaxIter: 1, ScoreThreshold: 80, MaxTopics: 2, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80, MaxTopics: 2, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -140,7 +141,7 @@ type recordProgress struct {
 	events []string
 }
 
-func (r *recordProgress) add(e string) { r.mu.Lock(); r.events = append(r.events, e); r.mu.Unlock() }
+func (r *recordProgress) add(e string)             { r.mu.Lock(); r.events = append(r.events, e); r.mu.Unlock() }
 func (r *recordProgress) Strategizing()            { r.add("strategizing") }
 func (r *recordProgress) TopicsPlanned(t []string) { r.add(fmt.Sprintf("planned:%d", len(t))) }
 func (r *recordProgress) TopicWriting(i int)       { r.add(fmt.Sprintf("writing:%d", i)) }
@@ -162,7 +163,7 @@ func TestRunEmitsProgressPickBest(t *testing.T) {
 		`{"score":50,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
-	o := New(fake, Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 	rec := &recordProgress{}
 
 	if _, err := o.Run(context.Background(), brief(), rec); err != nil {
@@ -192,7 +193,7 @@ func TestRunEmitsProgress(t *testing.T) {
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
-	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 	rec := &recordProgress{}
 
 	if _, err := o.Run(context.Background(), brief(), rec); err != nil {

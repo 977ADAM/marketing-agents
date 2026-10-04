@@ -1,10 +1,12 @@
-package config
+package config_test
 
 import (
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/977ADAM/marketing-agents/internal/config"
 )
 
 func TestLoadDefaultsAndOverrides(t *testing.T) {
@@ -13,7 +15,7 @@ func TestLoadDefaultsAndOverrides(t *testing.T) {
 	os.Setenv("DEEPSEEK_API_KEY", "sk-test")
 	os.Setenv("CRITIC_MAX_ITER", "5")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -35,7 +37,7 @@ func TestLoadDefaultSQLitePath(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("DEEPSEEK_API_KEY", "sk-test")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -47,7 +49,7 @@ func TestLoadDefaultSQLitePath(t *testing.T) {
 func TestLoadRequiresAPIKey(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("SQLITE_PATH", "/tmp/x.db")
-	if _, err := Load(); err == nil {
+	if _, err := config.Load(); err == nil {
 		t.Fatal("expected error when DEEPSEEK_API_KEY missing")
 	}
 }
@@ -58,7 +60,7 @@ func TestLoadAcceptsLegacyDatabaseURLPath(t *testing.T) {
 	os.Setenv("DATABASE_URL", "/var/lib/marketing/marketing.db")
 	os.Setenv("DEEPSEEK_API_KEY", "sk-test")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestLoadRejectsPostgresDSN(t *testing.T) {
 	os.Setenv("DATABASE_URL", "postgres://app:app@db:5432/marketing?sslmode=disable")
 	os.Setenv("DEEPSEEK_API_KEY", "sk-test")
 
-	_, err := Load()
+	_, err := config.Load()
 	if err == nil {
 		t.Fatal("expected error for postgres DSN")
 	}
@@ -86,7 +88,7 @@ func TestBasicAuthDefaults(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("DEEPSEEK_API_KEY", "k")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -101,7 +103,7 @@ func TestLoadDefaultHTTPAddrIsLoopback(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("DEEPSEEK_API_KEY", "k")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -117,7 +119,7 @@ func TestLoadHTTPAddrOverride(t *testing.T) {
 	os.Setenv("DEEPSEEK_API_KEY", "k")
 	os.Setenv("HTTP_ADDR", ":8080")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -132,7 +134,7 @@ func TestWordstatDefaults(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("DEEPSEEK_API_KEY", "k")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -168,7 +170,7 @@ func TestWordstatOverrides(t *testing.T) {
 	os.Setenv("WORDSTAT_MAX_CALLS_PER_RUN", "20")
 	os.Setenv("TOPICS_MULTIPLIER", "3")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -206,7 +208,7 @@ func TestWordstatAuthPairing(t *testing.T) {
 			os.Setenv("WORDSTAT_MCP_USER", tc.user)
 			os.Setenv("WORDSTAT_MCP_PASS", tc.pass)
 
-			_, err := Load()
+			_, err := config.Load()
 			if err == nil {
 				t.Fatal("ожидалась ошибка про неполную пару кред")
 			}
@@ -220,7 +222,7 @@ func TestWordstatAuthPairing(t *testing.T) {
 	os.Setenv("DEEPSEEK_API_KEY", "k")
 	os.Setenv("WORDSTAT_MCP_USER", "admin")
 	os.Setenv("WORDSTAT_MCP_PASS", "secret")
-	if _, err := Load(); err != nil {
+	if _, err := config.Load(); err != nil {
 		t.Errorf("полная пара кред должна приниматься: %v", err)
 	}
 }
@@ -247,7 +249,7 @@ func TestWordstatValidation(t *testing.T) {
 				os.Setenv(k, v)
 			}
 
-			_, err := Load()
+			_, err := config.Load()
 			if err == nil {
 				t.Fatal("ожидалась ошибка валидации")
 			}
@@ -263,7 +265,7 @@ func TestTraceDefaults(t *testing.T) {
 	os.Clearenv()
 	os.Setenv("DEEPSEEK_API_KEY", "k")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -285,7 +287,7 @@ func TestTraceOverridesAndValidation(t *testing.T) {
 	os.Setenv("TRACE_RETENTION_DAYS", "7")
 	os.Setenv("TRACE_MAX_PAYLOAD_BYTES", "1024")
 
-	cfg, err := Load()
+	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -295,13 +297,13 @@ func TestTraceOverridesAndValidation(t *testing.T) {
 
 	// Опечатка в режиме — ошибка конфига, а не молчаливое «выключено».
 	os.Setenv("TRACE_MODE", "verbose")
-	if _, err := Load(); err == nil {
+	if _, err := config.Load(); err == nil {
 		t.Fatal("ожидалась ошибка на неизвестном режиме трассы")
 	}
 
 	os.Setenv("TRACE_MODE", "summary")
 	os.Setenv("TRACE_MAX_PAYLOAD_BYTES", "0")
-	if _, err := Load(); err == nil {
+	if _, err := config.Load(); err == nil {
 		t.Fatal("ожидалась ошибка на нулевом лимите payload")
 	}
 }

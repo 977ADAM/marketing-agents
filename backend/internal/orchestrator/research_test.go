@@ -1,4 +1,4 @@
-package orchestrator
+package orchestrator_test
 
 import (
 	"context"
@@ -8,13 +8,14 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // researchProgress — recorder с поддержкой этапа подбора тем.
 type researchProgress struct {
 	*recordProgress
-	stages []ResearchStage
+	stages []orchestrator.ResearchStage
 	seeds  []string
 	done   int
 }
@@ -23,7 +24,7 @@ func newResearchProgress() *researchProgress {
 	return &researchProgress{recordProgress: &recordProgress{}}
 }
 
-func (r *researchProgress) Researching(s ResearchStage) {
+func (r *researchProgress) Researching(s orchestrator.ResearchStage) {
 	r.mu.Lock()
 	r.stages = append(r.stages, s)
 	r.mu.Unlock()
@@ -70,13 +71,13 @@ func researchBrief() agents.Brief {
 	return b
 }
 
-func researchOptions(src wordstat.Source, opt Options) Options {
+func researchOptions(src wordstat.Source, opt orchestrator.Options) orchestrator.Options {
 	opt.CriticMaxIter = 3
 	opt.ScoreThreshold = 80
 	opt.CostPer1KPrompt = 1
 	opt.CostPer1KCompletion = 1
 	opt.Wordstat = src
-	opt.Select = SelectOptions{MinVolume: 300, SeasonalityFactor: 3}
+	opt.Select = orchestrator.SelectOptions{MinVolume: 300, SeasonalityFactor: 3}
 	opt.TopicsMultiplier = 2
 	opt.DefaultRegion = "225"
 	return opt
@@ -103,7 +104,7 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 	}
 
 	p := newResearchProgress()
-	o := New(fake, researchOptions(src, Options{}))
+	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	res, err := o.Run(context.Background(), researchBrief(), p)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -156,8 +157,8 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 		if len(p.Regions) != 1 || p.Regions[0] != "213" {
 			t.Errorf("регион спроса = %v, want [213]", p.Regions)
 		}
-		if p.NumPhrases != DefaultNumPhrases {
-			t.Errorf("NumPhrases = %d, want %d", p.NumPhrases, DefaultNumPhrases)
+		if p.NumPhrases != orchestrator.DefaultNumPhrases {
+			t.Errorf("NumPhrases = %d, want %d", p.NumPhrases, orchestrator.DefaultNumPhrases)
 		}
 	}
 	if len(src.DynamicsParamsLog) == 0 || src.DynamicsParamsLog[0].Regions[0] != "213" {
@@ -165,7 +166,7 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 	}
 
 	// Подэтапы и сеялки видны в прогрессе, все сеялки закрыты.
-	wantStages := []ResearchStage{StageSeeds, StageFetching, StageClustering, StageSelecting}
+	wantStages := []orchestrator.ResearchStage{orchestrator.StageSeeds, orchestrator.StageFetching, orchestrator.StageClustering, orchestrator.StageSelecting}
 	if len(p.stages) != len(wantStages) {
 		t.Fatalf("подэтапы = %v, want %v", p.stages, wantStages)
 	}
@@ -200,7 +201,7 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
 
-	o := New(fake, researchOptions(src, Options{}))
+	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	res, err := o.Run(context.Background(), researchBrief(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -227,7 +228,7 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 	fake := llm.NewFake()
 	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
-	o := New(fake, researchOptions(src, Options{}))
+	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), nil)
 	if err == nil {
 		t.Fatal("ожидалась ошибка прогона")
@@ -248,7 +249,7 @@ func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	fake.Responses[agents.RoleCluster] = []string{`{"topics":[
 		{"title":"Лучшая зимняя резина 2026","goal":"g","task":"t","queries":["лучшая зимняя резина 2026"]}]}`}
 
-	o := New(fake, researchOptions(src, Options{}))
+	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), nil)
 	if err == nil {
 		t.Fatal("ожидалась ошибка про неизвестный запрос")
@@ -269,9 +270,9 @@ func TestRunResearchRespectsCallLimit(t *testing.T) {
 	fake.Responses[agents.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[agents.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
-	opt := researchOptions(src, Options{})
+	opt := researchOptions(src, orchestrator.Options{})
 	opt.MaxWordstatCalls = 2
-	o := New(fake, opt)
+	o := orchestrator.New(fake, opt)
 
 	p := newResearchProgress()
 	if _, err := o.Run(context.Background(), researchBrief(), p); err != nil {
@@ -292,7 +293,7 @@ func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
 	fake.Responses[agents.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[agents.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
-	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80})
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)

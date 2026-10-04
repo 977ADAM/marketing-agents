@@ -1,4 +1,4 @@
-package llm
+package llm_test
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/977ADAM/marketing-agents/internal/llm"
 )
 
 // roundTripFunc — подменяет http.RoundTripper в go-openai клиенте.
@@ -35,7 +37,7 @@ func TestCompleteRetriesOn5xx(t *testing.T) {
 		}
 		return jsonResponse("m", `{"ok":true}`, 1, 1), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "m", 2, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "m", 2, &http.Client{Transport: rt})
 
 	var out struct {
 		OK bool `json:"ok"`
@@ -62,7 +64,7 @@ func TestCompleteParsesJSONAndUsage(t *testing.T) {
 		gotModel = payload.Model
 		return jsonResponse(payload.Model, `{"score":42}`, 10, 5), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "model-default", 1, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "model-default", 1, &http.Client{Transport: rt})
 
 	var out struct {
 		Score int `json:"score"`
@@ -97,7 +99,7 @@ func TestCompleteNoRetryOn4xx(t *testing.T) {
 		calls++
 		return statusResponse(400, `{"error":{"message":"bad request"}}`), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "m", 3, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "m", 3, &http.Client{Transport: rt})
 
 	var out struct{}
 	if _, err := c.Complete(context.Background(), "any", "s", "u", &out); err == nil {
@@ -114,7 +116,7 @@ func TestCompleteExhaustsRetries(t *testing.T) {
 		calls++
 		return statusResponse(503, `{"error":{"message":"busy"}}`), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "m", 1, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "m", 1, &http.Client{Transport: rt})
 
 	var out struct{}
 	_, err := c.Complete(context.Background(), "any", "s", "u", &out)
@@ -140,7 +142,7 @@ func TestRoleModelOverride(t *testing.T) {
 		gotModel = payload.Model
 		return jsonResponse(payload.Model, `{"ok":true}`, 1, 1), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "model-default", 1, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "model-default", 1, &http.Client{Transport: rt})
 	c.SetRoleModel("copywriter", "model-fast")
 
 	var out struct {
@@ -158,7 +160,7 @@ func TestCompleteEmptyChoices(t *testing.T) {
 	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return statusResponse(200, `{"id":"x","object":"chat.completion","model":"m","choices":[],"usage":{}}`), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "m", 1, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "m", 1, &http.Client{Transport: rt})
 
 	var out struct{}
 	_, err := c.Complete(context.Background(), "any", "s", "u", &out)
@@ -171,7 +173,7 @@ func TestCompleteBadJSONContent(t *testing.T) {
 	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse("m", `не json`, 3, 2), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "m", 1, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "m", 1, &http.Client{Transport: rt})
 
 	var out struct {
 		Score int `json:"score"`
@@ -206,7 +208,7 @@ func TestCompleteTolerantJSONParsing(t *testing.T) {
 			rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
 				return jsonResponse("m", tc.content, 1, 1), nil
 			})
-			c := New("sk", "https://api.deepseek.com/v1", "m", 0, &http.Client{Transport: rt})
+			c := llm.New("sk", "https://api.deepseek.com/v1", "m", 0, &http.Client{Transport: rt})
 
 			var out struct {
 				Score int `json:"score"`
@@ -226,7 +228,7 @@ func TestCompleteNoJSONAtAll(t *testing.T) {
 	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return jsonResponse("m", "извините, не могу", 1, 1), nil
 	})
-	c := New("sk", "https://api.deepseek.com/v1", "m", 0, &http.Client{Transport: rt})
+	c := llm.New("sk", "https://api.deepseek.com/v1", "m", 0, &http.Client{Transport: rt})
 
 	var out struct {
 		Score int `json:"score"`

@@ -1,10 +1,12 @@
-package wordstat
+package live_test
 
 import (
 	"context"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // TestLiveMCP — дымовой тест против настоящего MCP-сервера. По умолчанию
@@ -12,7 +14,7 @@ import (
 // только явно, с переменными окружения:
 //
 //	WORDSTAT_MCP_URL=https://... WORDSTAT_MCP_USER=... WORDSTAT_MCP_PASS=... \
-//	    go test ./internal/wordstat/ -run TestLiveMCP -v
+//	    go test ./tests/live/ -run TestLiveMCP -v
 func TestLiveMCP(t *testing.T) {
 	url := os.Getenv("WORDSTAT_MCP_URL")
 	if url == "" {
@@ -22,14 +24,14 @@ func TestLiveMCP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	c := New(Options{
+	c := wordstat.New(wordstat.Options{
 		URL:  url,
 		User: os.Getenv("WORDSTAT_MCP_USER"),
 		Pass: os.Getenv("WORDSTAT_MCP_PASS"),
 	})
 
 	// Спрос по стране и по Москве: регион должен реально сужать выборку.
-	all, err := c.TopRequests(ctx, TopParams{Phrase: "зимняя резина", NumPhrases: 5})
+	all, err := c.TopRequests(ctx, wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 5})
 	if err != nil {
 		t.Fatalf("TopRequests (вся Россия): %v", err)
 	}
@@ -40,7 +42,7 @@ func TestLiveMCP(t *testing.T) {
 		t.Error("нет популярных запросов")
 	}
 
-	moscow, err := c.TopRequests(ctx, TopParams{Phrase: "зимняя резина", NumPhrases: 5, Regions: []string{"213"}})
+	moscow, err := c.TopRequests(ctx, wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 5, Regions: []string{"213"}})
 	if err != nil {
 		t.Fatalf("TopRequests (Москва): %v", err)
 	}
@@ -48,7 +50,7 @@ func TestLiveMCP(t *testing.T) {
 		t.Errorf("спрос по Москве (%d) должен быть меньше общероссийского (%d)", moscow.TotalCount, all.TotalCount)
 	}
 
-	dyn, err := c.Dynamics(ctx, DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
+	dyn, err := c.Dynamics(ctx, wordstat.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
 	if err != nil {
 		t.Fatalf("Dynamics: %v", err)
 	}
@@ -56,7 +58,7 @@ func TestLiveMCP(t *testing.T) {
 		t.Errorf("точек динамики %d, ожидалось не меньше 6", len(dyn.Points))
 	}
 
-	regions, err := c.Regions(ctx, RegionsParams{Phrase: "аренда офиса", RegionMode: "regions", IncludeNames: true})
+	regions, err := c.Regions(ctx, wordstat.RegionsParams{Phrase: "аренда офиса", RegionMode: "regions", IncludeNames: true})
 	if err != nil {
 		t.Fatalf("Regions: %v", err)
 	}

@@ -1,4 +1,4 @@
-package trace
+package trace_test
 
 import (
 	"context"
@@ -7,17 +7,19 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // fakeSink записывает события в память и умеет падать по требованию.
 type fakeSink struct {
 	mu      sync.Mutex
-	records []Record
+	records []trace.Record
 	err     error
 	calls   int
 }
 
-func (f *fakeSink) SaveRunEvent(_ context.Context, rec Record) error {
+func (f *fakeSink) SaveRunEvent(_ context.Context, rec trace.Record) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -28,30 +30,30 @@ func (f *fakeSink) SaveRunEvent(_ context.Context, rec Record) error {
 	return nil
 }
 
-func (f *fakeSink) all() []Record {
+func (f *fakeSink) all() []trace.Record {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]Record(nil), f.records...)
+	return append([]trace.Record(nil), f.records...)
 }
 
 func fixedClock(t time.Time) func() time.Time { return func() time.Time { return t } }
 
 // runCtx помечает контекст прогоном: события без него не пишутся.
 func runCtx(runID string) context.Context {
-	return WithRunID(context.Background(), runID)
+	return trace.WithRunID(context.Background(), runID)
 }
 
 func TestParseMode(t *testing.T) {
-	cases := map[string]Mode{
-		"":        ModeSummary,
-		"off":     ModeOff,
-		"summary": ModeSummary,
-		"full":    ModeFull,
-		"FULL":    ModeFull,
-		" full ":  ModeFull,
+	cases := map[string]trace.Mode{
+		"":        trace.ModeSummary,
+		"off":     trace.ModeOff,
+		"summary": trace.ModeSummary,
+		"full":    trace.ModeFull,
+		"FULL":    trace.ModeFull,
+		" full ":  trace.ModeFull,
 	}
 	for in, want := range cases {
-		got, err := ParseMode(in)
+		got, err := trace.ParseMode(in)
 		if err != nil {
 			t.Fatalf("ParseMode(%q): %v", in, err)
 		}
@@ -59,33 +61,33 @@ func TestParseMode(t *testing.T) {
 			t.Errorf("ParseMode(%q) = %q, want %q", in, got, want)
 		}
 	}
-	if _, err := ParseMode("verbose"); err == nil {
+	if _, err := trace.ParseMode("verbose"); err == nil {
 		t.Error("ожидалась ошибка на неизвестном режиме")
 	}
 }
 
 func TestNopWritesNothing(t *testing.T) {
 	sink := &fakeSink{}
-	rec := OrNop(nil)
+	rec := trace.OrNop(nil)
 	if rec.Enabled() {
 		t.Error("Nop не должен считаться включённым")
 	}
-	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "strategist"})
+	rec.Event(runCtx("run-1"), trace.Event{Kind: trace.KindLLM, Name: "strategist"})
 	if sink.calls != 0 {
 		t.Error("Nop не должен писать в хранилище")
 	}
 
-	var nilRec *recorder
-	OrNop(nilRec).Event(runCtx("run-1"), Event{}) // не должно паниковать
+	var nilRec *trace.RecorderImpl
+	trace.OrNop(nilRec).Event(runCtx("run-1"), trace.Event{}) // не должно паниковать
 }
 
 func TestOffModeSkipsSink(t *testing.T) {
 	sink := &fakeSink{}
-	rec := New(sink, Config{Mode: ModeOff})
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeOff})
 	if rec.Enabled() {
 		t.Error("в режиме off трасса выключена")
 	}
-	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "strategist"})
+	rec.Event(runCtx("run-1"), trace.Event{Kind: trace.KindLLM, Name: "strategist"})
 	if sink.calls != 0 {
 		t.Errorf("в режиме off записей быть не должно, получили %d", sink.calls)
 	}
@@ -93,12 +95,12 @@ func TestOffModeSkipsSink(t *testing.T) {
 
 func TestSeqIsMonotonicPerRun(t *testing.T) {
 	sink := &fakeSink{}
-	rec := New(sink, Config{Mode: ModeSummary})
-	rec.Event(runCtx("run-a"), Event{Kind: KindLLM, Name: "seeds"})
-	rec.Event(runCtx("run-b"), Event{Kind: KindLLM, Name: "seeds"})
-	rec.Event(runCtx("run-a"), Event{Kind: KindLLM, Name: "cluster"})
-	rec.Event(runCtx("run-b"), Event{Kind: KindDecision, Name: "select"})
-	rec.Event(runCtx("run-a"), Event{Kind: KindResult, Name: "done"})
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec.Event(runCtx("run-a"), trace.Event{Kind: trace.KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-b"), trace.Event{Kind: trace.KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-a"), trace.Event{Kind: trace.KindLLM, Name: "cluster"})
+	rec.Event(runCtx("run-b"), trace.Event{Kind: trace.KindDecision, Name: "select"})
+	rec.Event(runCtx("run-a"), trace.Event{Kind: trace.KindResult, Name: "done"})
 
 	want := map[string][]int64{"run-a": {1, 2, 3}, "run-b": {1, 2}}
 	for runID, seqs := range want {
@@ -124,9 +126,9 @@ func TestSummaryDropsPayloadAndFullKeepsIt(t *testing.T) {
 	at := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 
 	summarySink := &fakeSink{}
-	summary := New(summarySink, Config{Mode: ModeSummary, Now: fixedClock(at)})
-	summary.Event(runCtx("run-1"), Event{
-		Kind: KindLLM, Name: "copywriter",
+	summary := trace.New(summarySink, trace.Config{Mode: trace.ModeSummary, Now: fixedClock(at)})
+	summary.Event(runCtx("run-1"), trace.Event{
+		Kind: trace.KindLLM, Name: "copywriter",
 		Payload: map[string]string{"system": "ты копирайтер", "user": "бриф"},
 	})
 	rec := summarySink.all()[0]
@@ -138,9 +140,9 @@ func TestSummaryDropsPayloadAndFullKeepsIt(t *testing.T) {
 	}
 
 	fullSink := &fakeSink{}
-	full := New(fullSink, Config{Mode: ModeFull})
-	full.Event(runCtx("run-1"), Event{
-		Kind: KindLLM, Name: "copywriter",
+	full := trace.New(fullSink, trace.Config{Mode: trace.ModeFull})
+	full.Event(runCtx("run-1"), trace.Event{
+		Kind: trace.KindLLM, Name: "copywriter",
 		Payload: map[string]string{"system": "ты копирайтер"},
 	})
 	fullRec := fullSink.all()[0]
@@ -151,27 +153,27 @@ func TestSummaryDropsPayloadAndFullKeepsIt(t *testing.T) {
 
 func TestPayloadTruncated(t *testing.T) {
 	sink := &fakeSink{}
-	rec := New(sink, Config{Mode: ModeFull, MaxPayloadBytes: 40})
-	rec.Event(runCtx("run-1"), Event{
-		Kind: KindLLM, Name: "copywriter",
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeFull, MaxPayloadBytes: 40})
+	rec.Event(runCtx("run-1"), trace.Event{
+		Kind: trace.KindLLM, Name: "copywriter",
 		Payload: map[string]string{"body": strings.Repeat("ш", 200)},
 	})
 
 	got := sink.all()[0].PayloadJSON
-	if len(got) > 40+len(truncateMark)+4 { // +4: закрывающая кавычка и скобка JSON
+	if len(got) > 40+len(trace.TruncateMark)+4 { // +4: закрывающая кавычка и скобка JSON
 		t.Errorf("payload не обрезан: %d байт", len(got))
 	}
-	if !strings.Contains(got, truncateMark) {
+	if !strings.Contains(got, trace.TruncateMark) {
 		t.Errorf("нет пометки об обрезке: %q", got)
 	}
 }
 
 func TestStatusDefaultsToOK(t *testing.T) {
 	sink := &fakeSink{}
-	rec := New(sink, Config{Mode: ModeSummary})
-	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "seeds"})
-	if got := sink.all()[0].Status; got != StatusOK {
-		t.Errorf("Status = %q, want %q", got, StatusOK)
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec.Event(runCtx("run-1"), trace.Event{Kind: trace.KindLLM, Name: "seeds"})
+	if got := sink.all()[0].Status; got != trace.StatusOK {
+		t.Errorf("Status = %q, want %q", got, trace.StatusOK)
 	}
 }
 
@@ -180,9 +182,9 @@ func TestStatusDefaultsToOK(t *testing.T) {
 func TestSinkErrorDoesNotBreakRecording(t *testing.T) {
 	sink := &fakeSink{err: errors.New("диск переполнен")}
 	var reported []error
-	rec := New(sink, Config{Mode: ModeSummary, OnError: func(err error) { reported = append(reported, err) }})
-	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "seeds"})
-	rec.Event(runCtx("run-1"), Event{Kind: KindLLM, Name: "cluster"})
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary, OnError: func(err error) { reported = append(reported, err) }})
+	rec.Event(runCtx("run-1"), trace.Event{Kind: trace.KindLLM, Name: "seeds"})
+	rec.Event(runCtx("run-1"), trace.Event{Kind: trace.KindLLM, Name: "cluster"})
 
 	if sink.calls != 2 {
 		t.Errorf("вызовов хранилища %d, want 2", sink.calls)
@@ -197,9 +199,9 @@ func TestSinkErrorDoesNotBreakRecording(t *testing.T) {
 
 func TestEventCarriesMetrics(t *testing.T) {
 	sink := &fakeSink{}
-	rec := New(sink, Config{Mode: ModeSummary})
-	rec.Event(runCtx("run-1"), Event{
-		Kind: KindLLM, Name: "copywriter", Summary: "статья про шины",
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec.Event(runCtx("run-1"), trace.Event{
+		Kind: trace.KindLLM, Name: "copywriter", Summary: "статья про шины",
 		DurationMS: 1234, PromptTokens: 500, CompletionTokens: 900,
 	})
 
@@ -215,15 +217,15 @@ func TestEventCarriesMetrics(t *testing.T) {
 // Событие без прогона в контексте не пишется: привязать его не к чему.
 func TestNoRunIDSkipsSink(t *testing.T) {
 	sink := &fakeSink{}
-	rec := New(sink, Config{Mode: ModeSummary})
-	rec.Event(context.Background(), Event{Kind: KindLLM, Name: "seeds"})
+	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec.Event(context.Background(), trace.Event{Kind: trace.KindLLM, Name: "seeds"})
 	if sink.calls != 0 {
 		t.Errorf("без run_id записей быть не должно, получили %d", sink.calls)
 	}
-	if got := RunIDFrom(context.Background()); got != "" {
+	if got := trace.RunIDFrom(context.Background()); got != "" {
 		t.Errorf("RunIDFrom пустого контекста = %q, want пусто", got)
 	}
-	if got := RunIDFrom(WithRunID(context.Background(), "run-7")); got != "run-7" {
+	if got := trace.RunIDFrom(trace.WithRunID(context.Background(), "run-7")); got != "run-7" {
 		t.Errorf("RunIDFrom = %q, want run-7", got)
 	}
 }

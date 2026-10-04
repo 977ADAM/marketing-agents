@@ -1,4 +1,4 @@
-package orchestrator
+package orchestrator_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -69,9 +70,9 @@ func TestRunEmitsDecisionTrail(t *testing.T) {
 	fake := happyCampaignFakes(t)
 	rec := &captureTrace{}
 
-	opt := researchOptions(src, Options{})
+	opt := researchOptions(src, orchestrator.Options{})
 	opt.Recorder = rec
-	o := New(fake, opt)
+	o := orchestrator.New(fake, opt)
 
 	if _, err := o.Run(runCtx(), researchBrief(), nil); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -149,7 +150,7 @@ func TestRunEmitsCriticIterations(t *testing.T) {
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
 	rec := &captureTrace{}
-	o := New(fake, Options{CriticMaxIter: 3, ScoreThreshold: 80, Recorder: rec})
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, Recorder: rec})
 
 	if _, err := o.Run(runCtx(), brief(), nil); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -184,9 +185,9 @@ func TestRunEmitsFailedResult(t *testing.T) {
 	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	rec := &captureTrace{}
-	opt := researchOptions(src, Options{})
+	opt := researchOptions(src, orchestrator.Options{})
 	opt.Recorder = rec
-	o := New(fake, opt)
+	o := orchestrator.New(fake, opt)
 
 	if _, err := o.Run(runCtx(), researchBrief(), nil); err == nil {
 		t.Fatal("ожидалась ошибка прогона")
@@ -224,9 +225,9 @@ func TestRunWithoutRunIDWritesNothing(t *testing.T) {
 	sink := &sinkSpy{}
 	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
 
-	opt := researchOptions(winterSource(), Options{})
+	opt := researchOptions(winterSource(), orchestrator.Options{})
 	opt.Recorder = rec
-	o := New(happyCampaignFakes(t), opt)
+	o := orchestrator.New(happyCampaignFakes(t), opt)
 
 	if _, err := o.Run(context.Background(), researchBrief(), nil); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -241,9 +242,9 @@ func TestRunWithRunIDWritesTrail(t *testing.T) {
 	sink := &sinkSpy{}
 	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
 
-	opt := researchOptions(winterSource(), Options{})
+	opt := researchOptions(winterSource(), orchestrator.Options{})
 	opt.Recorder = rec
-	o := New(happyCampaignFakes(t), opt)
+	o := orchestrator.New(happyCampaignFakes(t), opt)
 
 	if _, err := o.Run(runCtx(), researchBrief(), nil); err != nil {
 		t.Fatalf("Run: %v", err)

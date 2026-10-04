@@ -1,4 +1,4 @@
-package wordstat
+package wordstat_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/trace"
+	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // captureRecorder собирает события трассы для проверок.
@@ -21,9 +22,9 @@ func ctxWithRun() context.Context { return trace.WithRunID(context.Background(),
 
 func TestTracingSourceRecordsTopRequests(t *testing.T) {
 	rec := &captureRecorder{}
-	src := NewTracing(winterSourceForTrace(), rec)
+	src := wordstat.NewTracing(winterSourceForTrace(), rec)
 
-	top, err := src.TopRequests(ctxWithRun(), TopParams{Phrase: "зимняя резина", NumPhrases: 50, Regions: []string{"213"}})
+	top, err := src.TopRequests(ctxWithRun(), wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 50, Regions: []string{"213"}})
 	if err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
@@ -62,9 +63,9 @@ func TestTracingSourceRecordsTopRequests(t *testing.T) {
 
 func TestTracingSourceRecordsNoDemand(t *testing.T) {
 	rec := &captureRecorder{}
-	src := NewTracing(NewFake(), rec) // Fake по умолчанию отдаёт «спроса нет»
+	src := wordstat.NewTracing(wordstat.NewFake(), rec) // Fake по умолчанию отдаёт «спроса нет»
 
-	if _, err := src.TopRequests(ctxWithRun(), TopParams{Phrase: "ыфвыфв ыфва"}); err != nil {
+	if _, err := src.TopRequests(ctxWithRun(), wordstat.TopParams{Phrase: "ыфвыфв ыфва"}); err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
 	ev := rec.events[0]
@@ -78,15 +79,15 @@ func TestTracingSourceRecordsNoDemand(t *testing.T) {
 
 func TestTracingSourceRecordsDynamicsAndRegions(t *testing.T) {
 	rec := &captureRecorder{}
-	fake := NewFake()
-	fake.DynamicsR = &Dynamics{Phrase: "зимняя резина", Points: []DynamicsPoint{{Date: "2026-09-01T00:00:00Z", Count: 10}}}
-	fake.RegionsR = &Regions{Phrase: "аренда офиса", Items: []RegionItem{{RegionID: "225", Name: "Россия", Count: 45299}}}
-	src := NewTracing(fake, rec)
+	fake := wordstat.NewFake()
+	fake.DynamicsR = &wordstat.Dynamics{Phrase: "зимняя резина", Points: []wordstat.DynamicsPoint{{Date: "2026-09-01T00:00:00Z", Count: 10}}}
+	fake.RegionsR = &wordstat.Regions{Phrase: "аренда офиса", Items: []wordstat.RegionItem{{RegionID: "225", Name: "Россия", Count: 45299}}}
+	src := wordstat.NewTracing(fake, rec)
 
-	if _, err := src.Dynamics(ctxWithRun(), DynamicsParams{Phrase: "зимняя резина", Period: "monthly"}); err != nil {
+	if _, err := src.Dynamics(ctxWithRun(), wordstat.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"}); err != nil {
 		t.Fatalf("Dynamics: %v", err)
 	}
-	if _, err := src.Regions(ctxWithRun(), RegionsParams{Phrase: "аренда офиса", IncludeNames: true}); err != nil {
+	if _, err := src.Regions(ctxWithRun(), wordstat.RegionsParams{Phrase: "аренда офиса", IncludeNames: true}); err != nil {
 		t.Fatalf("Regions: %v", err)
 	}
 
@@ -103,11 +104,11 @@ func TestTracingSourceRecordsDynamicsAndRegions(t *testing.T) {
 
 func TestTracingSourceRecordsError(t *testing.T) {
 	rec := &captureRecorder{}
-	fake := NewFake()
+	fake := wordstat.NewFake()
 	fake.Err = errors.New("MCP недоступен")
-	src := NewTracing(fake, rec)
+	src := wordstat.NewTracing(fake, rec)
 
-	if _, err := src.TopRequests(ctxWithRun(), TopParams{Phrase: "зимняя резина"}); err == nil {
+	if _, err := src.TopRequests(ctxWithRun(), wordstat.TopParams{Phrase: "зимняя резина"}); err == nil {
 		t.Fatal("ожидалась ошибка")
 	}
 	ev := rec.events[0]
@@ -119,8 +120,8 @@ func TestTracingSourceRecordsError(t *testing.T) {
 // Без прогона в контексте события не пишутся, но вызовы работают.
 func TestTracingSourceWithoutRunID(t *testing.T) {
 	rec := &captureRecorder{}
-	src := NewTracing(winterSourceForTrace(), rec)
-	if _, err := src.TopRequests(context.Background(), TopParams{Phrase: "зимняя резина"}); err != nil {
+	src := wordstat.NewTracing(winterSourceForTrace(), rec)
+	if _, err := src.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина"}); err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
 	if len(rec.events) != 1 {
@@ -136,16 +137,16 @@ func TestTracingSourceWithoutRunID(t *testing.T) {
 func TestHumanCount(t *testing.T) {
 	cases := map[int64]string{0: "0", 999: "999", 1000: "1 000", 1028481: "1 028 481", 12345: "12 345"}
 	for in, want := range cases {
-		if got := humanCount(in); got != want {
-			t.Errorf("humanCount(%d) = %q, want %q", in, got, want)
+		if got := wordstat.HumanCount(in); got != want {
+			t.Errorf("wordstat.HumanCount(%d) = %q, want %q", in, got, want)
 		}
 	}
 }
 
 // winterSourceForTrace — источник с числами из фикстур Wordstat.
-func winterSourceForTrace() *Fake {
-	fake := NewFake()
-	fake.SetTop("зимняя резина", Seed("зимняя резина", 1028481, map[string]int64{
+func winterSourceForTrace() *wordstat.Fake {
+	fake := wordstat.NewFake()
+	fake.SetTop("зимняя резина", wordstat.Seed("зимняя резина", 1028481, map[string]int64{
 		"зимняя резина":        1028481,
 		"купить зимнюю резину": 289429,
 	}))
