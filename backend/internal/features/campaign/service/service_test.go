@@ -44,3 +44,14 @@ func TestCreateFailureDoesNotStartCampaign(t *testing.T) {
 		t.Fatalf("err=%v started=%s", err, exec.id)
 	}
 }
+
+func TestRequestedTopicsOverConfiguredCapRejected(t *testing.T) {
+	store := &createStore{}
+	exec := &starter{}
+	b := testBrief()
+	b.TopicsCount = 6
+	_, err := service.NewService(store, exec).Create(context.Background(), "", b)
+	if err == nil || exec.id != "" || store.created.Product != "" {
+		t.Fatalf("err=%v started=%s", err, exec.id)
+	}
+}

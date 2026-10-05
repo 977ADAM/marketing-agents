@@ -121,6 +121,7 @@ func main() {
 		CostPer1KPrompt:     cfg.CostPer1KPrompt,
 		CostPer1KCompletion: cfg.CostPer1KCompletion,
 		MaxTopics:           cfg.MaxTopics,
+		ParallelTexts:       cfg.Limits.ParallelTexts,
 
 		Wordstat:         source,
 		MaxWordstatCalls: cfg.WordstatMaxCallsPerRun,
@@ -129,13 +130,13 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews)
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion}), cfg.RunTimeout, sloglogger.New(logger), hub)
-	campaignService := campaignservice.NewService(campaigns, runner)
-	reviewService := reviewservice.NewService(reviews, runner)
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub)
+	campaignService := campaignservice.NewService(campaigns, runner, cfg.Limits)
+	reviewService := reviewservice.NewService(reviews, runner, cfg.Limits)
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
-	api := server.New()
-	api.RegisterRoutes(campaignhttp.NewHandler(campaignService, hub, limiter).Routes()...)
-	api.RegisterRoutes(reviewhttp.NewHandler(reviewService, hub, limiter).Routes()...)
+	api := server.New(cfg.Limits)
+	api.RegisterRoutes(campaignhttp.NewHandler(campaignService, hub, limiter, cfg.Limits).Routes()...)
+	api.RegisterRoutes(reviewhttp.NewHandler(reviewService, hub, limiter, cfg.Limits).Routes()...)
 	api.RegisterRoutes(tracehttp.NewHandler(campaignService, reviewService, traceservice.NewQuery(events)).Routes()...)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —

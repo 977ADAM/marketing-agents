@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/977ADAM/marketing-agents/internal/core/limits"
+	"github.com/977ADAM/marketing-agents/internal/core/transport/http/response"
 	"net/http"
 	"time"
 )
@@ -13,8 +15,15 @@ type Route struct {
 }
 type Router struct{ mux *http.ServeMux }
 
-func New() *Router {
+func New(opt ...limits.Limits) *Router {
+	l := limits.Defaults()
+	if len(opt) > 0 {
+		l = limits.Normalize(opt[0])
+	}
 	m := http.NewServeMux()
+	m.HandleFunc("GET /api/limits", func(w http.ResponseWriter, r *http.Request) {
+		response.WriteJSON(w, http.StatusOK, map[string]any{"max_topics": l.MaxTopics, "max_texts": l.MaxTexts, "max_text_bytes": l.MaxTextBytes})
+	})
 	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

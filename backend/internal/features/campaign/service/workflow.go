@@ -4,6 +4,7 @@ package campaignservice
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/limits"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	"golang.org/x/sync/errgroup"
@@ -38,7 +39,8 @@ type Options struct {
 	// DefaultRegion — geo ID региона, если бриф его не задал.
 	DefaultRegion string
 	// Recorder — журнал событий прогона (nil — трасса не пишется).
-	Recorder trace.Recorder
+	Recorder      trace.Recorder
+	ParallelTexts int
 }
 
 // Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость и расход.
@@ -85,6 +87,9 @@ func (o *Workflow) canResearch() bool {
 func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (res Result, err error) {
 	if p == nil {
 		p = run.NopProgress{}
+	}
+	if b.TopicsCount < 0 || (o.opt.MaxTopics > 0 && b.TopicsCount > o.opt.MaxTopics) {
+		return Result{}, limits.Invalid("requested topics exceed configured cap")
 	}
 	var mu sync.Mutex
 	total := corellm.Usage{}
@@ -134,9 +139,15 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 		strat = st
 	}
 
-	// Кап на число тем: подбор мог вернуть больше, чем хотим обрабатывать.
-	if o.opt.MaxTopics > 0 && len(strat.Topics) > o.opt.MaxTopics {
-		strat.Topics = strat.Topics[:o.opt.MaxTopics]
+	cap := b.TopicsCount
+	if cap == 0 {
+		cap = o.opt.MaxTopics
+	}
+	if cap > 0 && len(strat.Topics) > cap {
+		strat.Topics = strat.Topics[:cap]
+	}
+	if b.TopicsCount > 0 && len(strat.Topics) < b.TopicsCount {
+		strat.Warnings = append(strat.Warnings, fmt.Sprintf("Запрошено %d тем, подобрано %d", b.TopicsCount, len(strat.Topics)))
 	}
 
 	titles := make([]string, len(strat.Topics))
@@ -147,6 +158,11 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 
 	deliverables := make([]campaign.Deliverable, len(strat.Topics))
 	g, gctx := errgroup.WithContext(ctx)
+	parallel := o.opt.ParallelTexts
+	if parallel <= 0 {
+		parallel = 4
+	}
+	g.SetLimit(parallel)
 	for i, topic := range strat.Topics {
 		i, topic := i, topic
 		g.Go(func() error {

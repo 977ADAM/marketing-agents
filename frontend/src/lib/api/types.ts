@@ -26,6 +26,7 @@ export interface Topic {
 }
 
 export interface Strategy {
+ warnings?:string[];
 	positioning: string;
 	topics: Topic[];
 	/** Все рассмотренные темы (вдвое больше, чем статей) с доказательствами. */

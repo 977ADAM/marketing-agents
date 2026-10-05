@@ -5,6 +5,7 @@ import (
 	"errors"
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 	service "github.com/977ADAM/marketing-agents/internal/features/review/service"
+	"strings"
 	"testing"
 )
 
@@ -41,5 +42,19 @@ func TestCreateFailureDoesNotStartReview(t *testing.T) {
 	_, err := service.NewService(store, exec).Create(context.Background(), "", review.Request{})
 	if err == nil || exec.id != "" {
 		t.Fatalf("err=%v started=%s", err, exec.id)
+	}
+}
+
+func TestReviewInputLimits(t *testing.T) {
+	for _, req := range []review.Request{
+		{BriefText: "B", Texts: make([]review.TextToReview, 21)},
+		{BriefText: "B", Texts: []review.TextToReview{{Body: strings.Repeat("x", 512*1024+1)}}},
+	} {
+		store := &createStore{}
+		exec := &starter{}
+		_, err := service.NewService(store, exec).Create(context.Background(), "", req)
+		if err == nil || exec.id != "" || store.brief != "" {
+			t.Fatalf("err=%v saved=%s", err, store.brief)
+		}
 	}
 }

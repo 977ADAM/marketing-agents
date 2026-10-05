@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/limits"
 	"net/url"
 	"os"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 // Config — конфигурация сервиса, собранная из переменных окружения.
 type Config struct {
 	HTTPAddr string
+	Limits   limits.Limits
 	// DatabaseURL — адрес MariaDB: mysql://user:pass@host:port/dbname.
 	// Задаётся напрямую или собирается из MARIADB_* (см. databaseURL).
 	DatabaseURL  string
@@ -90,6 +92,7 @@ func Load() (*Config, error) {
 	dbURL := databaseURL()
 
 	cfg := &Config{
+		Limits:       limits.Limits{MaxJSONBytes: int64(getInt("MAX_JSON_BYTES", 2<<20)), MaxTexts: getInt("MAX_REVIEW_TEXTS", 20), MaxTextBytes: getInt("MAX_TEXT_BYTES", 512<<10), MaxTopics: getInt("MAX_TOPICS", 5), ParallelTexts: getInt("PARALLEL_TEXTS", 4)},
 		HTTPAddr:     getStr("HTTP_ADDR", DefaultHTTPAddr),
 		DatabaseURL:  dbURL,
 		APIKey:       getStr("DEEPSEEK_API_KEY", ""),
@@ -130,6 +133,9 @@ func Load() (*Config, error) {
 
 // validate проверяет обязательные и диапазонные ограничения.
 func (c *Config) validate() error {
+	if c.Limits.MaxJSONBytes < 0 || c.Limits.MaxTexts < 0 || c.Limits.MaxTextBytes < 0 || c.Limits.ParallelTexts < 0 {
+		return fmt.Errorf("request budgets must be positive")
+	}
 	if c.APIKey == "" {
 		return fmt.Errorf("DEEPSEEK_API_KEY не задан")
 	}

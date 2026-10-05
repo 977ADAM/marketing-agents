@@ -37,6 +37,11 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 
 	reports := make([]review.TextReport, len(req.Texts))
 	g, gctx := errgroup.WithContext(ctx)
+	parallel := o.opt.ParallelTexts
+	if parallel <= 0 {
+		parallel = 4
+	}
+	g.SetLimit(parallel)
 	for i, t := range req.Texts {
 		i, t := i, t
 		g.Go(func() error {

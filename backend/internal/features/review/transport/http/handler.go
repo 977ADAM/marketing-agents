@@ -2,8 +2,9 @@ package reviewhttp
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/limits"
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	middleware "github.com/977ADAM/marketing-agents/internal/core/transport/http/middleware"
 	response "github.com/977ADAM/marketing-agents/internal/core/transport/http/response"
@@ -32,10 +33,10 @@ func (a *Handler) postReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req createReviewReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.WriteError(w, http.StatusBadRequest, "bad_json", "invalid JSON body")
+	if !response.DecodeJSON(w, r, a.limits.MaxJSONBytes, &req) {
 		return
 	}
+
 	if strings.TrimSpace(req.Brief) == "" {
 		response.WriteError(w, http.StatusBadRequest, "validation", "brief is required")
 		return
@@ -52,6 +53,11 @@ func (a *Handler) postReview(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := a.reviews.Create(r.Context(), req.ClientID, review.Request{BriefText: req.Brief, Texts: req.Texts})
 	if err != nil {
+		var validation *limits.ValidationError
+		if errors.As(err, &validation) {
+			response.WriteError(w, http.StatusBadRequest, "validation", validation.Error())
+			return
+		}
 		response.WriteError(w, http.StatusInternalServerError, "internal", "could not create review")
 		return
 	}
@@ -208,11 +214,17 @@ type Handler struct {
 	reviews ReviewService
 	sub     Subscriber
 	limiter *middleware.RateLimiter
+	limits  limits.Limits
 }
 
-func NewHandler(s ReviewService, sub Subscriber, limiter *middleware.RateLimiter) *Handler {
-	return &Handler{s, sub, limiter}
+func NewHandler(s ReviewService, sub Subscriber, limiter *middleware.RateLimiter, opt ...limits.Limits) *Handler {
+	l := limits.Defaults()
+	if len(opt) > 0 {
+		l = limits.Normalize(opt[0])
+	}
+	return &Handler{reviews: s, sub: sub, limiter: limiter, limits: l}
 }
+
 func (h *Handler) Routes() []server.Route {
 	return []server.Route{{"POST /api/reviews", h.postReview}, {"GET /api/reviews", h.listReviews}, {"GET /api/reviews/{id}", h.getReview}, {"GET /api/reviews/{id}/events", h.reviewEvents}, {"POST /api/reviews/extract", h.extractDocx}}
 }

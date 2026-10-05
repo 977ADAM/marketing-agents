@@ -74,3 +74,29 @@ func TestZeroCriticIterationsPreservesArticle(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestTopicsCountWithoutWordstat(t *testing.T) {
+	f := mock.NewLLM()
+	f.Responses["strategist"] = []string{`{"positioning":"P","topics":[{"title":"T"},{"title":"T2"}]}`}
+	f.Responses["copywriter"] = []string{`{"title":"T","body":"B"}`}
+	b := testBrief()
+	b.TopicsCount = 1
+	r, err := service.NewWorkflow(f, service.Options{MaxTopics: 5}).Run(context.Background(), b, nil)
+	if err != nil || len(r.Deliverables) != 1 {
+		t.Fatalf("result=%+v err=%v", r, err)
+	}
+	if !strings.Contains(f.Requests[0].User, "ровно 1") {
+		t.Fatal("count absent from strategist prompt")
+	}
+}
+func TestFewerTopicsHasWarning(t *testing.T) {
+	f := mock.NewLLM()
+	f.Responses["strategist"] = []string{`{"positioning":"P","topics":[{"title":"T"}]}`}
+	f.Responses["copywriter"] = []string{`{"title":"T","body":"B"}`}
+	b := testBrief()
+	b.TopicsCount = 2
+	r, err := service.NewWorkflow(f, service.Options{MaxTopics: 5}).Run(context.Background(), b, nil)
+	if err != nil || len(r.Strategy.Warnings) == 0 {
+		t.Fatalf("result=%+v err=%v", r, err)
+	}
+}

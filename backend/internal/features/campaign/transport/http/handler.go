@@ -3,8 +3,9 @@ package campaignhttp
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/limits"
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	middleware "github.com/977ADAM/marketing-agents/internal/core/transport/http/middleware"
 	response "github.com/977ADAM/marketing-agents/internal/core/transport/http/response"
@@ -36,10 +37,10 @@ func (a *Handler) postCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req createReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.WriteError(w, http.StatusBadRequest, "bad_json", "invalid JSON body")
+	if !response.DecodeJSON(w, r, a.limits.MaxJSONBytes, &req) {
 		return
 	}
+
 	if strings.TrimSpace(req.Product) == "" || strings.TrimSpace(req.Goal) == "" ||
 		strings.TrimSpace(req.Audience) == "" || strings.TrimSpace(req.Tone) == "" {
 		response.WriteError(w, http.StatusBadRequest, "validation", "product, goal, audience, tone are required")
@@ -49,8 +50,8 @@ func (a *Handler) postCampaign(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusBadRequest, "validation", "region must be a numeric Yandex geo id (for example 225)")
 		return
 	}
-	if req.TopicsCount != 0 && (req.TopicsCount < 1 || req.TopicsCount > maxTopicsCount) {
-		response.WriteError(w, http.StatusBadRequest, "validation", fmt.Sprintf("topics_count must be between 1 and %d", maxTopicsCount))
+	if req.TopicsCount != 0 && (req.TopicsCount < 1 || req.TopicsCount > a.limits.MaxTopics) {
+		response.WriteError(w, http.StatusBadRequest, "validation", fmt.Sprintf("topics_count must be between 1 and %d", a.limits.MaxTopics))
 		return
 	}
 	brief := campaign.Brief{
@@ -59,6 +60,11 @@ func (a *Handler) postCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := a.campaigns.Create(r.Context(), req.ClientID, brief)
 	if err != nil {
+		var validation *limits.ValidationError
+		if errors.As(err, &validation) {
+			response.WriteError(w, http.StatusBadRequest, "validation", validation.Error())
+			return
+		}
 		response.WriteError(w, http.StatusInternalServerError, "internal", "could not create campaign")
 		return
 	}
@@ -177,11 +183,17 @@ type Handler struct {
 	campaigns CampaignService
 	sub       Subscriber
 	limiter   *middleware.RateLimiter
+	limits    limits.Limits
 }
 
-func NewHandler(s CampaignService, sub Subscriber, limiter *middleware.RateLimiter) *Handler {
-	return &Handler{s, sub, limiter}
+func NewHandler(s CampaignService, sub Subscriber, limiter *middleware.RateLimiter, opt ...limits.Limits) *Handler {
+	l := limits.Defaults()
+	if len(opt) > 0 {
+		l = limits.Normalize(opt[0])
+	}
+	return &Handler{campaigns: s, sub: sub, limiter: limiter, limits: l}
 }
+
 func (h *Handler) Routes() []server.Route {
 	return []server.Route{{"POST /api/campaigns", h.postCampaign}, {"GET /api/campaigns", h.listCampaigns}, {"GET /api/campaigns/{id}", h.getCampaign}, {"GET /api/campaigns/{id}/events", h.campaignEvents}}
 }

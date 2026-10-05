@@ -29,8 +29,9 @@ type Topic struct {
 
 // Strategy — выход стратега.
 type Strategy struct {
-	Positioning string  `json:"positioning"`
-	Topics      []Topic `json:"topics"`
+	Warnings    []string `json:"warnings,omitempty"`
+	Positioning string   `json:"positioning"`
+	Topics      []Topic  `json:"topics"`
 	// TopicCandidates — все рассмотренные темы (их вдвое больше, чем статей) с
 	// доказательствами: объёмом, цитатами запросов, сезонностью. В генерацию
 	// уходят только Topics, а здесь остаётся всё, из чего выбирали.

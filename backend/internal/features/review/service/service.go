@@ -2,17 +2,37 @@ package reviewservice
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/core/limits"
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
+	"strings"
 )
 
 type Starter interface{ StartReview(string, review.Request) }
 type Service struct {
 	store   Store
 	starter Starter
+	limits  limits.Limits
 }
 
-func NewService(store Store, starter Starter) *Service { return &Service{store, starter} }
+func NewService(store Store, starter Starter, opt ...limits.Limits) *Service {
+	l := limits.Defaults()
+	if len(opt) > 0 {
+		l = limits.Normalize(opt[0])
+	}
+	return &Service{store: store, starter: starter, limits: l}
+}
 func (s *Service) Create(ctx context.Context, clientID string, req review.Request) (string, error) {
+	if strings.TrimSpace(req.BriefText) == "" || len(req.BriefText) > s.limits.MaxTextBytes {
+		return "", limits.Invalid("brief is empty or exceeds byte limit")
+	}
+	if len(req.Texts) == 0 || len(req.Texts) > s.limits.MaxTexts {
+		return "", limits.Invalid("texts count must be between 1 and %d", s.limits.MaxTexts)
+	}
+	for i, t := range req.Texts {
+		if strings.TrimSpace(t.Body) == "" || len(t.Body) > s.limits.MaxTextBytes || len(t.Title) > s.limits.MaxTextBytes {
+			return "", limits.Invalid("text #%d is empty or exceeds byte limit", i+1)
+		}
+	}
 	id, err := s.store.CreateCheck(ctx, clientID, req.BriefText)
 	if err != nil {
 		return "", err

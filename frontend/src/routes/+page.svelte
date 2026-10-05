@@ -14,6 +14,7 @@
 		{ name: 'tone', label: 'Tone of voice' }
 	];
 
+	let {data}: {data:{limits:{max_topics:number}}}=$props();
 	let brief = $state<Brief>({ product: '', goal: '', audience: '', tone: '' });
 	let busy = $state(false);
 	let serverError = $state<string | null>(null);
@@ -45,6 +46,7 @@
 			<textarea class="control" bind:value={brief[field.name]}></textarea>
 		</label>
 	{/each}
+ <label class="field"><span class="field-label">Число статей (пусто — автоматически)</span><input class="control" type="number" min="1" max={data.limits.max_topics} bind:value={brief.topics_count} /></label>
 	{#if serverError}
 		<p class="error" role="alert">{serverError}</p>
 	{/if}

@@ -2,7 +2,10 @@ package reviewservice
 
 import corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 
-type Options struct{ CostPer1KPrompt, CostPer1KCompletion float64 }
+type Options struct {
+	CostPer1KPrompt, CostPer1KCompletion float64
+	ParallelTexts                        int
+}
 type Workflow struct {
 	llm corellm.Client
 	opt Options

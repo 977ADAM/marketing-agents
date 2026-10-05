@@ -46,6 +46,7 @@
 			<div class="positioning">
 				<h3>Позиционирование</h3>
 				<p>{$campaign.strategy.positioning}</p>
+ {#each $campaign.strategy.warnings ?? [] as warning (warning)}<p class="muted">{warning}</p>{/each}
 			</div>
 		{/if}
 		<p class="muted">Стоимость прогона: {formatCost($campaign.cost_usd)}</p>

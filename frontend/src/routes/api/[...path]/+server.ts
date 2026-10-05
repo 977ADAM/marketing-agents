@@ -1,4 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
+import { readBody, BodyLimitError } from '#lib/server/body.js';
 import { BACKEND_URL } from '$app/env/private';
 
 // Хоп-бай-хоп заголовки и длину тела не пересылаем: их выставляет транспорт,
@@ -56,8 +57,15 @@ const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingm
 const proxy: RequestHandler = async ({ params, url, request }) => {
 	const target = new URL(`/api/${params.path ?? ''}${url.search}`, BACKEND_URL);
 
+ let bytes: Uint8Array<ArrayBuffer> | undefined;
+ if (request.method !== 'GET' && request.method !== 'HEAD') {
+  try {bytes=await readBody(request,params.path==='reviews/extract'?20<<20:2<<20);} catch(err) {
+   if (!(err instanceof BodyLimitError)) throw err;
+   return new Response(JSON.stringify({error:{code:'request_too_large',message:err.message}}),{status:413,headers:{'Content-Type':'application/json'}});
+  }
+ }
 	if (request.method === 'POST' && params.path === 'reviews/extract') {
-		const bytes = await request.arrayBuffer();
+		const upload = bytes ?? new Uint8Array();
 		let filename = 'document.docx';
 		const encoded = request.headers.get('x-file-name');
 		if (encoded) {
@@ -68,7 +76,7 @@ const proxy: RequestHandler = async ({ params, url, request }) => {
 			}
 		}
 		const form = new FormData();
-		form.append('file', new Blob([bytes], { type: DOCX_MIME }), filename);
+		form.append('file', new Blob([upload], { type: DOCX_MIME }), filename);
 		return forward(target, {
 			method: 'POST',
 			headers: forwardHeaders(request.headers, ['content-type']),
@@ -80,7 +88,7 @@ const proxy: RequestHandler = async ({ params, url, request }) => {
 	return forward(target, {
 		method: request.method,
 		headers: forwardHeaders(request.headers),
-		body: hasBody ? request.body : undefined,
+		body: hasBody ? bytes : undefined,
 		// @ts-expect-error duplex обязателен для потокового тела в Node fetch
 		duplex: 'half'
 	});
