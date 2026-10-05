@@ -39,10 +39,9 @@ type Summary struct {
 
 // Store — хранение проверок текстов: порт у потребителя, реализация — адаптер.
 //
-// Имена методов с суффиксом Review (CreateCheck, GetCheck…) — временные: один
-// тип-адаптер реализует и campaign.Store, и review.Store, а同名 методы с разными
-// подписями в Go несовместимы. Суффиксы уйдут, когда адаптер разъедется по
-// сущностям (шаг 3 плана: sqlite/campaign.go и sqlite/review.go).
+// Имена методов с суффиксом Check (CreateCheck, GetCheck…) — плата за то, что
+// один адаптер (internal/mariadb) реализует и campaign.Store, и review.Store:
+// одноимённые методы с разными подписями в Go несовместимы.
 type Store interface {
 	CreateCheck(ctx context.Context, clientID, briefText string) (string, error)
 	MarkCheckRunning(ctx context.Context, id string) error

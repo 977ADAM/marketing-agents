@@ -6,10 +6,6 @@
 // разбирается намеренно: парсить человекочитаемый отчёт хрупко.
 package wordstat
 
-import ()
-
-import ()
-
 // PhraseCount — фраза и её частотность за последние 30 дней.
 type PhraseCount struct {
 	Phrase string `json:"phrase"`
