@@ -5,14 +5,7 @@ BACKEND  ?= backend
 FRONTEND ?= frontend
 API_URL  ?= http://127.0.0.1:8080
 
-# Настройки MariaDB берём из backend/.env: тесты поднимают временные базы, поэтому
-# им нужен root-доступ к серверу. Файла может не быть — тогда переменные пустые, а
-# тесты с БД пропускаются (testdb видит незаданный TEST_DATABASE_URL).
--include $(BACKEND)/.env
-
-# Адрес MariaDB для тестов. База в адресе не нужна: её заводит testdb на каждый тест.
-TEST_DATABASE_URL ?= mysql://root:$(MARIADB_ROOT_PASSWORD)@127.0.0.1:$(if $(MARIADB_PORT),$(MARIADB_PORT),3306)/
-
+# dburl loads backend/.env directly and encodes credentials; no shell evaluation.
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-unit test-e2e test-live test-frontend check check-frontend verify \
@@ -25,7 +18,7 @@ TEST_DATABASE_URL ?= mysql://root:$(MARIADB_ROOT_PASSWORD)@127.0.0.1:$(if $(MARI
 define run_go_tests
 	@if docker info >/dev/null 2>&1; then \
 		$(COMPOSE) up -d --wait mariadb >/dev/null && \
-		cd $(BACKEND) && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test $(1); \
+		cd $(BACKEND) && TEST_DATABASE_URL="$${TEST_DATABASE_URL:-$$($(GO) run ./cmd/dburl -test)}" $(GO) test $(1); \
 	else \
 		echo "Docker недоступен: тесты с MariaDB пропущены (нужна make db-up)"; \
 		cd $(BACKEND) && $(GO) test $(1); \

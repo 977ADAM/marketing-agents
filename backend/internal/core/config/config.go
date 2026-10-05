@@ -223,11 +223,8 @@ func databaseURL() string {
 	if user == "" || pass == "" {
 		return "" // validate объяснит, чего не хватает
 	}
-	return fmt.Sprintf("mysql://%s:%s@%s:%s/%s",
-		url.QueryEscape(user), url.QueryEscape(pass),
-		getStr("MARIADB_HOST", DefaultMariaDBHost),
-		getStr("MARIADB_PORT", DefaultMariaDBPort),
-		getStr("MARIADB_DATABASE", DefaultMariaDBDatabase))
+	uri, _ := BuildDatabaseURL(user, pass, getStr("MARIADB_HOST", DefaultMariaDBHost), getStr("MARIADB_PORT", DefaultMariaDBPort), getStr("MARIADB_DATABASE", DefaultMariaDBDatabase))
+	return uri
 }
 
 // validateDatabaseURL проверяет, что адрес БД — это mysql://-адрес MariaDB.

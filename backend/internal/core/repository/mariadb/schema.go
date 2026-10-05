@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/migrations"
 	"sort"
 	"strings"
 
@@ -47,6 +48,19 @@ func CheckSchema(ctx context.Context, db *gorm.DB) (string, error) {
 	}
 	if err != nil {
 		return "", fmt.Errorf("mariadb: чтение версии схемы: %w", err)
+	}
+	var versions []string
+	if err := db.WithContext(ctx).Model(&schemaMigrationRow{}).Pluck("version", &versions).Error; err != nil {
+		return "", fmt.Errorf("mariadb: migration manifest: %w", err)
+	}
+	found := map[string]bool{}
+	for _, v := range versions {
+		found[v] = true
+	}
+	for _, v := range migrations.RequiredVersions {
+		if !found[v] {
+			return "", fmt.Errorf("миграция %s не применена: запустите migrate", v)
+		}
 	}
 	return row.Version, nil
 }

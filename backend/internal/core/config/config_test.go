@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -335,5 +336,22 @@ func TestTraceOverridesAndValidation(t *testing.T) {
 	os.Setenv("TRACE_MAX_PAYLOAD_BYTES", "0")
 	if _, err := config.Load(); err == nil {
 		t.Fatal("ожидалась ошибка на нулевом лимите payload")
+	}
+}
+
+func TestDatabaseCredentialsRoundTrip(t *testing.T) {
+	for _, secret := range []string{"with space", "plus+sign", "p@ss:word/1", "percent%"} {
+		t.Run(secret, func(t *testing.T) {
+			setEnv(t, "MARIADB_PASSWORD", secret)
+			cfg := load(t)
+			u, err := url.Parse(cfg.DatabaseURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, _ := u.User.Password()
+			if p != secret {
+				t.Fatalf("roundtrip=%q", p)
+			}
+		})
 	}
 }

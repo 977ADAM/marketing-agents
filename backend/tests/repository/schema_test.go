@@ -57,3 +57,5 @@ func TestCheckSchema(t *testing.T) {
 		}
 	})
 }
+
+func TestSchemaRequiresEveryMigration(t *testing.T){st:=newTestStore(t);if err:=st.db.Exec("DELETE FROM schema_migrations WHERE version='0002'").Error;err!=nil{t.Fatal(err)};if _,err:=schema.CheckSchema(context.Background(),st.db);err==nil{t.Fatal("partial migration set accepted")}}

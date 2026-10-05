@@ -28,15 +28,20 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: ghcr.io/amacneil/dbmate:2.36.0
+    build:
+      context: ./backend
+      target: migrate
     env_file: ./backend/.env
+    environment:
+      MARIADB_HOST: mariadb
+      MARIADB_PORT: "3306"
     # dbmate понимает те же mysql://-адреса, что MariaDB. Адрес собираем внутри
     # контейнера из MARIADB_* (compose не умеет подставлять переменные из
     # env_file в интерполяцию), поэтому секреты остаются в backend/.env.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        export DATABASE_URL="mysql://$$MARIADB_USER:$$MARIADB_PASSWORD@mariadb:3306/$$MARIADB_DATABASE"
+        export DATABASE_URL="$$(dburl)"
         exec dbmate --wait --no-dump-schema --migrations-dir /migrations "$${DBMATE_CMD:-up}"
     volumes:
       - ./backend/migrations:/migrations:ro
