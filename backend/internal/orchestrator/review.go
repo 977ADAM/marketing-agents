@@ -3,14 +3,13 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sync"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/score"
-	"golang.org/x/sync/errgroup"
 )
 
 // Review прогоняет готовые тексты через двух агентов (соответствие брифу и
@@ -33,8 +32,8 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Pro
 	}
 	p.TopicsPlanned(titles)
 
-	compliance := agents.NewComplianceChecker(o.llm)
-	quality := agents.NewQualityChecker(o.llm)
+	compliance := review.NewComplianceChecker(o.llm)
+	quality := review.NewQualityChecker(o.llm)
 
 	reports := make([]review.TextReport, len(req.Texts))
 	g, gctx := errgroup.WithContext(ctx)
@@ -64,7 +63,7 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Pro
 }
 
 // reviewOne — проверка одного текста двумя агентами с прогрессом.
-func (o *Orchestrator) reviewOne(ctx context.Context, compliance *agents.ComplianceChecker, quality *agents.QualityChecker,
+func (o *Orchestrator) reviewOne(ctx context.Context, compliance *review.ComplianceChecker, quality *review.QualityChecker,
 	briefText string, i int, t review.TextToReview, p run.Progress) (review.TextReport, llm.Usage, error) {
 	var total llm.Usage
 

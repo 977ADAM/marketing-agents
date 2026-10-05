@@ -12,10 +12,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	_ "modernc.org/sqlite" // регистрирует драйвер "sqlite"
 	"os"
 	"path/filepath"
 	"strings"
+
+	_ "modernc.org/sqlite"
 )
 
 const DefaultClientID = "00000000-0000-0000-0000-000000000001"

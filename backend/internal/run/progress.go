@@ -5,6 +5,8 @@
 // адаптеры (SQLite хранит снимок, HTTP отдаёт его в SSE).
 package run
 
+import ()
+
 // Phase — крупная стадия прогона.
 type Phase string
 

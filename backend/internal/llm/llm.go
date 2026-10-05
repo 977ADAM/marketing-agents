@@ -1,7 +1,9 @@
 // Package llm — обёртка над DeepSeek (OpenAI-совместимый) API.
 package llm
 
-import "context"
+import (
+	"context"
+)
 
 // Usage — потокены одного вызова, для подсчёта стоимости.
 type Usage struct {

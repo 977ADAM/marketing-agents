@@ -1,4 +1,4 @@
-package agents
+package topic
 
 import (
 	"context"
@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
 // Роли агента подбора тем. Идут на MODEL_DEFAULT: здесь важнее рассуждения,
@@ -55,7 +53,7 @@ const clusterSystem = `Ты — редактор, который собирае�
 - числа, частотности и проценты не приводи: их подставит система.`
 
 // Seeds просит у модели 10–15 поисковых фраз по брифу.
-func (s *Semanticist) Seeds(ctx context.Context, b campaign.Brief, count int) ([]string, llm.Usage, error) {
+func (s *Semanticist) Seeds(ctx context.Context, b Briefing, count int) ([]string, llm.Usage, error) {
 	if count <= 0 {
 		count = DefaultSeedCount
 	}
@@ -83,7 +81,7 @@ func (s *Semanticist) Seeds(ctx context.Context, b campaign.Brief, count int) ([
 //
 // Числа в промпт не передаются сознательно: модель не должна ни видеть
 // частотности, ни тем более их придумывать.
-func (s *Semanticist) Cluster(ctx context.Context, b campaign.Brief, phrases []string, wantTopics int) ([]topic.TopicDraft, llm.Usage, error) {
+func (s *Semanticist) Cluster(ctx context.Context, b Briefing, phrases []string, wantTopics int) ([]TopicDraft, llm.Usage, error) {
 	if len(phrases) == 0 {
 		return nil, llm.Usage{}, fmt.Errorf("semanticist cluster: пустой список фраз")
 	}
@@ -93,7 +91,7 @@ func (s *Semanticist) Cluster(ctx context.Context, b campaign.Brief, phrases []s
 		b.Product, b.Goal, b.Audience, b.Tone, "- "+strings.Join(phrases, "\n- "), wantTopics)
 
 	var out struct {
-		Topics []topic.TopicDraft `json:"topics"`
+		Topics []TopicDraft `json:"topics"`
 	}
 	usage, err := s.llm.Complete(ctx, RoleCluster, clusterSystem, user, &out)
 	if err != nil {
@@ -113,7 +111,7 @@ func (s *Semanticist) Cluster(ctx context.Context, b campaign.Brief, phrases []s
 // Fallback просит темы «от себя», когда спроса нет или его не хватило на
 // нужное число тем: строго по ЦА, продукту и задаче из брифа. Такие темы
 // помечаются источником llm и в отчёте идут без цифр — это гипотеза, а не данные.
-func (s *Semanticist) Fallback(ctx context.Context, b campaign.Brief, want int, avoid []string) ([]topic.TopicDraft, llm.Usage, error) {
+func (s *Semanticist) Fallback(ctx context.Context, b Briefing, want int, avoid []string) ([]TopicDraft, llm.Usage, error) {
 	if want <= 0 {
 		return nil, llm.Usage{}, nil
 	}
@@ -126,14 +124,14 @@ func (s *Semanticist) Fallback(ctx context.Context, b campaign.Brief, want int, 
 		b.Product, b.Goal, b.Audience, b.Tone, want, avoidNote)
 
 	var out struct {
-		Topics []topic.TopicDraft `json:"topics"`
+		Topics []TopicDraft `json:"topics"`
 	}
 	usage, err := s.llm.Complete(ctx, RoleFallback, fallbackSystem, user, &out)
 	if err != nil {
 		return nil, usage, fmt.Errorf("semanticist fallback: %w", err)
 	}
 
-	drafts := make([]topic.TopicDraft, 0, len(out.Topics))
+	drafts := make([]TopicDraft, 0, len(out.Topics))
 	for _, d := range out.Topics {
 		d.Title = strings.TrimSpace(d.Title)
 		d.Goal = strings.TrimSpace(d.Goal)
@@ -182,13 +180,13 @@ func cleanSeeds(in []string) []string {
 // validateDrafts проверяет темы и канонизирует цитаты: каждая фраза обязана
 // найтись в наборе (сравнение без учёта регистра), а в результат попадает
 // написание из данных, а не из ответа модели.
-func validateDrafts(drafts []topic.TopicDraft, phrases []string) ([]topic.TopicDraft, error) {
+func validateDrafts(drafts []TopicDraft, phrases []string) ([]TopicDraft, error) {
 	index := make(map[string]string, len(phrases))
 	for _, p := range phrases {
 		index[strings.ToLower(strings.TrimSpace(p))] = strings.TrimSpace(p)
 	}
 
-	out := make([]topic.TopicDraft, 0, len(drafts))
+	out := make([]TopicDraft, 0, len(drafts))
 	for _, d := range drafts {
 		d.Title = strings.TrimSpace(d.Title)
 		d.Goal = strings.TrimSpace(d.Goal)

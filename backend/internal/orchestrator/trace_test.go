@@ -6,9 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -47,18 +48,18 @@ func runCtx() context.Context { return trace.WithRunID(context.Background(), "ru
 func happyCampaignFakes(t *testing.T) *llm.FakeClient {
 	t.Helper()
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
 		 "queries":["какую зимнюю резину"]},
 		{"title":"Сколько стоит зимняя резина","goal":"поймать перед покупкой","task":"дать ориентир",
 		 "queries":["купить зимнюю резину"]}]}`}
-	fake.Responses[agents.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":88,"issues":[],"verdict":"accept"}`,
 	}
@@ -138,14 +139,14 @@ func TestRunEmitsDecisionTrail(t *testing.T) {
 // Итерации критика раньше терялись: теперь по каждой есть запись с оценкой.
 func TestRunEmitsCriticIterations(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":50,"issues":["слабый заход","нет цифр"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
@@ -182,7 +183,7 @@ func TestRunEmitsFailedResult(t *testing.T) {
 	src := wordstat.NewFake()
 	src.Err = errors.New("MCP недоступен")
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	rec := &captureTrace{}
 	opt := researchOptions(src, orchestrator.Options{})

@@ -105,7 +105,14 @@ composition root, не импортирует.
 ### Шаг 5. agents → topic/campaign/review/llm
 
 Промпты и вызовы модели разъезжаются по доменам, `llm` остаётся адаптером
-(клиент, ретраи, роли, декоратор трассы). Пакет `agents` исчезает.
+(клиент, ретраи, декоратор трассы). Пакет `agents` исчезает.
+
+**Статус: сделано.** `strategist.go`, `copywriter.go`, `critic.go` → `campaign`;
+`reviewer.go` → `review/checkers.go`; `semanticist.go` → `topic`; роли живут рядом
+со своими агентами (`campaign.Role*`, `topic.Role*`, `review.Role*`). Подбор тем
+принимает `topic.Briefing`, который даёт `campaign.Brief.Briefing()` — иначе
+`campaign ↔ topic` цикл. Тесты переехали вместе с кодом
+(`campaign/agents_test.go`, `topic/semanticist_test.go`).
 
 ### Шаг 6. httpapi → http
 

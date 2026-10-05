@@ -1,10 +1,9 @@
-package agents
+package campaign
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/score"
 )
@@ -20,13 +19,13 @@ type Critic struct{ llm llm.Client }
 
 func NewCritic(c llm.Client) *Critic { return &Critic{llm: c} }
 
-func (cr *Critic) Run(ctx context.Context, b campaign.Brief, a campaign.Article) (campaign.Review, llm.Usage, error) {
+func (cr *Critic) Run(ctx context.Context, b Brief, a Article) (Review, llm.Usage, error) {
 	user := fmt.Sprintf("Аудитория: %s; тон: %s.\nЗаголовок: %s\nТекст: %s\nCTA: %s",
 		b.Audience, b.Tone, a.Title, a.Body, a.CTA)
-	var out campaign.Review
+	var out Review
 	usage, err := cr.llm.Complete(ctx, RoleCritic, criticSystem, user, &out)
 	if err != nil {
-		return campaign.Review{}, usage, fmt.Errorf("critic: %w", err)
+		return Review{}, usage, fmt.Errorf("critic: %w", err)
 	}
 	if out.Score < 0 {
 		out.Score = 0

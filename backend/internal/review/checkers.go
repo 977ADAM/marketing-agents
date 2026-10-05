@@ -1,11 +1,10 @@
-package agents
+package review
 
 import (
 	"context"
 	"fmt"
 
 	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/score"
 )
 
@@ -38,13 +37,13 @@ type ComplianceChecker struct{ llm llm.Client }
 
 func NewComplianceChecker(c llm.Client) *ComplianceChecker { return &ComplianceChecker{llm: c} }
 
-func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t review.TextToReview) (review.CheckScore, llm.Usage, error) {
+func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t TextToReview) (CheckScore, llm.Usage, error) {
 	user := fmt.Sprintf("БРИФ:\n%s\n\nТЕКСТ ДЛЯ ПРОВЕРКИ:\nЗаголовок: %s\n\n%s",
 		briefText, t.Title, t.Body)
-	var out review.CheckScore
+	var out CheckScore
 	usage, err := ch.llm.Complete(ctx, RoleCompliance, complianceSystem, user, &out)
 	if err != nil {
-		return review.CheckScore{}, usage, fmt.Errorf("compliance: %w", err)
+		return CheckScore{}, usage, fmt.Errorf("compliance: %w", err)
 	}
 	out.Score = clampScore(out.Score)
 	out.Severity = score.Severity(out.Score)
@@ -56,12 +55,12 @@ type QualityChecker struct{ llm llm.Client }
 
 func NewQualityChecker(c llm.Client) *QualityChecker { return &QualityChecker{llm: c} }
 
-func (q *QualityChecker) Run(ctx context.Context, t review.TextToReview) (review.CheckScore, llm.Usage, error) {
+func (q *QualityChecker) Run(ctx context.Context, t TextToReview) (CheckScore, llm.Usage, error) {
 	user := fmt.Sprintf("Заголовок: %s\n\n%s", t.Title, t.Body)
-	var out review.CheckScore
+	var out CheckScore
 	usage, err := q.llm.Complete(ctx, RoleQuality, qualitySystem, user, &out)
 	if err != nil {
-		return review.CheckScore{}, usage, fmt.Errorf("quality: %w", err)
+		return CheckScore{}, usage, fmt.Errorf("quality: %w", err)
 	}
 	out.Score = clampScore(out.Score)
 	out.Severity = score.Severity(out.Score)

@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sashabaranov/go-openai"
 	"net/http"
 	"sort"
 	"strings"
 	"time"
-
-	openai "github.com/sashabaranov/go-openai"
 )
 
 type OpenAIClient struct {

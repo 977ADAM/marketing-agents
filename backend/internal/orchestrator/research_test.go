@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
@@ -89,19 +88,19 @@ func researchOptions(src topic.Source, opt orchestrator.Options) orchestrator.Op
 func TestRunResearchUsesWordstatTopics(t *testing.T) {
 	src := winterSource()
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины: 6 простых правил","goal":"поймать в момент выбора",
 		 "task":"дать чек-лист","intent":"выбор",
 		 "queries":["какую зимнюю резину","какая зимняя резина лучше"]},
 		{"title":"Сколько стоит зимняя резина","goal":"поймать перед покупкой","task":"дать ориентир",
 		 "intent":"коммерческий","queries":["купить зимнюю резину"]}]}`}
-	fake.Responses[agents.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
@@ -190,16 +189,16 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 	src := wordstat.NewFake() // default: hasData=false
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["ыфвыфв ыфва"]}`}
-	fake.Responses[agents.RoleFallback] = []string{`{"topics":[
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["ыфвыфв ыфва"]}`}
+	fake.Responses[topic.RoleFallback] = []string{`{"topics":[
 		{"title":"Как подобрать размер","goal":"g","task":"t","intent":"выбор"},
 		{"title":"Что учитывать при выборе","goal":"g","task":"t"}]}`}
-	fake.Responses[agents.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
@@ -220,7 +219,7 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 			t.Errorf("у темы без данных не должно быть цифр: %+v", c)
 		}
 	}
-	if fake.Calls[agents.RoleCluster] != 0 {
+	if fake.Calls[topic.RoleCluster] != 0 {
 		t.Error("кластеризация не нужна, когда фраз не собрано")
 	}
 }
@@ -229,7 +228,7 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 	src := wordstat.NewFake()
 	src.Err = errors.New("mcp недоступен")
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), nil)
@@ -239,7 +238,7 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 	if !strings.Contains(err.Error(), "подбор тем") || !strings.Contains(err.Error(), "mcp недоступен") {
 		t.Errorf("err = %v, want упоминание подбора и причины", err)
 	}
-	if fake.Calls[agents.RoleCopywriter] != 0 {
+	if fake.Calls[campaign.RoleCopywriter] != 0 {
 		t.Error("статьи не должны генерироваться после сбоя подбора")
 	}
 }
@@ -248,8 +247,8 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	src := winterSource()
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Лучшая зимняя резина 2026","goal":"g","task":"t","queries":["лучшая зимняя резина 2026"]}]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
@@ -257,7 +256,7 @@ func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	if err == nil {
 		t.Fatal("ожидалась ошибка про неизвестный запрос")
 	}
-	if !errors.Is(err, agents.ErrUnknownQuery) {
+	if !errors.Is(err, topic.ErrUnknownQuery) {
 		t.Errorf("errors.Is(ErrUnknownQuery) = false, err = %v", err)
 	}
 }
@@ -266,12 +265,12 @@ func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 func TestRunResearchRespectsCallLimit(t *testing.T) {
 	src := winterSource()
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","какая зимняя резина лучше","купить зимнюю резину"]}`}
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","какая зимняя резина лучше","купить зимнюю резину"]}`}
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать","goal":"g","task":"t","queries":["какую зимнюю резину"]}]}`}
-	fake.Responses[agents.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
-	fake.Responses[agents.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[agents.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	opt := researchOptions(src, orchestrator.Options{})
 	opt.MaxWordstatCalls = 2
@@ -292,9 +291,9 @@ func TestRunResearchRespectsCallLimit(t *testing.T) {
 // Без настроенного источника подбор не запускается — работает прежний путь.
 func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`}
-	fake.Responses[agents.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[agents.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80})
 	res, err := o.Run(context.Background(), brief(), nil)
@@ -304,7 +303,7 @@ func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
 	if len(res.Strategy.Topics) != 1 || res.Strategy.Topics[0].Title != "T1" {
 		t.Errorf("темы = %+v, want от стратега", res.Strategy.Topics)
 	}
-	if fake.Calls[agents.RoleSeeds] != 0 || fake.Calls[agents.RoleCluster] != 0 {
+	if fake.Calls[topic.RoleSeeds] != 0 || fake.Calls[topic.RoleCluster] != 0 {
 		t.Error("семантика не должна вызываться без источника")
 	}
 }

@@ -1,6 +1,8 @@
 package topic
 
-import "context"
+import (
+	"context"
+)
 
 // Demand — спрос по фразе: широкая частотность головной фразы и популярные
 // формулировки.

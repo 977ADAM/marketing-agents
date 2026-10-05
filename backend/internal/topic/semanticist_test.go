@@ -1,4 +1,4 @@
-package agents_test
+package topic_test
 
 import (
 	"context"
@@ -6,18 +6,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 )
+
+// testBriefing — бриф в терминах подбора тем: topic не знает про campaign.Brief.
+func testBriefing() topic.Briefing {
+	return topic.Briefing{Product: "Эко-бутылка", Goal: "рост продаж", Audience: "ЗОЖ 25-40", Tone: "дружелюбный"}
+}
 
 func TestSemanticistSeeds(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{
+	fake.Responses[topic.RoleSeeds] = []string{
 		`{"seeds":["зимняя резина","  какую зимнюю резину  ","Зимняя Резина","","шины на зиму"]}`,
 	}
-	s := agents.NewSemanticist(fake)
+	s := topic.NewSemanticist(fake)
 
-	seeds, usage, err := s.Seeds(context.Background(), testBrief(), 5)
+	seeds, usage, err := s.Seeds(context.Background(), testBriefing(), 5)
 	if err != nil {
 		t.Fatalf("Seeds: %v", err)
 	}
@@ -39,8 +44,8 @@ func TestSemanticistSeeds(t *testing.T) {
 	if !ok {
 		t.Fatal("нет записей о вызове LLM")
 	}
-	if req.Role != agents.RoleSeeds {
-		t.Errorf("role = %q, want %q", req.Role, agents.RoleSeeds)
+	if req.Role != topic.RoleSeeds {
+		t.Errorf("role = %q, want %q", req.Role, topic.RoleSeeds)
 	}
 	if !strings.Contains(req.User, "Эко-бутылка") || !strings.Contains(req.User, "5 поисковых фраз") {
 		t.Errorf("в промпте нет брифа или количества фраз: %q", req.User)
@@ -50,9 +55,9 @@ func TestSemanticistSeeds(t *testing.T) {
 // Пустой ответ модели — это ошибка прогона: без сеялок искать спрос не по чему.
 func TestSemanticistSeedsEmptyIsError(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":[]}`}
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":[]}`}
 
-	if _, _, err := agents.NewSemanticist(fake).Seeds(context.Background(), testBrief(), 5); err == nil {
+	if _, _, err := topic.NewSemanticist(fake).Seeds(context.Background(), testBriefing(), 5); err == nil {
 		t.Fatal("ожидалась ошибка на пустом списке сеялок")
 	}
 }
@@ -61,7 +66,7 @@ func TestSemanticistSeedsPropagatesLLMError(t *testing.T) {
 	fake := llm.NewFake()
 	fake.Err = errors.New("llm недоступен")
 
-	if _, _, err := agents.NewSemanticist(fake).Seeds(context.Background(), testBrief(), 5); err == nil {
+	if _, _, err := topic.NewSemanticist(fake).Seeds(context.Background(), testBriefing(), 5); err == nil {
 		t.Fatal("ожидалась ошибка LLM")
 	}
 }
@@ -69,14 +74,14 @@ func TestSemanticistSeedsPropagatesLLMError(t *testing.T) {
 func TestSemanticistClusterCanonicalizesCitations(t *testing.T) {
 	phrases := []string{"зимняя резина", "какую зимнюю резину", "шины на зиму"}
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[{
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[{
 		"title":"Как выбрать зимние шины: 6 простых правил",
 		"goal":"поймать аудиторию в момент выбора",
 		"task":"дать чек-лист",
 		"queries":["Какую Зимнюю Резину","зимняя резина","зимняя резина"],
 		"intent":"Выбор"}]}`}
 
-	drafts, usage, err := agents.NewSemanticist(fake).Cluster(context.Background(), testBrief(), phrases, 2)
+	drafts, usage, err := topic.NewSemanticist(fake).Cluster(context.Background(), testBriefing(), phrases, 2)
 	if err != nil {
 		t.Fatalf("Cluster: %v", err)
 	}
@@ -121,15 +126,15 @@ func TestSemanticistClusterCanonicalizesCitations(t *testing.T) {
 func TestSemanticistClusterRejectsUnknownQuery(t *testing.T) {
 	phrases := []string{"зимняя резина", "шины на зиму"}
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[{
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[{
 		"title":"Как выбрать","goal":"g","task":"t",
 		"queries":["зимняя резина","лучшая зимняя резина 2026"]}]}`}
 
-	_, _, err := agents.NewSemanticist(fake).Cluster(context.Background(), testBrief(), phrases, 1)
+	_, _, err := topic.NewSemanticist(fake).Cluster(context.Background(), testBriefing(), phrases, 1)
 	if err == nil {
 		t.Fatal("ожидалась ошибка про неизвестный запрос")
 	}
-	if !errors.Is(err, agents.ErrUnknownQuery) {
+	if !errors.Is(err, topic.ErrUnknownQuery) {
 		t.Errorf("errors.Is(ErrUnknownQuery) = false, err = %v", err)
 	}
 	if !strings.Contains(err.Error(), "лучшая зимняя резина 2026") {
@@ -148,8 +153,8 @@ func TestSemanticistClusterRequiresFields(t *testing.T) {
 	for name, resp := range cases {
 		t.Run(name, func(t *testing.T) {
 			fake := llm.NewFake()
-			fake.Responses[agents.RoleCluster] = []string{resp}
-			if _, _, err := agents.NewSemanticist(fake).Cluster(context.Background(), testBrief(), phrases, 1); err == nil {
+			fake.Responses[topic.RoleCluster] = []string{resp}
+			if _, _, err := topic.NewSemanticist(fake).Cluster(context.Background(), testBriefing(), phrases, 1); err == nil {
 				t.Fatal("ожидалась ошибка валидации темы")
 			}
 		})
@@ -158,7 +163,7 @@ func TestSemanticistClusterRequiresFields(t *testing.T) {
 
 func TestSemanticistClusterEmptyInputSkipsLLM(t *testing.T) {
 	fake := llm.NewFake()
-	_, _, err := agents.NewSemanticist(fake).Cluster(context.Background(), testBrief(), nil, 2)
+	_, _, err := topic.NewSemanticist(fake).Cluster(context.Background(), testBriefing(), nil, 2)
 	if err == nil {
 		t.Fatal("ожидалась ошибка на пустом списке фраз")
 	}
@@ -169,20 +174,20 @@ func TestSemanticistClusterEmptyInputSkipsLLM(t *testing.T) {
 
 func TestSemanticistClusterEmptyTopicsIsError(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[]}`}
-	if _, _, err := agents.NewSemanticist(fake).Cluster(context.Background(), testBrief(), []string{"зимняя резина"}, 2); err == nil {
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[]}`}
+	if _, _, err := topic.NewSemanticist(fake).Cluster(context.Background(), testBriefing(), []string{"зимняя резина"}, 2); err == nil {
 		t.Fatal("ожидалась ошибка на пустом списке тем")
 	}
 }
 
 func TestSemanticistFallback(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleFallback] = []string{`{"topics":[
+	fake.Responses[topic.RoleFallback] = []string{`{"topics":[
 		{"title":"Как выбрать офис","goal":"поймать перед сделкой","task":"дать чек-лист","intent":"Выбор",
 		 "queries":["выдуманный запрос"]},
 		{"title":"","goal":"g","task":"t"}]}`}
 
-	drafts, _, err := agents.NewSemanticist(fake).Fallback(context.Background(), testBrief(), 2, []string{"Старая тема"})
+	drafts, _, err := topic.NewSemanticist(fake).Fallback(context.Background(), testBriefing(), 2, []string{"Старая тема"})
 	if err != nil {
 		t.Fatalf("Fallback: %v", err)
 	}
@@ -198,8 +203,8 @@ func TestSemanticistFallback(t *testing.T) {
 	}
 
 	req, _ := fake.LastRequest()
-	if req.Role != agents.RoleFallback {
-		t.Errorf("role = %q, want %q", req.Role, agents.RoleFallback)
+	if req.Role != topic.RoleFallback {
+		t.Errorf("role = %q, want %q", req.Role, topic.RoleFallback)
 	}
 	if !strings.Contains(req.User, "Старая тема") {
 		t.Errorf("в промпте нет списка тем-исключений: %q", req.User)
@@ -208,7 +213,7 @@ func TestSemanticistFallback(t *testing.T) {
 
 func TestSemanticistFallbackZeroWantSkipsLLM(t *testing.T) {
 	fake := llm.NewFake()
-	drafts, _, err := agents.NewSemanticist(fake).Fallback(context.Background(), testBrief(), 0, nil)
+	drafts, _, err := topic.NewSemanticist(fake).Fallback(context.Background(), testBriefing(), 0, nil)
 	if err != nil || drafts != nil {
 		t.Fatalf("drafts = %v, err = %v; при want=0 модель звать не нужно", drafts, err)
 	}
@@ -219,8 +224,8 @@ func TestSemanticistFallbackZeroWantSkipsLLM(t *testing.T) {
 
 func TestSemanticistFallbackAllInvalidIsError(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleFallback] = []string{`{"topics":[{"title":"T","goal":"","task":""}]}`}
-	if _, _, err := agents.NewSemanticist(fake).Fallback(context.Background(), testBrief(), 1, nil); err == nil {
+	fake.Responses[topic.RoleFallback] = []string{`{"topics":[{"title":"T","goal":"","task":""}]}`}
+	if _, _, err := topic.NewSemanticist(fake).Fallback(context.Background(), testBriefing(), 1, nil); err == nil {
 		t.Fatal("ожидалась ошибка: пригодных тем нет")
 	}
 }

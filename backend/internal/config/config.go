@@ -3,13 +3,13 @@ package config
 
 import (
 	"fmt"
+	"github.com/joho/godotenv"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/trace"
-	"github.com/joho/godotenv"
 )
 
 // Config — конфигурация сервиса, собранная из переменных окружения.

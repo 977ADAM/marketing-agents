@@ -4,15 +4,14 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sync"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
-	"golang.org/x/sync/errgroup"
 )
 
 type Options struct {
@@ -26,7 +25,7 @@ type Options struct {
 	// что подбор тем выключен: темы даёт стратег, как до появления Wordstat.
 	Wordstat topic.Source
 	// Semanticist — агент подбора тем: сеялки, кластеризация, fallback.
-	Semanticist *agents.Semanticist
+	Semanticist *topic.Semanticist
 	// Select — правила отбора тем (порог объёма, множитель сезонности).
 	Select SelectOptions
 	// TopicsMultiplier — во сколько раз больше тем предлагать, чем нужно статей.
@@ -57,10 +56,10 @@ type Result struct {
 
 type Orchestrator struct {
 	llm         llm.Client
-	strategist  *agents.Strategist
-	copywriter  *agents.Copywriter
-	critic      *agents.Critic
-	semanticist *agents.Semanticist
+	strategist  *campaign.Strategist
+	copywriter  *campaign.Copywriter
+	critic      *campaign.Critic
+	semanticist *topic.Semanticist
 	trace       trace.Recorder
 	opt         Options
 }
@@ -68,13 +67,13 @@ type Orchestrator struct {
 func New(c llm.Client, opt Options) *Orchestrator {
 	semanticist := opt.Semanticist
 	if semanticist == nil {
-		semanticist = agents.NewSemanticist(c)
+		semanticist = topic.NewSemanticist(c)
 	}
 	return &Orchestrator{
 		llm:         c,
-		strategist:  agents.NewStrategist(c),
-		copywriter:  agents.NewCopywriter(c),
-		critic:      agents.NewCritic(c),
+		strategist:  campaign.NewStrategist(c),
+		copywriter:  campaign.NewCopywriter(c),
+		critic:      campaign.NewCritic(c),
 		semanticist: semanticist,
 		trace:       trace.OrNop(opt.Recorder),
 		opt:         opt,

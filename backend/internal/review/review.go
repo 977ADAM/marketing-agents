@@ -3,7 +3,9 @@
 // ни про SQL.
 package review
 
-import "github.com/977ADAM/marketing-agents/internal/score"
+import (
+	"github.com/977ADAM/marketing-agents/internal/score"
+)
 
 // TextToReview — готовая статья, которую проверяют агенты.
 type TextToReview struct {

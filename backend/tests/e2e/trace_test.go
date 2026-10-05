@@ -2,17 +2,17 @@ package e2e_test
 
 import (
 	"context"
-	"github.com/977ADAM/marketing-agents/internal/runner"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/runner"
 	"github.com/977ADAM/marketing-agents/internal/sqlite"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -35,13 +35,13 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	rec := trace.New(evStore, trace.Config{Mode: trace.ModeSummary})
 
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[agents.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
 		 "queries":["какую зимнюю резину"]}]}`}
-	fake.Responses[agents.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
-	fake.Responses[agents.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[agents.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	src := wordstat.NewFake()
 	src.SetTop("зимняя резина", wordstat.Seed("зимняя резина", 1028481, map[string]int64{
@@ -81,7 +81,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		names[ev.Name]++
 	}
 	for _, want := range []string{
-		agents.RoleSeeds, agents.RoleCluster, agents.RoleStrategist, agents.RoleCopywriter,
+		topic.RoleSeeds, topic.RoleCluster, campaign.RoleStrategist, campaign.RoleCopywriter,
 		"top_requests", "seeds", "seed_collected", "clustering", "topic_decision", "critic", "run",
 	} {
 		if names[want] == 0 {
@@ -91,7 +91,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 
 	// В режиме summary тела не пишутся — это проверяем на событии вызова модели.
 	for _, ev := range rows {
-		if ev.Name != agents.RoleSeeds {
+		if ev.Name != topic.RoleSeeds {
 			continue
 		}
 		full, err := evStore.RunEvent(ctx, id, ev.Seq)

@@ -1,10 +1,9 @@
-package agents
+package campaign
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 )
 
@@ -20,16 +19,16 @@ type Strategist struct{ llm llm.Client }
 
 func NewStrategist(c llm.Client) *Strategist { return &Strategist{llm: c} }
 
-func (s *Strategist) Run(ctx context.Context, b campaign.Brief) (campaign.Strategy, llm.Usage, error) {
+func (s *Strategist) Run(ctx context.Context, b Brief) (Strategy, llm.Usage, error) {
 	user := fmt.Sprintf("Продукт: %s\nЦель: %s\nАудитория: %s\nТон: %s",
 		b.Product, b.Goal, b.Audience, b.Tone)
-	var out campaign.Strategy
+	var out Strategy
 	usage, err := s.llm.Complete(ctx, RoleStrategist, strategistSystem, user, &out)
 	if err != nil {
-		return campaign.Strategy{}, usage, fmt.Errorf("strategist: %w", err)
+		return Strategy{}, usage, fmt.Errorf("strategist: %w", err)
 	}
 	if len(out.Topics) == 0 {
-		return campaign.Strategy{}, usage, fmt.Errorf("strategist: no topics returned")
+		return Strategy{}, usage, fmt.Errorf("strategist: no topics returned")
 	}
 	return out, usage, nil
 }

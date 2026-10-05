@@ -2,7 +2,9 @@
 // ревью. Домен: не знает ни про HTTP, ни про SQL, ни про поставщиков спроса.
 package campaign
 
-import "github.com/977ADAM/marketing-agents/internal/topic"
+import (
+	"github.com/977ADAM/marketing-agents/internal/topic"
+)
 
 // Brief — вход пайплайна.
 type Brief struct {
@@ -58,4 +60,10 @@ type Review struct {
 type Deliverable struct {
 	Article
 	Review Review `json:"review"`
+}
+
+// Briefing — проекция брифа для подбора тем: topic не знает про Brief (иначе
+// получился бы цикл campaign ↔ topic), поэтому подбор принимает свой вход.
+func (b Brief) Briefing() topic.Briefing {
+	return topic.Briefing{Product: b.Product, Goal: b.Goal, Audience: b.Audience, Tone: b.Tone}
 }

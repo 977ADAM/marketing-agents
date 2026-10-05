@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/config"
 	apihttp "github.com/977ADAM/marketing-agents/internal/http"
 	"github.com/977ADAM/marketing-agents/internal/llm"
@@ -86,7 +86,7 @@ func main() {
 
 	baseLLM := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
-	baseLLM.SetRoleModel(agents.RoleCopywriter, cfg.ModelFast)
+	baseLLM.SetRoleModel(campaign.RoleCopywriter, cfg.ModelFast)
 	llmClient := llm.NewTracing(baseLLM, recorder)
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера

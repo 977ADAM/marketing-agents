@@ -2,13 +2,13 @@ package runner_test
 
 import (
 	"context"
-	"github.com/977ADAM/marketing-agents/internal/runner"
 	"sync"
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
+	"github.com/977ADAM/marketing-agents/internal/runner"
 )
 
 // fakeProgressStore — стор в памяти для тестов Hub.

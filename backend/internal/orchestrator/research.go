@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/run"
@@ -27,7 +26,7 @@ const (
 // research собирает темы на поисковом спросе: сеялки → спрос → кластеры → отбор.
 //
 // Числа считает только этот код: модель их не видит и не возвращает, а каждая её
-// цитата проверена по данным (см. agents.Semanticist). Если спроса нет совсем или
+// цитата проверена по данным (см. topic.Semanticist). Если спроса нет совсем или
 // подтверждённых тем не хватило, добираем темы от модели с пометкой source=llm —
 // без цифр, потому что цифр по ним нет.
 func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Progress) (campaign.Strategy, llm.Usage, error) {
@@ -53,7 +52,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 
 	// 1) Сеялки по брифу.
 	stage(run.StageSeeds)
-	seeds, u, err := o.semanticist.Seeds(ctx, b, o.seedCount())
+	seeds, u, err := o.semanticist.Seeds(ctx, b.Briefing(), o.seedCount())
 	total = total.Add(u)
 	if err != nil {
 		return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
@@ -109,7 +108,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 	var drafts []topic.TopicDraft
 	if phrases := topPhrases(counts, o.maxPhrases()); len(phrases) > 0 {
 		stage(run.StageClustering)
-		drafts, u, err = o.semanticist.Cluster(ctx, b, phrases, want*mult)
+		drafts, u, err = o.semanticist.Cluster(ctx, b.Briefing(), phrases, want*mult)
 		total = total.Add(u)
 		if err != nil {
 			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
@@ -161,7 +160,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 
 	// 5) Fallback: спроса нет или подтверждённых тем не хватило.
 	if selected := countSelected(cands); selected < want {
-		fallback, u, err := o.semanticist.Fallback(ctx, b, want-selected, titlesOf(cands))
+		fallback, u, err := o.semanticist.Fallback(ctx, b.Briefing(), want-selected, titlesOf(cands))
 		total = total.Add(u)
 		switch {
 		case err != nil && selected == 0:
@@ -191,7 +190,7 @@ func (o *Orchestrator) seedCount() int {
 	if o.opt.SeedCount > 0 {
 		return o.opt.SeedCount
 	}
-	return agents.DefaultSeedCount
+	return topic.DefaultSeedCount
 }
 
 func (o *Orchestrator) numPhrases() int {

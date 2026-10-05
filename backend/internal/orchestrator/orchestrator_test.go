@@ -6,7 +6,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
@@ -19,14 +18,14 @@ func brief() campaign.Brief {
 // fanout: 2 темы, критик сразу accept → 2 deliverables, по одному вызову критика.
 func TestRunFanOutAcceptsImmediately(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]},{"title":"T2","angle":"a","points":["y"]}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"T2","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":88,"issues":[],"verdict":"accept"}`,
 	}
@@ -47,14 +46,14 @@ func TestRunFanOutAcceptsImmediately(t *testing.T) {
 // цикл критика: первый черновик ниже порога → ревизия → второй проходит.
 func TestRunCriticReviseLoop(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
@@ -75,14 +74,14 @@ func TestRunCriticReviseLoop(t *testing.T) {
 // maxIter исчерпан → берём лучший по score черновик.
 func TestRunPicksBestWhenMaxIter(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":70,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
@@ -111,14 +110,14 @@ func TestRunFailsWhenStrategistErrors(t *testing.T) {
 // MaxTopics ограничивает число обрабатываемых тем сверху.
 func TestRunCapsTopics(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1"},{"title":"T2"},{"title":"T3"}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"A1","body":"b","cta":"c"}`,
 		`{"topic":"T2","title":"A2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
@@ -153,14 +152,14 @@ func (r *recordProgress) TopicDone(i, sc int)      { r.add(fmt.Sprintf("done:%d:
 // исчерпан max-iter без accept → второй путь TopicDone (с лучшим score).
 func TestRunEmitsProgressPickBest(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":50,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
@@ -183,14 +182,14 @@ func TestRunEmitsProgressPickBest(t *testing.T) {
 
 func TestRunEmitsProgress(t *testing.T) {
 	fake := llm.NewFake()
-	fake.Responses[agents.RoleStrategist] = []string{
+	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[agents.RoleCopywriter] = []string{
+	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[agents.RoleCritic] = []string{
+	fake.Responses[campaign.RoleCritic] = []string{
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
