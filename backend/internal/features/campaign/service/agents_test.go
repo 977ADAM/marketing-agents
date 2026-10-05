@@ -70,7 +70,7 @@ func TestCopywriterReviseUsesIssues(t *testing.T) {
 	prev := campaign.Article{Topic: "t", Title: "v1", Body: "слабо", CTA: "Жми"}
 	rev := campaign.Review{Score: 50, Issues: []string{"слабый заход"}, Verdict: "revise"}
 
-	art, _, err := cw.Revise(context.Background(), prev, rev)
+	art, _, err := cw.Revise(context.Background(), testBrief(), campaign.Strategy{}, campaign.Topic{}, prev, rev)
 	if err != nil {
 		t.Fatalf("Revise: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestCriticScores(t *testing.T) {
 	cr := campaignservice.NewCritic(fake)
 	art := campaign.Article{Topic: "t", Title: "T", Body: "B", CTA: "C"}
 
-	rev, _, err := cr.Run(context.Background(), testBrief(), art)
+	rev, _, err := cr.Run(context.Background(), testBrief(), campaign.Strategy{}, campaign.Topic{}, art)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -96,15 +96,11 @@ func TestCriticScores(t *testing.T) {
 	}
 }
 
-func TestCriticClampsScore(t *testing.T) {
+func TestCriticRejectsOutOfRangeScore(t *testing.T) {
 	fake := mock.NewLLM()
 	fake.Responses["critic"] = []string{`{"score":150,"issues":[],"verdict":"accept"}`}
-	cr := campaignservice.NewCritic(fake)
-	rev, _, err := cr.Run(context.Background(), testBrief(), campaign.Article{Title: "T", Body: "B"})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if rev.Score != 100 {
-		t.Errorf("score = %d, want clamped to 100", rev.Score)
+	_, _, err := campaignservice.NewCritic(fake).Run(context.Background(), testBrief(), campaign.Strategy{}, campaign.Topic{}, campaign.Article{})
+	if err == nil {
+		t.Fatal("accepted invalid score")
 	}
 }

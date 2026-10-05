@@ -6,6 +6,7 @@ import (
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	"strings"
 )
 
 const RoleCopywriter = "copywriter"
@@ -26,8 +27,13 @@ func (cw *Copywriter) Run(ctx context.Context, b campaign.Brief, s campaign.Stra
 	return cw.complete(ctx, copywriterSystem, user)
 }
 
-func (cw *Copywriter) Revise(ctx context.Context, prev campaign.Article, r campaign.Review) (campaign.Article, corellm.Usage, error) {
-	prevJSON, _ := json.Marshal(prev)
+func (cw *Copywriter) Revise(ctx context.Context, b campaign.Brief, s campaign.Strategy, t campaign.Topic, prev campaign.Article, r campaign.Review) (campaign.Article, corellm.Usage, error) {
+	prevJSON, _ := json.Marshal(struct {
+		Brief    campaign.Brief
+		Strategy campaign.Strategy
+		Topic    campaign.Topic
+		Article  campaign.Article
+	}{b, s, t, prev})
 	user := fmt.Sprintf(
 		"Доработай статью с учётом замечаний критика.\nТекущая версия: %s\nОценка: %d\nЗамечания: %v\nВерни улучшенную статью в том же JSON-формате.",
 		string(prevJSON), r.Score, r.Issues)
@@ -40,7 +46,7 @@ func (cw *Copywriter) complete(ctx context.Context, system, user string) (campai
 	if err != nil {
 		return campaign.Article{}, usage, fmt.Errorf("copywriter: %w", err)
 	}
-	if out.Title == "" || out.Body == "" {
+	if strings.TrimSpace(out.Title) == "" || strings.TrimSpace(out.Body) == "" {
 		return campaign.Article{}, usage, fmt.Errorf("copywriter: incomplete article")
 	}
 	return out, usage, nil

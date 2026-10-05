@@ -184,7 +184,7 @@ func (o *Workflow) produce(ctx context.Context, b campaign.Brief, s campaign.Str
 	bestSet := false
 	for iter := 0; iter < o.opt.CriticMaxIter; iter++ {
 		p.TopicReviewing(i, iter+1)
-		rev, u, err := o.critic.Run(ctx, b, art)
+		rev, u, err := o.critic.Run(ctx, b, s, t, art)
 		total = total.Add(u)
 		if err != nil {
 			return campaign.Deliverable{}, total, err
@@ -197,24 +197,28 @@ func (o *Workflow) produce(ctx context.Context, b campaign.Brief, s campaign.Str
 			})
 
 		if !bestSet || rev.Score > best.Review.Score {
-			best = campaign.Deliverable{Article: art, Review: rev}
+			best = campaign.Deliverable{Article: art, Review: &rev}
 			bestSet = true
 		}
 		if rev.Verdict == "accept" || rev.Score >= o.opt.ScoreThreshold {
 			p.TopicDone(i, rev.Score)
-			return campaign.Deliverable{Article: art, Review: rev}, total, nil
+			return campaign.Deliverable{Article: art, Review: &rev}, total, nil
 		}
 		if iter == o.opt.CriticMaxIter-1 {
 			break // больше не доработать — выходим с лучшим
 		}
 		p.TopicRevising(i, iter+1)
-		art, u, err = o.copywriter.Revise(ctx, art, rev)
+		art, u, err = o.copywriter.Revise(ctx, b, s, t, art, rev)
 		total = total.Add(u)
 		if err != nil {
 			return campaign.Deliverable{}, total, err
 		}
 	}
-	p.TopicDone(i, best.Review.Score)
+	finalScore := 0
+	if best.Review != nil {
+		finalScore = best.Review.Score
+	}
+	p.TopicDone(i, finalScore)
 	return best, total, nil
 }
 

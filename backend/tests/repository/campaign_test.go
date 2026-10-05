@@ -80,7 +80,7 @@ func TestCampaignRoundTrip(t *testing.T) {
 	}
 	res := campaign.Outcome{
 		Strategy:     campaign.Strategy{Positioning: "p", Topics: []campaign.Topic{{Title: "T1"}}},
-		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T1", Title: "A", Body: "B", CTA: "C"}, Review: campaign.Review{Score: 90, Verdict: "accept"}}},
+		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T1", Title: "A", Body: "B", CTA: "C"}, Review: &campaign.Review{Score: 90, Verdict: "accept"}}},
 		CostUSD:      0.12,
 	}
 	if err := s.campaigns.Complete(ctx, id, res); err != nil {

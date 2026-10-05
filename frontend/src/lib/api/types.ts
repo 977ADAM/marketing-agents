@@ -98,7 +98,7 @@ export interface Deliverable {
 	title: string;
 	body: string;
 	cta: string;
-	review: Review;
+	review: Review | null;
 }
 
 export interface Campaign {

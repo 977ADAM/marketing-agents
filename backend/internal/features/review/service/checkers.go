@@ -41,14 +41,13 @@ func NewComplianceChecker(c corellm.Client) *ComplianceChecker { return &Complia
 func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t review.TextToReview) (review.CheckScore, corellm.Usage, error) {
 	user := fmt.Sprintf("БРИФ:\n%s\n\nТЕКСТ ДЛЯ ПРОВЕРКИ:\nЗаголовок: %s\n\n%s",
 		briefText, t.Title, t.Body)
-	var out review.CheckScore
+	var out scoreResponse
 	usage, err := ch.llm.Complete(ctx, RoleCompliance, complianceSystem, user, &out)
 	if err != nil {
 		return review.CheckScore{}, usage, fmt.Errorf("compliance: %w", err)
 	}
-	out.Score = clampScore(out.Score)
-	out.Severity = score.Severity(out.Score)
-	return out, usage, nil
+	result, err := out.validate()
+	return result, usage, err
 }
 
 // QualityChecker — агент «корректность текста».
@@ -58,22 +57,26 @@ func NewQualityChecker(c corellm.Client) *QualityChecker { return &QualityChecke
 
 func (q *QualityChecker) Run(ctx context.Context, t review.TextToReview) (review.CheckScore, corellm.Usage, error) {
 	user := fmt.Sprintf("Заголовок: %s\n\n%s", t.Title, t.Body)
-	var out review.CheckScore
+	var out scoreResponse
 	usage, err := q.llm.Complete(ctx, RoleQuality, qualitySystem, user, &out)
 	if err != nil {
 		return review.CheckScore{}, usage, fmt.Errorf("quality: %w", err)
 	}
-	out.Score = clampScore(out.Score)
-	out.Severity = score.Severity(out.Score)
-	return out, usage, nil
+	result, err := out.validate()
+	return result, usage, err
 }
 
-func clampScore(s int) int {
-	if s < 0 {
-		return 0
+type scoreResponse struct {
+	Score  *int     `json:"score"`
+	Issues []string `json:"issues"`
+}
+
+func (s scoreResponse) validate() (review.CheckScore, error) {
+	if s.Score == nil || *s.Score < 0 || *s.Score > 100 {
+		return review.CheckScore{}, fmt.Errorf("checker: missing or invalid score")
 	}
-	if s > 100 {
-		return 100
+	if s.Issues == nil {
+		return review.CheckScore{}, fmt.Errorf("checker: missing issues")
 	}
-	return s
+	return review.CheckScore{Score: *s.Score, Issues: s.Issues, Severity: score.Severity(*s.Score)}, nil
 }

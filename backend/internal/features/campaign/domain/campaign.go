@@ -59,7 +59,7 @@ type Review struct {
 // Deliverable — статья с прикреплённым ревью (итог по теме).
 type Deliverable struct {
 	Article
-	Review Review `json:"review"`
+	Review *Review `json:"review"`
 }
 
 // Briefing — проекция брифа для подбора тем: topic не знает про Brief (иначе

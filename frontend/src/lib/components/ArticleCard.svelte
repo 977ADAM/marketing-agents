@@ -12,15 +12,15 @@
 <div class="article-card">
 	<div class="article-head">
 		<h3>{deliverable.title}</h3>
-		<ScoreBadge score={deliverable.review.score} severity={deliverable.review.severity} />
+		{#if deliverable.review}<ScoreBadge score={deliverable.review.score} severity={deliverable.review.severity} />{:else}<span>Не проверено</span>{/if}
 	</div>
-	<p class="verdict">{ARTICLE_VERDICT_LABELS[deliverable.review.verdict] ?? deliverable.review.verdict}</p>
+	{#if deliverable.review}<p class="verdict">{ARTICLE_VERDICT_LABELS[deliverable.review.verdict] ?? deliverable.review.verdict}</p>{/if}
 	<p class="cta">{deliverable.cta}</p>
 	<button type="button" class="btn btn-secondary" onclick={() => (open = true)}>Читать ▸</button>
 
 	<Modal {open} title={deliverable.title} onClose={() => (open = false)}>
 		<p class="article-body">{deliverable.body}</p>
-		{#if deliverable.review.issues && deliverable.review.issues.length > 0}
+		{#if deliverable.review?.issues && deliverable.review.issues.length > 0}
 			<h4>Замечания критика</h4>
 			<ul class="issues">
 				{#each deliverable.review.issues as issue, i (i)}

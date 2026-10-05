@@ -2,6 +2,7 @@ package campaignservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
@@ -20,20 +21,31 @@ type Critic struct{ llm corellm.Client }
 
 func NewCritic(c corellm.Client) *Critic { return &Critic{llm: c} }
 
-func (cr *Critic) Run(ctx context.Context, b campaign.Brief, a campaign.Article) (campaign.Review, corellm.Usage, error) {
-	user := fmt.Sprintf("Аудитория: %s; тон: %s.\nЗаголовок: %s\nТекст: %s\nCTA: %s",
-		b.Audience, b.Tone, a.Title, a.Body, a.CTA)
-	var out campaign.Review
+func (cr *Critic) Run(ctx context.Context, b campaign.Brief, s campaign.Strategy, t campaign.Topic, a campaign.Article) (campaign.Review, corellm.Usage, error) {
+	input, _ := json.Marshal(struct {
+		Brief    campaign.Brief
+		Strategy campaign.Strategy
+		Topic    campaign.Topic
+		Article  campaign.Article
+	}{b, s, t, a})
+	user := string(input)
+	var out struct {
+		Score   *int     `json:"score"`
+		Issues  []string `json:"issues"`
+		Verdict string   `json:"verdict"`
+	}
 	usage, err := cr.llm.Complete(ctx, RoleCritic, criticSystem, user, &out)
 	if err != nil {
 		return campaign.Review{}, usage, fmt.Errorf("critic: %w", err)
 	}
-	if out.Score < 0 {
-		out.Score = 0
+	if out.Score == nil || *out.Score < 0 || *out.Score > 100 {
+		return campaign.Review{}, usage, fmt.Errorf("critic: missing or invalid score")
 	}
-	if out.Score > 100 {
-		out.Score = 100
+	if out.Verdict != "accept" && out.Verdict != "revise" {
+		return campaign.Review{}, usage, fmt.Errorf("critic: invalid verdict")
 	}
-	out.Severity = score.Severity(out.Score)
-	return out, usage, nil
+	if out.Issues == nil {
+		return campaign.Review{}, usage, fmt.Errorf("critic: missing issues")
+	}
+	return campaign.Review{Score: *out.Score, Issues: out.Issues, Verdict: out.Verdict, Severity: score.Severity(*out.Score)}, usage, nil
 }
