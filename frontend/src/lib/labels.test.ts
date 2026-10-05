@@ -31,7 +31,7 @@ describe('statusLabel', () => {
 describe('словари подписей', () => {
 	it('покрывают все фазы и состояния тем', () => {
 		expect(Object.keys(PHASE_LABELS).sort()).toEqual(
-			['done', 'failed', 'producing', 'researching', 'strategizing'].sort()
+			['done', 'failed', 'pending', 'producing', 'researching', 'strategizing'].sort()
 		);
 		expect(Object.keys(TOPIC_LABELS).sort()).toEqual(
 			['done', 'pending', 'reviewing', 'revising', 'writing'].sort()
