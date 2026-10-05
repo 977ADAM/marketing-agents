@@ -10,6 +10,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -17,7 +18,7 @@ import (
 // researchProgress — recorder с поддержкой этапа подбора тем.
 type researchProgress struct {
 	*recordProgress
-	stages []orchestrator.ResearchStage
+	stages []run.ResearchStage
 	seeds  []string
 	done   int
 }
@@ -26,7 +27,7 @@ func newResearchProgress() *researchProgress {
 	return &researchProgress{recordProgress: &recordProgress{}}
 }
 
-func (r *researchProgress) Researching(s orchestrator.ResearchStage) {
+func (r *researchProgress) Researching(s run.ResearchStage) {
 	r.mu.Lock()
 	r.stages = append(r.stages, s)
 	r.mu.Unlock()
@@ -168,7 +169,7 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 	}
 
 	// Подэтапы и сеялки видны в прогрессе, все сеялки закрыты.
-	wantStages := []orchestrator.ResearchStage{orchestrator.StageSeeds, orchestrator.StageFetching, orchestrator.StageClustering, orchestrator.StageSelecting}
+	wantStages := []run.ResearchStage{run.StageSeeds, run.StageFetching, run.StageClustering, run.StageSelecting}
 	if len(p.stages) != len(wantStages) {
 		t.Fatalf("подэтапы = %v, want %v", p.stages, wantStages)
 	}

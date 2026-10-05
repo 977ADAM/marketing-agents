@@ -8,6 +8,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
@@ -29,10 +30,10 @@ const (
 // цитата проверена по данным (см. agents.Semanticist). Если спроса нет совсем или
 // подтверждённых тем не хватило, добираем темы от модели с пометкой source=llm —
 // без цифр, потому что цифр по ним нет.
-func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progress) (campaign.Strategy, llm.Usage, error) {
+func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Progress) (campaign.Strategy, llm.Usage, error) {
 	var total llm.Usage
-	rp, hasRP := p.(ResearchProgress)
-	stage := func(s ResearchStage) {
+	rp, hasRP := p.(run.ResearchProgress)
+	stage := func(s run.ResearchStage) {
 		if hasRP {
 			rp.Researching(s)
 		}
@@ -51,7 +52,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progres
 	calls := 0
 
 	// 1) Сеялки по брифу.
-	stage(StageSeeds)
+	stage(run.StageSeeds)
 	seeds, u, err := o.semanticist.Seeds(ctx, b, o.seedCount())
 	total = total.Add(u)
 	if err != nil {
@@ -65,7 +66,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progres
 		map[string]any{"seeds": seeds, "requested": o.seedCount()})
 
 	// 2) Спрос по каждой сеялке.
-	stage(StageFetching)
+	stage(run.StageFetching)
 	counts := map[string]int64{}
 	processed := 0
 	for i, seed := range seeds {
@@ -107,7 +108,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progres
 	// технического мусора (размеры и типоразмеры — не темы).
 	var drafts []topic.TopicDraft
 	if phrases := topPhrases(counts, o.maxPhrases()); len(phrases) > 0 {
-		stage(StageClustering)
+		stage(run.StageClustering)
 		drafts, u, err = o.semanticist.Cluster(ctx, b, phrases, want*mult)
 		total = total.Add(u)
 		if err != nil {
@@ -119,7 +120,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progres
 	}
 
 	// 4) Сезонная поправка по головной фразе каждой темы.
-	stage(StageSelecting)
+	stage(run.StageSelecting)
 	inputs := make([]DraftInput, 0, len(drafts))
 	for _, d := range drafts {
 		queries := queriesOf(d.Queries, counts)

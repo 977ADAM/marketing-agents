@@ -6,28 +6,28 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // fakeProgressStore — стор в памяти для тестов Hub.
 type fakeProgressStore struct {
 	mu      sync.Mutex
-	saved   map[string]orchestrator.Snapshot
-	savedRV map[string]orchestrator.Snapshot
+	saved   map[string]run.Snapshot
+	savedRV map[string]run.Snapshot
 	camps   map[string]*store.Campaign
 	revs    map[string]*store.Review
 }
 
 func newFakePS() *fakeProgressStore {
 	return &fakeProgressStore{
-		saved:   map[string]orchestrator.Snapshot{},
-		savedRV: map[string]orchestrator.Snapshot{},
+		saved:   map[string]run.Snapshot{},
+		savedRV: map[string]run.Snapshot{},
 		camps:   map[string]*store.Campaign{},
 		revs:    map[string]*store.Review{},
 	}
 }
-func (f *fakeProgressStore) SaveProgress(_ context.Context, id string, s orchestrator.Snapshot) error {
+func (f *fakeProgressStore) SaveProgress(_ context.Context, id string, s run.Snapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saved[id] = s
@@ -42,7 +42,7 @@ func (f *fakeProgressStore) Get(_ context.Context, id string) (*store.Campaign, 
 	}
 	return c, nil
 }
-func (f *fakeProgressStore) SaveReviewProgress(_ context.Context, id string, s orchestrator.Snapshot) error {
+func (f *fakeProgressStore) SaveReviewProgress(_ context.Context, id string, s run.Snapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.savedRV[id] = s
@@ -73,7 +73,7 @@ func TestHubLiveSubscriber(t *testing.T) {
 	tr.TopicsPlanned([]string{"T1", "T2"})
 	tr.TopicDone(0, 88)
 
-	var last orchestrator.Snapshot
+	var last run.Snapshot
 	for i := 0; i < 3; i++ {
 		last = <-ch
 	}
@@ -94,26 +94,26 @@ func TestTrackerResearchProgress(t *testing.T) {
 	_, ch, cancel := hub.Subscribe("r1")
 	defer cancel()
 
-	tr.Researching(orchestrator.StageSeeds)
+	tr.Researching(run.StageSeeds)
 	tr.ResearchSeeds([]string{"зимняя резина", "какую зимнюю резину"})
 	tr.ResearchSeedDone(0)
-	tr.Researching(orchestrator.StageFetching)
+	tr.Researching(run.StageFetching)
 	tr.ResearchSeedDone(1)
 
-	var last orchestrator.Snapshot
+	var last run.Snapshot
 	for i := 0; i < 5; i++ {
 		last = <-ch
 	}
-	if last.Phase != orchestrator.PhaseResearching {
-		t.Errorf("Phase = %q, want %q", last.Phase, orchestrator.PhaseResearching)
+	if last.Phase != run.PhaseResearching {
+		t.Errorf("Phase = %q, want %q", last.Phase, run.PhaseResearching)
 	}
-	if last.Stage != string(orchestrator.StageFetching) {
+	if last.Stage != string(run.StageFetching) {
 		t.Errorf("Stage = %q, want fetching", last.Stage)
 	}
 	if last.TopicTotal != 2 || last.TopicsDone != 2 {
 		t.Errorf("сеялки: total = %d, done = %d", last.TopicTotal, last.TopicsDone)
 	}
-	if len(last.Topics) != 2 || last.Topics[0].State != orchestrator.TopicDone {
+	if len(last.Topics) != 2 || last.Topics[0].State != run.TopicDone {
 		t.Errorf("состояния сеялок = %+v", last.Topics)
 	}
 	// Процент фазы подбора растёт в диапазоне стратегии, а не прыгает к 95.
@@ -124,7 +124,7 @@ func TestTrackerResearchProgress(t *testing.T) {
 	// Переход к генерации: сеялки заменяются темами, счётчик обнуляется.
 	tr.TopicsPlanned([]string{"Тема A"})
 	snap := ps.saved["r1"]
-	if snap.Phase != orchestrator.PhaseProducing || snap.Stage != "" {
+	if snap.Phase != run.PhaseProducing || snap.Stage != "" {
 		t.Errorf("после подбора: phase = %q, stage = %q", snap.Phase, snap.Stage)
 	}
 	if snap.TopicsDone != 0 || snap.TopicTotal != 1 {
@@ -135,7 +135,7 @@ func TestTrackerResearchProgress(t *testing.T) {
 func TestHubLateSubscriberFromStore(t *testing.T) {
 	ps := newFakePS()
 	ps.camps["done1"] = &store.Campaign{ID: "done1", Status: "done",
-		Progress: &orchestrator.Snapshot{Phase: orchestrator.PhaseDone, Percent: 100}}
+		Progress: &run.Snapshot{Phase: run.PhaseDone, Percent: 100}}
 	hub := httpapi.NewHub(context.Background(), ps)
 
 	snap, ch, cancel := hub.Subscribe("done1")

@@ -7,22 +7,22 @@ import (
 	"errors"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
 // Review — модель строки проверки текстов для API.
 type Review struct {
-	ID        string                 `json:"id"`
-	ClientID  string                 `json:"client_id"`
-	Status    string                 `json:"status"`
-	BriefText string                 `json:"brief_text"`
-	Result    *review.Result         `json:"result,omitempty"`
-	Progress  *orchestrator.Snapshot `json:"progress,omitempty"`
-	CostUSD   *float64               `json:"cost_usd,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	ID        string         `json:"id"`
+	ClientID  string         `json:"client_id"`
+	Status    string         `json:"status"`
+	BriefText string         `json:"brief_text"`
+	Result    *review.Result `json:"result,omitempty"`
+	Progress  *run.Snapshot  `json:"progress,omitempty"`
+	CostUSD   *float64       `json:"cost_usd,omitempty"`
+	Error     string         `json:"error,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 // ReviewSummary — лёгкая сводка для списка истории проверок.
@@ -57,7 +57,7 @@ func (s *Store) MarkReviewRunning(ctx context.Context, id string) error {
 }
 
 // SaveReviewProgress сохраняет снимок прогресса проверки (перезаписывает прошлый).
-func (s *Store) SaveReviewProgress(ctx context.Context, id string, snap orchestrator.Snapshot) error {
+func (s *Store) SaveReviewProgress(ctx context.Context, id string, snap run.Snapshot) error {
 	b, _ := json.Marshal(snap)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE reviews SET progress=?, updated_at=`+nowExpr+` WHERE id=?`, string(b), id)
@@ -107,7 +107,7 @@ func (s *Store) GetReview(ctx context.Context, id string) (*Review, error) {
 		r.Error = *errText
 	}
 	if len(progressJSON) > 0 {
-		var snap orchestrator.Snapshot
+		var snap run.Snapshot
 		if json.Unmarshal(progressJSON, &snap) == nil {
 			r.Progress = &snap
 		}

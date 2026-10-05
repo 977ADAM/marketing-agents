@@ -10,14 +10,15 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/score"
 )
 
 // Review прогоняет готовые тексты через двух агентов (соответствие брифу и
 // корректность текста) параллельно по текстам и возвращает отчёты.
-func (o *Orchestrator) Review(ctx context.Context, req review.Request, p Progress) (review.Result, error) {
+func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Progress) (review.Result, error) {
 	if p == nil {
-		p = NopProgress{}
+		p = run.NopProgress{}
 	}
 	var mu sync.Mutex
 	total := llm.Usage{}
@@ -65,7 +66,7 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p Progres
 
 // reviewOne — проверка одного текста двумя агентами с прогрессом.
 func (o *Orchestrator) reviewOne(ctx context.Context, compliance *agents.ComplianceChecker, quality *agents.QualityChecker,
-	briefText string, i int, t review.TextToReview, p Progress) (review.TextReport, llm.Usage, error) {
+	briefText string, i int, t review.TextToReview, p run.Progress) (review.TextReport, llm.Usage, error) {
 	var total llm.Usage
 
 	p.TopicWriting(i) // первый агент: соответствие брифу

@@ -13,8 +13,8 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
@@ -39,8 +39,8 @@ type Runner interface {
 
 // Subscriber — источник снимков прогресса для SSE.
 type Subscriber interface {
-	Subscribe(id string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func())
-	SubscribeReview(id string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func())
+	Subscribe(id string) (run.Snapshot, <-chan run.Snapshot, func())
+	SubscribeReview(id string) (run.Snapshot, <-chan run.Snapshot, func())
 }
 
 type API struct {
@@ -226,7 +226,7 @@ func (a *API) campaignEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func writeSSE(w http.ResponseWriter, event string, snap orchestrator.Snapshot) {
+func writeSSE(w http.ResponseWriter, event string, snap run.Snapshot) {
 	b, _ := json.Marshal(snap)
 	if event != "" {
 		fmt.Fprintf(w, "event: %s\n", event)

@@ -17,8 +17,8 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
@@ -409,21 +409,21 @@ func TestBasicAuth(t *testing.T) {
 
 // fakeSub — подписчик для SSE-тестов.
 type fakeSub struct {
-	snap orchestrator.Snapshot
-	ch   chan orchestrator.Snapshot
+	snap run.Snapshot
+	ch   chan run.Snapshot
 }
 
-func (f *fakeSub) Subscribe(string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
+func (f *fakeSub) Subscribe(string) (run.Snapshot, <-chan run.Snapshot, func()) {
 	return f.snap, f.ch, func() {}
 }
-func (f *fakeSub) SubscribeReview(string) (orchestrator.Snapshot, <-chan orchestrator.Snapshot, func()) {
+func (f *fakeSub) SubscribeReview(string) (run.Snapshot, <-chan run.Snapshot, func()) {
 	return f.snap, f.ch, func() {}
 }
 
 func TestCampaignEventsNotFound(t *testing.T) {
 	repo := &mockRepo{}
 	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)},
-		&fakeSub{ch: make(chan orchestrator.Snapshot)}, 1000)
+		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/nope/events", nil)
 	w := httptest.NewRecorder()
 	api.Handler().ServeHTTP(w, req)
@@ -434,8 +434,8 @@ func TestCampaignEventsNotFound(t *testing.T) {
 
 func TestCampaignEventsStream(t *testing.T) {
 	repo := &mockRepo{campaigns: map[string]*store.Campaign{"camp-1": {ID: "camp-1", Status: "running"}}}
-	ch := make(chan orchestrator.Snapshot, 4)
-	sub := &fakeSub{snap: orchestrator.Snapshot{Phase: orchestrator.PhaseStrategizing, Percent: 5}, ch: ch}
+	ch := make(chan run.Snapshot, 4)
+	sub := &fakeSub{snap: run.Snapshot{Phase: run.PhaseStrategizing, Percent: 5}, ch: ch}
 	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)}, sub, 1000)
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
@@ -446,7 +446,7 @@ func TestCampaignEventsStream(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	ch <- orchestrator.Snapshot{Phase: orchestrator.PhaseProducing, Percent: 50}
+	ch <- run.Snapshot{Phase: run.PhaseProducing, Percent: 50}
 	close(ch)
 
 	done := make(chan struct{})
@@ -480,7 +480,7 @@ func TestCampaignEventsStream(t *testing.T) {
 
 func TestCampaignEventsInternalError(t *testing.T) {
 	api := httpapi.New(errRepo{}, &mockRunner{called: make(chan string, 1)},
-		&fakeSub{ch: make(chan orchestrator.Snapshot)}, 1000)
+		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/x/events", nil)
 	w := httptest.NewRecorder()
 	api.Handler().ServeHTTP(w, req)
@@ -546,7 +546,7 @@ func TestGetReviewNotFound(t *testing.T) {
 
 func TestReviewEventsNotFound(t *testing.T) {
 	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)},
-		&fakeSub{ch: make(chan orchestrator.Snapshot)}, 1000)
+		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/reviews/nope/events", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)

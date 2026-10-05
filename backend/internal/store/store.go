@@ -21,6 +21,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
 const DefaultClientID = "00000000-0000-0000-0000-000000000001"
@@ -139,7 +140,7 @@ type Campaign struct {
 	Brief        campaign.Brief         `json:"brief"`
 	Strategy     *campaign.Strategy     `json:"strategy,omitempty"`
 	Deliverables []campaign.Deliverable `json:"deliverables,omitempty"`
-	Progress     *orchestrator.Snapshot `json:"progress,omitempty"`
+	Progress     *run.Snapshot          `json:"progress,omitempty"`
 	CostUSD      *float64               `json:"cost_usd,omitempty"`
 	Error        string                 `json:"error,omitempty"`
 	CreatedAt    time.Time              `json:"created_at"`
@@ -176,7 +177,7 @@ func (s *Store) MarkRunning(ctx context.Context, id string) error {
 }
 
 // SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
-func (s *Store) SaveProgress(ctx context.Context, id string, snap orchestrator.Snapshot) error {
+func (s *Store) SaveProgress(ctx context.Context, id string, snap run.Snapshot) error {
 	b, _ := json.Marshal(snap)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE campaigns SET progress=?, updated_at=`+nowExpr+` WHERE id=?`, string(b), id)
@@ -296,7 +297,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
 		c.Error = *errText
 	}
 	if len(progressJSON) > 0 {
-		var snap orchestrator.Snapshot
+		var snap run.Snapshot
 		if json.Unmarshal(progressJSON, &snap) == nil {
 			c.Progress = &snap
 		}

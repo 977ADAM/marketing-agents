@@ -10,6 +10,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 )
@@ -204,14 +205,14 @@ func TestProgressRoundTrip(t *testing.T) {
 		t.Fatalf("Progress = %+v, want nil", got.Progress)
 	}
 
-	snap := orchestrator.Snapshot{
-		Phase:      orchestrator.PhaseProducing,
+	snap := run.Snapshot{
+		Phase:      run.PhaseProducing,
 		TopicTotal: 2,
 		TopicsDone: 1,
 		Percent:    50,
-		Topics: []orchestrator.TopicProgress{
-			{Index: 0, Title: "T1", State: orchestrator.TopicDone, Score: 88},
-			{Index: 1, Title: "T2", State: orchestrator.TopicWriting},
+		Topics: []run.TopicProgress{
+			{Index: 0, Title: "T1", State: run.TopicDone, Score: 88},
+			{Index: 1, Title: "T2", State: run.TopicWriting},
 		},
 	}
 	if err := s.SaveProgress(ctx, id, snap); err != nil {
@@ -222,7 +223,7 @@ func TestProgressRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Progress == nil || got.Progress.Phase != orchestrator.PhaseProducing || got.Progress.Percent != 50 || got.Progress.TopicsDone != 1 {
+	if got.Progress == nil || got.Progress.Phase != run.PhaseProducing || got.Progress.Percent != 50 || got.Progress.TopicsDone != 1 {
 		t.Fatalf("Progress = %+v", got.Progress)
 	}
 	if len(got.Progress.Topics) != 2 || got.Progress.Topics[0].Score != 88 {
@@ -307,12 +308,12 @@ func TestReviewRoundTrip(t *testing.T) {
 	if err := st.MarkReviewRunning(ctx, id); err != nil {
 		t.Fatalf("MarkReviewRunning: %v", err)
 	}
-	snap := orchestrator.Snapshot{
-		Phase:      orchestrator.PhaseProducing,
+	snap := run.Snapshot{
+		Phase:      run.PhaseProducing,
 		TopicTotal: 1,
 		TopicsDone: 0,
 		Percent:    10,
-		Topics:     []orchestrator.TopicProgress{{Index: 0, Title: "Статья", State: orchestrator.TopicWriting}},
+		Topics:     []run.TopicProgress{{Index: 0, Title: "Статья", State: run.TopicWriting}},
 	}
 	if err := st.SaveReviewProgress(ctx, id, snap); err != nil {
 		t.Fatalf("SaveReviewProgress: %v", err)
@@ -450,12 +451,12 @@ func TestConcurrentProgressWrites(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			snap := orchestrator.Snapshot{
-				Phase:      orchestrator.PhaseProducing,
+			snap := run.Snapshot{
+				Phase:      run.PhaseProducing,
 				TopicTotal: 5,
 				TopicsDone: n % 5,
 				Percent:    n,
-				Topics:     []orchestrator.TopicProgress{{Index: 0, Title: "T", State: orchestrator.TopicWriting, Iter: n}},
+				Topics:     []run.TopicProgress{{Index: 0, Title: "T", State: run.TopicWriting, Iter: n}},
 			}
 			if err := st.SaveProgress(ctx, id, snap); err != nil {
 				errs <- err

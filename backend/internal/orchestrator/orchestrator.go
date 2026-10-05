@@ -4,7 +4,6 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"github.com/977ADAM/marketing-agents/internal/topic"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -12,6 +11,8 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/run"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
@@ -86,9 +87,9 @@ func (o *Orchestrator) canResearch() bool {
 	return o.opt.Wordstat != nil && o.semanticist != nil
 }
 
-func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p Progress) (res Result, err error) {
+func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p run.Progress) (res Result, err error) {
 	if p == nil {
-		p = NopProgress{}
+		p = run.NopProgress{}
 	}
 	var mu sync.Mutex
 	total := llm.Usage{}
@@ -171,7 +172,7 @@ func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p Progress) (r
 }
 
 // produce пишет статью и гоняет цикл критика; usage аккумулируется по всем вызовам.
-func (o *Orchestrator) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p Progress) (campaign.Deliverable, llm.Usage, error) {
+func (o *Orchestrator) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p run.Progress) (campaign.Deliverable, llm.Usage, error) {
 	total := llm.Usage{}
 	p.TopicWriting(i)
 	art, u, err := o.copywriter.Run(ctx, b, s, t)
