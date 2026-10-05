@@ -48,11 +48,11 @@ func happyCampaignFakes(t *testing.T) *mock.LLM {
 	t.Helper()
 	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
-	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
-		 "queries":["какую зимнюю резину"]},
+		 "queries":["какую зимнюю резину"],"selected":true},
 		{"title":"Сколько стоит зимняя резина","goal":"поймать перед покупкой","task":"дать ориентир",
-		 "queries":["купить зимнюю резину"]}]}`}
+		 "queries":["купить зимнюю резину"],"selected":true}]}`}
 	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
 	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
@@ -87,7 +87,7 @@ func TestRunEmitsDecisionTrail(t *testing.T) {
 	} else if !strings.Contains(got[0].Summary, "зимняя резина") {
 		t.Errorf("в сводке нет фразы: %q", got[0].Summary)
 	}
-	if got := rec.byName("clustering"); len(got) != 1 || !strings.Contains(got[0].Summary, "2 тем") {
+	if got := rec.byName("selection"); len(got) != 1 || !strings.Contains(got[0].Summary, "2 тем") {
 		t.Errorf("событие о кластеризации: %+v", got)
 	}
 
@@ -101,21 +101,25 @@ func TestRunEmitsDecisionTrail(t *testing.T) {
 		payload, _ := ev.Payload.(map[string]any)
 		if payload["selected"] == true {
 			selected++
-			if !strings.Contains(ev.Summary, "отобрана") {
-				t.Errorf("сводка отобранной темы = %q", ev.Summary)
+			if !strings.Contains(ev.Summary, "выбрана моделью") {
+				t.Errorf("сводка выбранной темы = %q", ev.Summary)
 			}
 		} else {
 			rejected++
-			if !strings.Contains(ev.Summary, "не хватило мест") {
+			if !strings.Contains(ev.Summary, "модель не выбрала") {
 				t.Errorf("сводка отклонённой темы = %q", ev.Summary)
 			}
 		}
-		if payload["min_volume"] != int64(300) {
-			t.Errorf("в решении нет порога: %#v", payload)
+		// Порогов в решении больше нет: их место занял выбор модели.
+		if _, ok := payload["min_volume"]; ok {
+			t.Errorf("в решении остался порог кода: %#v", payload)
+		}
+		if payload["volume"] == nil {
+			t.Errorf("в решении нет данных по цитатам: %#v", payload)
 		}
 	}
 	if selected != 2 || rejected != 0 {
-		t.Errorf("отобрано %d, отклонено %d (want 2/0: тем ровно по числу статей×2)", selected, rejected)
+		t.Errorf("выбрано моделью %d, отклонено %d (want 2/0)", selected, rejected)
 	}
 
 	// Итерации критика и итог прогона.
@@ -262,7 +266,7 @@ func TestRunWithRunIDWritesTrail(t *testing.T) {
 		}
 	}
 	names := sink.names()
-	for _, want := range []string{"seeds", "seed_collected", "clustering", "topic_decision", "critic", "run"} {
+	for _, want := range []string{"seeds", "seed_collected", "selection", "topic_decision", "critic", "run"} {
 		found := false
 		for _, n := range names {
 			if n == want {

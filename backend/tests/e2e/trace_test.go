@@ -38,9 +38,9 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 
 	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
-		 "queries":["какую зимнюю резину"]}]}`}
+		 "queries":["какую зимнюю резину"],"selected":true}]}`}
 	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
 	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
@@ -55,8 +55,6 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		CriticMaxIter: 1, ScoreThreshold: 80,
 		Wordstat:         wordstat.NewTracing(src, rec),
 		Recorder:         rec,
-		Select:           orchestrator.SelectOptions{MinVolume: 300, SeasonalityFactor: 3},
-		TopicsMultiplier: 2,
 		SeedCount:        1,
 		MaxWordstatCalls: 5,
 		DefaultRegion:    "225",
@@ -83,8 +81,8 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		names[ev.Name]++
 	}
 	for _, want := range []string{
-		topic.RoleSeeds, topic.RoleCluster, campaign.RoleStrategist, campaign.RoleCopywriter,
-		"top_requests", "seeds", "seed_collected", "clustering", "topic_decision", "critic", "run",
+		topic.RoleSeeds, topic.RoleSelect, campaign.RoleStrategist, campaign.RoleCopywriter,
+		"top_requests", "seeds", "seed_collected", "selection", "topic_decision", "critic", "run",
 	} {
 		if names[want] == 0 {
 			t.Errorf("в трассе нет события %q; есть: %v", want, names)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"sort"
+	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/run"
@@ -41,10 +42,6 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 	want := b.TopicsCount
 	if want <= 0 {
 		want = DefaultTopicsCount
-	}
-	mult := o.opt.TopicsMultiplier
-	if mult < 1 {
-		mult = 1
 	}
 	maxCalls := o.maxWordstatCalls()
 	regions := regionList(b.Region, o.opt.DefaultRegion)
@@ -103,87 +100,165 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 		}
 	}
 
-	// 3) Кластеризация: модели отдаём только сами фразы, без частотностей и без
-	// технического мусора (размеры и типоразмеры — не темы).
+	// 3) Досье для модели: фразы с частотностями как есть — без техотсева и
+	// порогов, их оценивает она. Лимит нужен только чтобы промпт не распух.
+	stage(run.StageSelecting)
+	data := phrasesByVolume(counts, o.maxPhrases())
 	var drafts []topic.TopicDraft
-	if phrases := topPhrases(counts, o.maxPhrases()); len(phrases) > 0 {
-		stage(run.StageClustering)
-		drafts, u, err = o.semanticist.Cluster(ctx, b.Briefing(), phrases, want*mult)
+	if len(data) > 0 {
+		drafts, u, err = o.semanticist.Select(ctx, b.Briefing(), data, want)
 		total = total.Add(u)
 		if err != nil {
 			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
 		}
-		o.traceDecision(ctx, "clustering",
-			fmt.Sprintf("из %d фраз модель собрала %d тем (просили %d)", len(phrases), len(drafts), want*mult),
-			map[string]any{"phrases": len(phrases), "drafts": len(drafts), "want": want * mult})
+		o.traceDecision(ctx, "selection",
+			fmt.Sprintf("модель собрала %d тем из %d фраз, выбрала %d (нужно %d)",
+				len(drafts), len(data), chosenDraftCount(drafts), want),
+			map[string]any{"phrases": len(data), "topics": len(drafts),
+				"selected": chosenDraftCount(drafts), "want": want})
 	}
 
-	// 4) Сезонная поправка по головной фразе каждой темы.
-	stage(run.StageSelecting)
-	inputs := make([]DraftInput, 0, len(drafts))
-	for _, d := range drafts {
+	// 4) Кандидаты: решение модели плюс данные по её цитатам.
+	cands := make([]topic.TopicCandidate, 0, len(drafts))
+	for i, d := range drafts {
 		queries := queriesOf(d.Queries, counts)
-		var season *topic.Seasonality
-		if head := headOf(queries); head != "" && calls < maxCalls {
-			dyn, err := o.opt.Wordstat.Dynamics(ctx, topic.DynamicsParams{
-				Phrase:  head,
+		c := topic.TopicCandidate{
+			ID:       fmt.Sprintf("t%d", i+1),
+			Title:    d.Title,
+			Goal:     d.Goal,
+			Task:     d.Task,
+			Source:   topic.SourceWordstat,
+			Selected: d.Selected,
+			Reject:   d.Reject,
+			Queries:  queries,
+			Head:     headOf(queries),
+			Intent:   d.Intent,
+		}
+		// Объём темы — максимум по её цитатам (не сумма: формулировки являются
+		// подмножествами широкой частотности и суммирование завышает в разы).
+		for _, q := range queries {
+			if q.Count > c.Volume {
+				c.Volume = q.Count
+			}
+		}
+		// Тема без цитат — гипотеза модели, цифр по ней нет.
+		if len(queries) == 0 {
+			c.Source = topic.SourceLLM
+		}
+		// Сезонность — данные для показа (не фильтр): берём у выбранных тем.
+		if c.Selected && c.Head != "" && calls < maxCalls {
+			dyn, dynErr := o.opt.Wordstat.Dynamics(ctx, topic.DynamicsParams{
+				Phrase:  c.Head,
 				Period:  "monthly",
 				Regions: regions,
 			})
 			calls++
-			if err == nil {
-				season = SeasonalityOf(dyn.Points, o.opt.Select.SeasonalityFactor)
+			if dynErr == nil {
+				c.Season = seasonalityOf(dyn.Points)
 			}
-			// Сезонность — обогащение, а не обязательные данные: её сбой не валит
-			// подбор, тема просто оценивается по текущему окну.
 		}
-		inputs = append(inputs, DraftInput{
-			Draft:   d,
-			Source:  topic.SourceWordstat,
-			Queries: queries,
-			Season:  season,
-		})
-	}
-
-	cands := SelectTopics(inputs, want, o.opt.Select)
-	for _, c := range cands {
+		cands = append(cands, c)
 		o.traceDecision(ctx, "topic_decision",
 			fmt.Sprintf("«%s»: объём %d — %s", c.Title, c.Volume, decisionNote(c)),
 			map[string]any{
 				"id": c.ID, "title": c.Title, "head": c.Head, "volume": c.Volume,
 				"source": c.Source, "selected": c.Selected, "reject": c.Reject,
 				"intent": c.Intent, "seasonal": c.Season != nil && c.Season.Seasonal,
-				"min_volume":         o.opt.Select.MinVolume,
-				"seasonality_factor": o.opt.Select.SeasonalityFactor,
 			})
 	}
 
-	// 5) Fallback: спроса нет или подтверждённых тем не хватило.
-	if selected := countSelected(cands); selected < want {
-		fallback, u, err := o.semanticist.Fallback(ctx, b.Briefing(), want-selected, titlesOf(cands))
+	// 5) Спроса не было вовсе — темы даёт модель «от себя», без цифр.
+	if chosenDraftCount(drafts) == 0 && len(counts) == 0 {
+		fallback, u, err := o.semanticist.Fallback(ctx, b.Briefing(), want, nil)
 		total = total.Add(u)
-		switch {
-		case err != nil && selected == 0:
+		if err != nil {
 			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
-		case err == nil:
-			cands = SelectTopics(append(inputs, FallbackInputs(fallback)...), want, o.opt.Select)
-			o.traceDecision(ctx, "fallback",
-				fmt.Sprintf("тем от модели добавлено: %d (подтверждённых спросом было %d из %d)",
-					len(fallback), selected, want),
-				map[string]any{"added": len(fallback), "selected": selected, "want": want,
-					"no_demand": len(counts) == 0})
 		}
+		for i, d := range fallback {
+			cands = append(cands, topic.TopicCandidate{
+				ID: fmt.Sprintf("f%d", i+1), Title: d.Title, Goal: d.Goal, Task: d.Task,
+				Source: topic.SourceLLM, Selected: true, Intent: d.Intent,
+			})
+		}
+		o.traceDecision(ctx, "fallback",
+			fmt.Sprintf("спроса нет: тем от модели %d", len(fallback)),
+			map[string]any{"added": len(fallback), "want": want, "no_demand": true})
 	}
 
-	if countSelected(cands) == 0 {
-		return campaign.Strategy{}, total, fmt.Errorf("подбор тем: не удалось собрать ни одной темы")
+	if chosenCount(cands) == 0 {
+		return campaign.Strategy{}, total, fmt.Errorf(
+			"подбор тем: модель не выбрала ни одной темы (фраз в данных: %d)", len(counts))
 	}
 
 	return campaign.Strategy{
-		Topics:          SelectedTopics(cands),
+		Topics:          chosenTopics(cands),
 		TopicCandidates: cands,
 		WordstatCalls:   calls,
 	}, total, nil
+}
+
+// chosenCount — сколько тем выбрала модель.
+func chosenCount(cands []topic.TopicCandidate) int {
+	n := 0
+	for _, c := range cands {
+		if c.Selected {
+			n++
+		}
+	}
+	return n
+}
+
+// chosenTopics превращает выбранные темы в темы пайплайна, сохраняя порядок
+// решения модели. Ритм запросов становится тезисами статьи.
+func chosenTopics(cands []topic.TopicCandidate) []campaign.Topic {
+	out := make([]campaign.Topic, 0, len(cands))
+	for _, c := range cands {
+		if !c.Selected {
+			continue
+		}
+		points := make([]string, 0, len(c.Queries))
+		for _, q := range c.Queries {
+			points = append(points, q.Phrase)
+		}
+		out = append(out, campaign.Topic{Title: c.Title, Angle: c.Goal, Points: points})
+	}
+	return out
+}
+
+// seasonalityOf считает сезонную поправку по ряду dynamics: пик, дно, размах.
+// Это данные для показа; на отбор тем не влияют — темы выбирает модель.
+func seasonalityOf(points []topic.DynamicsPoint) *topic.Seasonality {
+	if len(points) == 0 {
+		return nil
+	}
+	peak, trough := points[0], points[0]
+	for _, p := range points {
+		if p.Count > peak.Count {
+			peak = p
+		}
+		if p.Count < trough.Count {
+			trough = p
+		}
+	}
+	s := &topic.Seasonality{Peak: peak.Count, PeakMonth: monthOf(peak.Date), Trough: trough.Count}
+	if trough.Count > 0 {
+		s.Ratio = float64(peak.Count) / float64(trough.Count)
+	}
+	// Маркер для интерфейса: размах втрое и больше — тема сезонная.
+	s.Seasonal = s.Ratio >= seasonalRatio
+	return s
+}
+
+// seasonalRatio — с какого размаха тема помечается сезонной в интерфейсе.
+// Только отображение: отбор делает модель.
+const seasonalRatio = 3
+
+// monthOf приводит дату точки к «YYYY-MM» (дата приходит в RFC3339).
+func monthOf(date string) string {
+	if t, err := time.Parse(time.RFC3339, date); err == nil {
+		return t.Format("2006-01")
+	}
+	return date
 }
 
 func (o *Orchestrator) seedCount() int {
@@ -220,9 +295,9 @@ func decisionNote(c topic.TopicCandidate) string {
 	case c.Reject != "":
 		return c.Reject
 	case c.Selected:
-		return "отобрана в генерацию"
+		return "выбрана моделью в генерацию"
 	default:
-		return "не хватило мест"
+		return "модель не выбрала тему"
 	}
 }
 
@@ -248,26 +323,35 @@ func collectCounts(counts map[string]int64, top topic.Demand) {
 	}
 }
 
-// topPhrases возвращает фразы для кластеризации: без технического мусора, по
-// убыванию частотности, не больше limit.
-func topPhrases(counts map[string]int64, limit int) []string {
-	phrases := make([]string, 0, len(counts))
-	for phrase := range counts {
-		if isTechnical(phrase) {
-			continue
-		}
-		phrases = append(phrases, phrase)
+// phrasesByVolume отдаёт фразы с частотностями по убыванию — это сырые данные
+// для модели. Технический мусор и пороги здесь не фильтруются: что считать
+// темой, решает модель; лимит нужен только чтобы промпт не распух.
+func phrasesByVolume(counts map[string]int64, limit int) []topic.PhraseCount {
+	out := make([]topic.PhraseCount, 0, len(counts))
+	for phrase, count := range counts {
+		out = append(out, topic.PhraseCount{Phrase: phrase, Count: count})
 	}
-	sort.SliceStable(phrases, func(i, j int) bool {
-		if counts[phrases[i]] != counts[phrases[j]] {
-			return counts[phrases[i]] > counts[phrases[j]]
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
 		}
-		return phrases[i] < phrases[j]
+		return out[i].Phrase < out[j].Phrase
 	})
-	if limit > 0 && len(phrases) > limit {
-		phrases = phrases[:limit]
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
-	return phrases
+	return out
+}
+
+// chosenDraftCount — сколько тем модель отметила выбранными.
+func chosenDraftCount(drafts []topic.TopicDraft) int {
+	n := 0
+	for _, d := range drafts {
+		if d.Selected {
+			n++
+		}
+	}
+	return n
 }
 
 // queriesOf превращает цитаты темы в пары «фраза → частотность».

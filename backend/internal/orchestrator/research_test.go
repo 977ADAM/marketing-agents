@@ -60,7 +60,10 @@ func winterSource() *mock.Wordstat {
 		"какую зимнюю резину":       92398,
 		"какая зимняя резина лучше": 34038,
 	}))
-	src.DynamicsR = &topic.Dynamics{Phrase: "зимняя резина", Period: "PERIOD_MONTHLY", Points: winterDynamics()}
+	src.DynamicsR = &topic.Dynamics{Phrase: "зимняя резина", Period: "PERIOD_MONTHLY", Points: []topic.DynamicsPoint{
+		{Date: "2025-12-01T00:00:00Z", Count: 900000},
+		{Date: "2026-06-01T00:00:00Z", Count: 100000},
+	}}
 	return src
 }
 
@@ -78,31 +81,26 @@ func researchOptions(src topic.Source, opt orchestrator.Options) orchestrator.Op
 	opt.CostPer1KPrompt = 1
 	opt.CostPer1KCompletion = 1
 	opt.Wordstat = src
-	opt.Select = orchestrator.SelectOptions{MinVolume: 300, SeasonalityFactor: 3}
-	opt.TopicsMultiplier = 2
 	opt.DefaultRegion = "225"
 	return opt
 }
 
-func TestRunResearchUsesWordstatTopics(t *testing.T) {
+// Выбор тем — решение модели: код отдаёт ей фразы с частотностями, а из ответа
+// берёт ровно то, что она выбрала (объём и головную фразу считает по данным).
+func TestRunResearchModelDecidesSelection(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
-	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины: 6 простых правил","goal":"поймать в момент выбора",
-		 "task":"дать чек-лист","intent":"выбор",
+		 "task":"дать чек-лист","intent":"выбор","selected":true,
 		 "queries":["какую зимнюю резину","какая зимняя резина лучше"]},
 		{"title":"Сколько стоит зимняя резина","goal":"поймать перед покупкой","task":"дать ориентир",
-		 "intent":"коммерческий","queries":["купить зимнюю резину"]}]}`}
+		 "intent":"коммерческий","selected":false,"reject":"объём мал для нашей задачи",
+		 "queries":["купить зимнюю резину"]}]}`}
 	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{
-		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
-		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
-	}
-	fake.Responses[campaign.RoleCritic] = []string{
-		`{"score":90,"issues":[],"verdict":"accept"}`,
-		`{"score":90,"issues":[],"verdict":"accept"}`,
-	}
+	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`}
+	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	p := newResearchProgress()
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
@@ -111,88 +109,58 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	// Темы — из спроса, а не из стратега; позиционирование — от стратега.
-	if len(res.Strategy.Topics) != 2 {
-		t.Fatalf("тем %d, want 2: %+v", len(res.Strategy.Topics), res.Strategy.Topics)
+	// В работу ушла только выбранная моделью тема и в её порядке.
+	if len(res.Strategy.Topics) != 1 {
+		t.Fatalf("тем %d, want 1: %+v", len(res.Strategy.Topics), res.Strategy.Topics)
 	}
-	if res.Strategy.Topics[0].Title != "Как выбрать зимние шины: 6 простых правил" {
-		t.Errorf("первая тема = %q", res.Strategy.Topics[0].Title)
-	}
-	for _, tp := range res.Strategy.Topics {
-		if tp.Title == "Из стратега" {
-			t.Error("тема из стратега попала в генерацию вместо темы по спросу")
-		}
-	}
-	if res.Strategy.Positioning != "надёжность зимой" {
-		t.Errorf("Positioning = %q, want от стратега", res.Strategy.Positioning)
-	}
-	if len(res.Deliverables) != 2 {
-		t.Errorf("deliverables = %d, want 2", len(res.Deliverables))
+	if got := res.Strategy.Topics[0].Title; got != "Как выбрать зимние шины: 6 простых правил" {
+		t.Errorf("тема = %q", got)
 	}
 
-	// Кандидаты: объём — максимум по цитатам, а не сумма; технический мусор не тема.
-	cands := res.Strategy.TopicCandidates
-	if len(cands) != 2 {
-		t.Fatalf("кандидатов %d, want 2: %+v", len(cands), cands)
-	}
-	if cands[0].Volume != 92398 {
-		t.Errorf("Volume = %d, want 92398 (максимум, не сумма 126 436)", cands[0].Volume)
-	}
-	if cands[0].Head != "какую зимнюю резину" {
-		t.Errorf("Head = %q", cands[0].Head)
-	}
-	for _, c := range cands {
-		if !c.Selected {
-			t.Errorf("тема %q не отобрана", c.Title)
+	// Кандидаты: данные по цитатам считает код, решение — модель.
+	var selected, rejected int
+	for _, c := range res.Strategy.TopicCandidates {
+		switch {
+		case c.Selected:
+			selected++
+			if c.Volume != 92398 {
+				t.Errorf("объём выбранной темы = %d, want 92398 (максимум по цитатам)", c.Volume)
+			}
+			if c.Head != "какую зимнюю резину" {
+				t.Errorf("головная фраза = %q", c.Head)
+			}
+			if c.Source != topic.SourceWordstat {
+				t.Errorf("источник = %q, want wordstat", c.Source)
+			}
+			if c.Season == nil || !c.Season.Seasonal {
+				t.Errorf("сезонность не собрана: %+v", c.Season)
+			}
+		default:
+			rejected++
+			if c.Reject != "объём мал для нашей задачи" {
+				t.Errorf("причина отказа = %q, want из ответа модели", c.Reject)
+			}
 		}
-		if c.Source != topic.SourceWordstat {
-			t.Errorf("источник темы %q = %q, want wordstat", c.Title, c.Source)
-		}
 	}
-	if res.Strategy.WordstatCalls != 4 { // 2 сеялки + 2 dynamics
-		t.Errorf("WordstatCalls = %d, want 4", res.Strategy.WordstatCalls)
+	if selected != 1 || rejected != 1 {
+		t.Errorf("selected=%d rejected=%d, want 1 и 1", selected, rejected)
 	}
 
-	// Регион из брифа ушёл в фильтр спроса и сезонности.
-	for _, p := range src.TopParamsLog {
-		if len(p.Regions) != 1 || p.Regions[0] != "213" {
-			t.Errorf("регион спроса = %v, want [213]", p.Regions)
-		}
-		if p.NumPhrases != orchestrator.DefaultNumPhrases {
-			t.Errorf("NumPhrases = %d, want %d", p.NumPhrases, orchestrator.DefaultNumPhrases)
-		}
-	}
-	if len(src.DynamicsParamsLog) == 0 || src.DynamicsParamsLog[0].Regions[0] != "213" {
-		t.Errorf("регион сезонности = %+v", src.DynamicsParamsLog)
-	}
-
-	// Подэтапы и сеялки видны в прогрессе, все сеялки закрыты.
-	wantStages := []run.ResearchStage{run.StageSeeds, run.StageFetching, run.StageClustering, run.StageSelecting}
-	if len(p.stages) != len(wantStages) {
-		t.Fatalf("подэтапы = %v, want %v", p.stages, wantStages)
-	}
-	for i := range wantStages {
-		if p.stages[i] != wantStages[i] {
-			t.Errorf("подэтап %d = %q, want %q", i, p.stages[i], wantStages[i])
-		}
-	}
-	if len(p.seeds) != 2 {
-		t.Errorf("сеялки в прогрессе = %v", p.seeds)
-	}
-	if p.done != 2 {
-		t.Errorf("закрытых сеялок = %d, want 2", p.done)
+	// Решение модели видно в трассе.
+	if got := p.stages; len(got) == 0 || got[len(got)-1] != run.StageSelecting {
+		t.Errorf("этапы подбора = %v, want завершение на selecting", got)
 	}
 }
 
-// Спроса нет вовсе: классификация не запускается, темы берём у модели.
+// Спроса нет вовсе: модель Select не зовём, темы даёт fallback (source=llm).
 func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
-	src := mock.NewWordstat() // default: hasData=false
+	src := mock.NewWordstat() // ни одной фразы — спроса нет
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["ыфвыфв ыфва"]}`}
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 	fake.Responses[topic.RoleFallback] = []string{`{"topics":[
-		{"title":"Как подобрать размер","goal":"g","task":"t","intent":"выбор"},
-		{"title":"Что учитывать при выборе","goal":"g","task":"t"}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
+		{"title":"Как выбрать зимние шины","goal":"g","task":"k","intent":"выбор"},
+		{"title":"Когда менять шины","goal":"g","task":"k","intent":"вопрос"}]}`}
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
 	fake.Responses[campaign.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
@@ -203,106 +171,111 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 	}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
-	res, err := o.Run(context.Background(), researchBrief(), nil)
+	res, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	if n := fake.Calls[topic.RoleSelect]; n != 0 {
+		t.Errorf("Select вызван %d раз на пустых данных, want 0", n)
+	}
 	if len(res.Strategy.Topics) != 2 {
-		t.Fatalf("тем %d, want 2", len(res.Strategy.Topics))
+		t.Fatalf("тем %d, want 2 (fallback)", len(res.Strategy.Topics))
 	}
 	for _, c := range res.Strategy.TopicCandidates {
 		if c.Source != topic.SourceLLM {
-			t.Errorf("тема %q: source = %q, want llm", c.Title, c.Source)
+			t.Errorf("источник темы без данных = %q, want llm", c.Source)
 		}
-		if c.Volume != 0 || len(c.Queries) != 0 {
-			t.Errorf("у темы без данных не должно быть цифр: %+v", c)
+		if !c.Selected {
+			t.Errorf("fallback-тема не выбрана: %+v", c)
 		}
-	}
-	if fake.Calls[topic.RoleCluster] != 0 {
-		t.Error("кластеризация не нужна, когда фраз не собрано")
 	}
 }
 
-func TestRunResearchFailsOnSourceError(t *testing.T) {
-	src := mock.NewWordstat()
-	src.Err = errors.New("mcp недоступен")
+// Данные есть, но модель не выбрала ни одной темы — это ошибка, а не тихий добор.
+func TestRunResearchFailsWhenModelSelectsNothing(t *testing.T) {
+	src := winterSource()
 	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+		{"title":"Сколько стоит","goal":"g","task":"k","queries":["купить зимнюю резину"],
+		 "selected":false,"reject":"не наша аудитория"}]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
-	_, err := o.Run(context.Background(), researchBrief(), nil)
-	if err == nil {
-		t.Fatal("ожидалась ошибка прогона")
-	}
-	if !strings.Contains(err.Error(), "подбор тем") || !strings.Contains(err.Error(), "mcp недоступен") {
-		t.Errorf("err = %v, want упоминание подбора и причины", err)
-	}
-	if fake.Calls[campaign.RoleCopywriter] != 0 {
-		t.Error("статьи не должны генерироваться после сбоя подбора")
+	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
+	if err == nil || !strings.Contains(err.Error(), "не выбрала ни одной темы") {
+		t.Fatalf("err = %v, want ошибку про пустой выбор модели", err)
 	}
 }
 
-// Выдуманная цитата валит прогон: цифры должны быть проверяемыми.
+// Выдуманная цитата валит подбор: модель обязана ссылаться на реальные фразы.
 func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
-		{"title":"Лучшая зимняя резина 2026","goal":"g","task":"t","queries":["лучшая зимняя резина 2026"]}]}`}
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+		{"title":"Летние шины","goal":"g","task":"k","queries":["летняя резина"],"selected":true}]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
-	_, err := o.Run(context.Background(), researchBrief(), nil)
-	if err == nil {
-		t.Fatal("ожидалась ошибка про неизвестный запрос")
-	}
+	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if !errors.Is(err, topic.ErrUnknownQuery) {
-		t.Errorf("errors.Is(ErrUnknownQuery) = false, err = %v", err)
+		t.Fatalf("err = %v, want ErrUnknownQuery", err)
 	}
 }
 
-// Лимит обращений к Wordstat соблюдается, а прогресс не зависает на необработанных сеялках.
+// Ошибка источника не подменяется выдумкой.
+func TestRunResearchFailsOnSourceError(t *testing.T) {
+	src := mock.NewWordstat()
+	src.Err = errors.New("wordstat недоступен")
+	fake := mock.NewLLM()
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+
+	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
+	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
+	if err == nil || !strings.Contains(err.Error(), "wordstat недоступен") {
+		t.Fatalf("err = %v, want ошибку источника", err)
+	}
+}
+
+// Лимит обращений к Wordstat соблюдается.
 func TestRunResearchRespectsCallLimit(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","какая зимняя резина лучше","купить зимнюю резину"]}`}
-	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
-		{"title":"Как выбрать","goal":"g","task":"t","queries":["какую зимнюю резину"]}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
+	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","купить зимнюю резину"]}`}
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+		{"title":"T","goal":"g","task":"k","queries":["какую зимнюю резину"],"selected":true}]}`}
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
 	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
-	opt := researchOptions(src, orchestrator.Options{})
-	opt.MaxWordstatCalls = 2
-	o := orchestrator.New(fake, opt)
-
-	p := newResearchProgress()
-	if _, err := o.Run(context.Background(), researchBrief(), p); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if got := src.CallCount(); got != 2 {
-		t.Errorf("обращений к Wordstat = %d, want 2 (лимит)", got)
-	}
-	if p.done != 4 {
-		t.Errorf("закрытых сеялок = %d, want 4 (включая пропущенные по лимиту)", p.done)
-	}
-}
-
-// Без настроенного источника подбор не запускается — работает прежний путь.
-func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
-	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
-
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80})
-	res, err := o.Run(context.Background(), brief(), nil)
+	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{MaxWordstatCalls: 1}))
+	res, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(res.Strategy.Topics) != 1 || res.Strategy.Topics[0].Title != "T1" {
-		t.Errorf("темы = %+v, want от стратега", res.Strategy.Topics)
+	if src.CallCount() != 1 {
+		t.Errorf("обращений к Wordstat = %d, want 1 (лимит)", src.CallCount())
 	}
-	if fake.Calls[topic.RoleSeeds] != 0 || fake.Calls[topic.RoleCluster] != 0 {
-		t.Error("семантика не должна вызываться без источника")
+	if res.Strategy.WordstatCalls != 1 {
+		t.Errorf("WordstatCalls = %d, want 1", res.Strategy.WordstatCalls)
+	}
+}
+
+// Без источника спроса подбор выключен: темы даёт стратег, как раньше.
+func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+
+	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	res, err := o.Run(context.Background(), brief(), newResearchProgress())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Strategy.Topics) != 1 || res.Strategy.Topics[0].Title != "Из стратега" {
+		t.Fatalf("темы = %+v, want одну из стратега", res.Strategy.Topics)
+	}
+	if n := fake.Calls[topic.RoleSeeds]; n != 0 {
+		t.Errorf("сеялки вызваны %d раз без Wordstat, want 0", n)
 	}
 }

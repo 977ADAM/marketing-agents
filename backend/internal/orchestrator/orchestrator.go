@@ -26,10 +26,6 @@ type Options struct {
 	Wordstat topic.Source
 	// Semanticist — агент подбора тем: сеялки, кластеризация, fallback.
 	Semanticist *topic.Semanticist
-	// Select — правила отбора тем (порог объёма, множитель сезонности).
-	Select SelectOptions
-	// TopicsMultiplier — во сколько раз больше тем предлагать, чем нужно статей.
-	TopicsMultiplier int
 	// SeedCount — сколько сеялок просить у модели (0 — дефолт).
 	SeedCount int
 	// NumPhrases — сколько фраз запрашивать у Wordstat на сеялку (0 — дефолт 50).

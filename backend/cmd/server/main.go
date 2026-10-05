@@ -112,8 +112,6 @@ func main() {
 		MaxTopics:           cfg.MaxTopics,
 
 		Wordstat:         source,
-		Select:           orchestrator.SelectOptions{MinVolume: int64(cfg.WordstatMinVolume), SeasonalityFactor: cfg.WordstatSeasonalityFactor},
-		TopicsMultiplier: cfg.TopicsMultiplier,
 		MaxWordstatCalls: cfg.WordstatMaxCallsPerRun,
 		DefaultRegion:    cfg.WordstatRegionDefault,
 
