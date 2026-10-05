@@ -39,6 +39,8 @@ type TopicDraft struct {
 
 // PhraseCount — фраза и её частотность: доказательство темы.
 type PhraseCount struct {
+	Seed   string `json:"seed,omitempty"`
+	Origin string `json:"origin,omitempty"`
 	Phrase string `json:"phrase"`
 	Count  int64  `json:"count"`
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/toolbudget"
 	"io"
 	"net/http"
 	"strings"
@@ -127,6 +128,16 @@ func (c *Client) post(ctx context.Context, payload any, sessionID string) ([]byt
 		req.Header.Set("Mcp-Session-Id", sessionID)
 	}
 
+	if rpc, ok := payload.(rpcRequest); ok {
+		if rpc.Method == "tools/call" {
+			if err := toolbudget.Consume(ctx); err != nil {
+				return nil, 0, "", err
+			}
+		}
+		if rpc.Method == "initialize" {
+			toolbudget.Initialization(ctx)
+		}
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// Сетевые сбои и таймауты — временные: повтор имеет смысл.
@@ -194,9 +205,11 @@ func (c *Client) initializeLocked(ctx context.Context) (string, error) {
 }
 
 // resetSession сбрасывает сессию: MCP мог её потерять (рестарт, истечение).
-func (c *Client) resetSession() {
+func (c *Client) resetSession(stale string) {
 	c.mu.Lock()
-	c.sessionID = ""
+	if c.sessionID == stale {
+		c.sessionID = ""
+	}
 	c.mu.Unlock()
 }
 
@@ -241,7 +254,7 @@ func (c *Client) callToolOnce(ctx context.Context, name string, args any) (json.
 
 	// Сессия могла истечь на стороне MCP — переподключаемся и пробуем ещё раз.
 	if status == http.StatusNotFound || sessionLost(body) {
-		c.resetSession()
+		c.resetSession(sid)
 		sid, err = c.ensureSession(ctx)
 		if err != nil {
 			return nil, err
@@ -320,7 +333,34 @@ func extractJSON(body []byte) ([]byte, error) {
 
 // sessionLost сообщает, что MCP потерял сессию.
 func sessionLost(body []byte) bool {
-	return bytes.Contains(bytes.ToLower(body), []byte("session"))
+	payload, err := extractJSON(body)
+	if err != nil {
+		return false
+	}
+	var rpc rpcResponse
+	if json.Unmarshal(payload, &rpc) != nil {
+		return false
+	}
+	var message string
+	if rpc.Error != nil {
+		message = rpc.Error.Message
+	} else {
+		var result toolResult
+		if json.Unmarshal(rpc.Result, &result) != nil || !result.IsError {
+			return false
+		}
+		var status toolStatus
+		if json.Unmarshal(result.StructuredContent, &status) != nil {
+			return false
+		}
+		switch status.Code {
+		case "session_not_found", "session_expired", "invalid_session":
+			return true
+		}
+		message = status.Message
+	}
+	message = strings.ToLower(strings.TrimSpace(message))
+	return message == "session not found" || message == "session expired" || message == "invalid session" || message == "missing session"
 }
 
 // short обрезает тело для сообщения об ошибке.
@@ -415,3 +455,6 @@ func callTyped[T any](ctx context.Context, c *Client, name string, args any) (*T
 	}
 	return &out, nil
 }
+
+// ConsumesToolBudget reports that retries are accounted for at the HTTP boundary.
+func (*Client) ConsumesToolBudget() bool { return true }

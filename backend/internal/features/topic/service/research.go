@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
+	"github.com/977ADAM/marketing-agents/internal/core/toolbudget"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"sort"
 	"time"
@@ -45,7 +46,16 @@ func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progr
 	}
 	maxCalls := o.maxWordstatCalls()
 	regions := regionList(b.Region, o.opt.DefaultRegion)
-	calls := 0
+	ctx, budget := toolbudget.New(ctx, maxCalls)
+	physical, ok := o.opt.Wordstat.(interface{ ConsumesToolBudget() bool })
+	physicalBudget := ok && physical.ConsumesToolBudget()
+	consume := func() error {
+		if physicalBudget {
+			return nil
+		}
+		return toolbudget.Consume(ctx)
+	}
+	demands := []topic.Demand{}
 
 	// 1) Сеялки по брифу.
 	stage(run.StageSeeds)
@@ -66,7 +76,10 @@ func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progr
 	counts := map[string]int64{}
 	processed := 0
 	for i, seed := range seeds {
-		if calls >= maxCalls {
+		if budget.Used() >= maxCalls {
+			break
+		}
+		if err := consume(); err != nil {
 			break
 		}
 		top, err := o.opt.Wordstat.Demand(ctx, topic.DemandParams{
@@ -74,10 +87,11 @@ func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progr
 			NumPhrases: o.numPhrases(),
 			Regions:    regions,
 		})
-		calls++
 		if err != nil {
 			return topic.ResearchResult{}, total, fmt.Errorf("подбор тем: спрос по %q: %w", seed, err)
 		}
+		top.Phrase = seed
+		demands = append(demands, top)
 		before := len(counts)
 		collectCounts(counts, top)
 		processed = i + 1
@@ -103,7 +117,7 @@ func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progr
 	// 3) Досье для модели: фразы с частотностями как есть — без техотсева и
 	// порогов, их оценивает она. Лимит нужен только чтобы промпт не распух.
 	stage(run.StageSelecting)
-	data := phrasesByVolume(counts, o.maxPhrases())
+	data := phrasesWithCoverage(demands, o.maxPhrases())
 	var drafts []topic.TopicDraft
 	if len(data) > 0 {
 		drafts, u, err = o.semanticist.Select(ctx, b.Briefing, data, want)
@@ -146,13 +160,15 @@ func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progr
 			c.Source = topic.SourceLLM
 		}
 		// Сезонность — данные для показа (не фильтр): берём у выбранных тем.
-		if c.Selected && c.Head != "" && calls < maxCalls {
+		if c.Selected && c.Head != "" && budget.Used() < maxCalls {
+			if err := consume(); err != nil {
+				continue
+			}
 			dyn, dynErr := o.opt.Wordstat.Dynamics(ctx, topic.DynamicsParams{
 				Phrase:  c.Head,
 				Period:  "monthly",
 				Regions: regions,
 			})
-			calls++
 			if dynErr == nil {
 				c.Season = seasonalityOf(dyn.Points)
 			}
@@ -193,7 +209,7 @@ func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progr
 	return topic.ResearchResult{
 		Topics:          chosenTopics(cands),
 		TopicCandidates: cands,
-		WordstatCalls:   calls,
+		WordstatCalls:   budget.Used(),
 	}, total, nil
 }
 
@@ -397,4 +413,51 @@ func titlesOf(cands []topic.TopicCandidate) []string {
 
 func (o *Workflow) traceDecision(ctx context.Context, name, summary string, payload any) {
 	o.trace.Event(ctx, trace.Event{Kind: trace.KindDecision, Name: name, Status: trace.StatusOK, Summary: summary, Payload: payload})
+}
+
+// phrasesWithCoverage visits each seed in order before taking another phrase
+// from it. Direct requests precede associations, whose origin stays visible.
+func phrasesWithCoverage(demands []topic.Demand, limit int) []topic.PhraseCount {
+	out := []topic.PhraseCount{}
+	seen := map[string]bool{}
+	for _, origin := range []string{"request", "association"} {
+		lists := make([][]topic.PhraseCount, len(demands))
+		for i, d := range demands {
+			if origin == "request" {
+				lists[i] = append([]topic.PhraseCount(nil), d.Requests...)
+			} else {
+				lists[i] = append([]topic.PhraseCount(nil), d.Associations...)
+			}
+			sort.SliceStable(lists[i], func(a, b int) bool {
+				if lists[i][a].Count != lists[i][b].Count {
+					return lists[i][a].Count > lists[i][b].Count
+				}
+				return lists[i][a].Phrase < lists[i][b].Phrase
+			})
+		}
+		for pos := 0; ; pos++ {
+			found := false
+			for i, list := range lists {
+				if pos >= len(list) {
+					continue
+				}
+				found = true
+				q := list[pos]
+				if seen[q.Phrase] {
+					continue
+				}
+				seen[q.Phrase] = true
+				q.Seed = demands[i].Phrase
+				q.Origin = origin
+				out = append(out, q)
+				if limit > 0 && len(out) >= limit {
+					return out
+				}
+			}
+			if !found {
+				break
+			}
+		}
+	}
+	return out
 }

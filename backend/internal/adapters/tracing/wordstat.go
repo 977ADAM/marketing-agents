@@ -159,3 +159,8 @@ func humanCount(n int64) string {
 	}
 	return b.String()
 }
+
+func (s *TracingSource) ConsumesToolBudget() bool {
+	b, ok := s.inner.(interface{ ConsumesToolBudget() bool })
+	return ok && b.ConsumesToolBudget()
+}
