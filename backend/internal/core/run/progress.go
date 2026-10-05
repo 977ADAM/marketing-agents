@@ -9,6 +9,7 @@ package run
 type Phase string
 
 const (
+	PhasePending      Phase = "pending"
 	PhaseStrategizing Phase = "strategizing"
 	PhaseResearching  Phase = "researching"
 	PhaseProducing    Phase = "producing"

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/core/identity"
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
@@ -25,14 +26,22 @@ type BackgroundRunner struct {
 	logger          corelogger.Logger
 	hub             *Hub
 	*Admission
+	owner               string
+	leaseTTL, heartbeat time.Duration
 }
 
 func NewRunner(baseCtx context.Context, campaigns campaignservice.Store, reviews reviewservice.Store, orch CampaignWorkflow, reviewer ReviewWorkflow, timeout time.Duration, logger corelogger.Logger, hub *Hub, options ...Options) *BackgroundRunner {
 	if logger == nil {
 		logger = corelogger.Nop()
 	}
-	opt := Options{Capacity: 64, FinalizeTimeout: 5 * time.Second}
+	opt := Options{Capacity: 64, FinalizeTimeout: 5 * time.Second, LeaseTTL: 30 * time.Second, Heartbeat: 10 * time.Second}
 	if len(options) > 0 {
+		if options[0].LeaseTTL > 0 {
+			opt.LeaseTTL = options[0].LeaseTTL
+		}
+		if options[0].Heartbeat > 0 {
+			opt.Heartbeat = options[0].Heartbeat
+		}
 		if options[0].Capacity > 0 {
 			opt.Capacity = options[0].Capacity
 		}
@@ -41,6 +50,7 @@ func NewRunner(baseCtx context.Context, campaigns campaignservice.Store, reviews
 		}
 	}
 	return &BackgroundRunner{
+		owner: identity.NewUUID(), leaseTTL: opt.LeaseTTL, heartbeat: opt.Heartbeat,
 		campaigns: campaigns, reviews: reviews, orch: orch, reviewer: reviewer, baseCtx: baseCtx,
 		runTimeout: timeout, logger: logger, hub: hub,
 		Admission: NewAdmission(baseCtx, opt.Capacity), finalizeTimeout: opt.FinalizeTimeout,
@@ -53,7 +63,13 @@ func (r *BackgroundRunner) ExecuteCampaign(parent context.Context, id string, b 
 	// Помечаем прогон: по этому идентификатору трасса привязывает события.
 	ctx = trace.WithRunID(ctx, id)
 
-	tr := r.hub.Tracker(id)
+	ctx, release, err := r.own(ctx, id, r.campaigns, cancel)
+	if err != nil {
+		r.logger.Error("acquire lease", "id", id, "err", err)
+		return
+	}
+	defer release()
+	tr := r.hub.Tracker(id, ctx)
 	if err := r.campaigns.MarkRunning(ctx, id); err != nil {
 		r.logger.Error("mark running", "id", id, "err", err)
 		tr.Failed()
@@ -113,7 +129,13 @@ func (r *BackgroundRunner) ExecuteReview(parent context.Context, id string, req 
 	defer cancel()
 	ctx = trace.WithRunID(ctx, id)
 
-	tr := r.hub.ReviewTracker(id)
+	ctx, release, err := r.own(ctx, id, r.reviews, cancel)
+	if err != nil {
+		r.logger.Error("acquire review lease", "id", id, "err", err)
+		return
+	}
+	defer release()
+	tr := r.hub.ReviewTracker(id, ctx)
 	if err := r.reviews.MarkCheckRunning(ctx, id); err != nil {
 		r.logger.Error("mark review running", "id", id, "err", err)
 		tr.Failed()
@@ -146,6 +168,7 @@ type ReviewWorkflow interface {
 }
 
 type Options struct {
-	Capacity        int
-	FinalizeTimeout time.Duration
+	Capacity            int
+	FinalizeTimeout     time.Duration
+	LeaseTTL, Heartbeat time.Duration
 }

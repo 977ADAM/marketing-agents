@@ -130,6 +130,20 @@ func main() {
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews, sloglogger.New(logger))
 	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-baseCtx.Done():
+				return
+			case <-ticker.C:
+				if _, err := runnerpkgRecover(baseCtx, campaigns, reviews); err != nil {
+					logger.Error("recover expired runs", "err", err)
+				}
+			}
+		}
+	}()
 	campaignService := campaignservice.NewService(campaigns, runner, cfg.Limits)
 	reviewService := reviewservice.NewService(reviews, runner, cfg.Limits)
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
@@ -172,4 +186,8 @@ func main() {
 		_ = runner.Drain(finalCtx)
 	}
 	baseCancel()
+}
+
+func runnerpkgRecover(ctx context.Context, stores ...runner.Recoverer) (int64, error) {
+	return runner.RecoverInterrupted(ctx, stores...)
 }

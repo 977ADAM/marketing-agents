@@ -66,20 +66,26 @@ type hubRun struct {
 	snap run.Snapshot
 	subs map[chan run.Snapshot]struct{}
 	done bool
+	ctx  context.Context
 }
 
 // Tracker регистрирует живой прогон кампании и возвращает реализацию Progress.
-func (h *Hub) Tracker(id string) CampaignProgress {
-	return h.newTracker(id, kindCampaign)
+func (h *Hub) Tracker(id string, contexts ...context.Context) CampaignProgress {
+	return h.newTracker(id, kindCampaign, contexts...)
 }
 
 // ReviewTracker регистрирует живой прогон проверки текстов.
-func (h *Hub) ReviewTracker(id string) CampaignProgress {
-	return h.newTracker(id, kindReview)
+func (h *Hub) ReviewTracker(id string, contexts ...context.Context) CampaignProgress {
+	return h.newTracker(id, kindReview, contexts...)
 }
 
-func (h *Hub) newTracker(id string, kind runKind) CampaignProgress {
-	r := &hubRun{kind: kind, subs: map[chan run.Snapshot]struct{}{}}
+func (h *Hub) newTracker(id string, kind runKind, contexts ...context.Context) CampaignProgress {
+	ctx := h.baseCtx
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	r := &hubRun{kind: kind, ctx: ctx, subs: map[chan run.Snapshot]struct{}{}}
+	r.snap.Revision = h.snapshotFromStore(id, kind).Revision
 	h.mu.Lock()
 	h.runs[id] = r
 	h.mu.Unlock()
@@ -102,9 +108,7 @@ func (h *Hub) subscribe(id string, kind runKind) (run.Snapshot, <-chan run.Snaps
 	r, ok := h.runs[id]
 	h.mu.Unlock()
 	if !ok || r.kind != kind {
-		ch := make(chan run.Snapshot)
-		close(ch)
-		return h.snapshotFromStore(id, kind), ch, func() {}
+		return h.subscribeRemote(id, kind)
 	}
 	r.mu.Lock()
 	if r.done {
@@ -132,25 +136,84 @@ func (h *Hub) subscribe(id string, kind runKind) (run.Snapshot, <-chan run.Snaps
 }
 
 func (h *Hub) snapshotFromStore(id string, kind runKind) run.Snapshot {
+	ctx, cancel := context.WithTimeout(h.baseCtx, 5*time.Second)
+	defer cancel()
+	snap, _ := h.storedSnapshot(ctx, id, kind)
+	return snap
+}
+func (h *Hub) storedSnapshot(ctx context.Context, id string, kind runKind) (run.Snapshot, error) {
+	var status string
+	var progress *run.Snapshot
 	if kind == kindReview {
-		r, err := h.reviews.GetCheck(h.baseCtx, id)
-		if err == nil && r != nil && r.Progress != nil {
-			return *r.Progress
+		r, err := h.reviews.GetCheck(ctx, id)
+		if err != nil {
+			return run.Snapshot{}, err
 		}
-		if r != nil && r.Status == "done" {
-			return run.Snapshot{Phase: run.PhaseDone, Percent: 100}
+		status = r.Status
+		progress = r.Progress
+	} else {
+		r, err := h.campaigns.Get(ctx, id)
+		if err != nil {
+			return run.Snapshot{}, err
 		}
-		return run.Snapshot{Phase: run.PhaseFailed}
+		status = r.Status
+		progress = r.Progress
 	}
-	c, err := h.campaigns.Get(h.baseCtx, id)
-	if err == nil && c != nil && c.Progress != nil {
-		return *c.Progress
+	snap := run.Snapshot{Phase: run.PhasePending}
+	if progress != nil {
+		snap = cloneSnapshot(*progress)
 	}
-	if c != nil && c.Status == "done" {
-		return run.Snapshot{Phase: run.PhaseDone, Percent: 100}
+	switch status {
+	case "done":
+		snap.Phase = run.PhaseDone
+		snap.Percent = 100
+	case "failed":
+		snap.Phase = run.PhaseFailed
 	}
-	// неизвестная/прерванная кампания без снимка: failed, прогресс неизвестен
-	return run.Snapshot{Phase: run.PhaseFailed}
+	return snap, nil
+}
+func (h *Hub) subscribeRemote(id string, kind runKind) (run.Snapshot, <-chan run.Snapshot, func()) {
+	ctx, cancel := context.WithCancel(h.baseCtx)
+	readCtx, readCancel := context.WithTimeout(ctx, 5*time.Second)
+	snap, err := h.storedSnapshot(readCtx, id, kind)
+	readCancel()
+	ch := make(chan run.Snapshot, 8)
+	if err != nil || snap.Phase == run.PhaseDone || snap.Phase == run.PhaseFailed {
+		close(ch)
+		return snap, ch, cancel
+	}
+	go func() {
+		defer close(ch)
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		last := snap.Revision
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				readCtx, readCancel := context.WithTimeout(ctx, 5*time.Second)
+				next, err := h.storedSnapshot(readCtx, id, kind)
+				readCancel()
+				if err != nil {
+					h.logger.Error("poll progress", "id", id, "err", err)
+					continue
+				}
+				terminal := next.Phase == run.PhaseDone || next.Phase == run.PhaseFailed
+				if next.Revision > last || terminal {
+					select {
+					case ch <- next:
+					default:
+					}
+					last = next.Revision
+				}
+				if terminal {
+					return
+				}
+			}
+		}
+	}()
+	return snap, ch, cancel
 }
 
 func cloneSnapshot(s run.Snapshot) run.Snapshot {
@@ -184,7 +247,7 @@ func (t *tracker) updateLocked(fn func(s *run.Snapshot)) {
 		t.run.snap.Percent = run.Percent(t.run.snap.Phase, t.run.snap.TopicsDone, t.run.snap.TopicTotal)
 	}
 	snap := cloneSnapshot(t.run.snap)
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.hub.baseCtx), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.run.ctx), 5*time.Second)
 	defer cancel()
 	var err error
 	if t.run.kind == kindReview {

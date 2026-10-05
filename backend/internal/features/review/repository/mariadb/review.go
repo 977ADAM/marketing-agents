@@ -32,10 +32,19 @@ type reviewRow struct {
 func (reviewRow) TableName() string { return "reviews" }
 
 // Reviews — хранилище reviews поверх общего соединения.
-type Reviews struct{ db *gorm.DB }
+type Reviews struct {
+	db  *gorm.DB
+	now func() time.Time
+}
 
 // NewReviews оборачивает соединение: сами запросы живут в этом файле.
-func NewReviews(db *gorm.DB) *Reviews { return &Reviews{db: db} }
+func NewReviews(db *gorm.DB, clocks ...func() time.Time) *Reviews {
+	now := time.Now
+	if len(clocks) > 0 {
+		now = clocks[0]
+	}
+	return &Reviews{db: db, now: now}
+}
 
 // CreateCheck вставляет проверку в статусе pending и возвращает её id.
 func (rs *Reviews) CreateCheck(ctx context.Context, clientID, briefText string) (string, error) {
@@ -64,7 +73,11 @@ func (rs *Reviews) SaveCheckProgress(ctx context.Context, id string, snap run.Sn
 	if err != nil {
 		return err
 	}
+	if err := shared.CheckFence(ctx, rs.db, "reviews", id, rs.now().UTC()); err != nil {
+		return err
+	}
 	query := rs.db.WithContext(ctx).Model(&reviewRow{}).Where("id = ? AND progress_revision < ?", id, snap.Revision)
+	query = shared.Fenced(ctx, query, rs.now().UTC())
 	if snap.Phase == run.PhaseDone || snap.Phase == run.PhaseFailed {
 		query = query.Where("status IN ? OR status = ?", []string{"pending", "running"}, string(snap.Phase))
 	} else {
@@ -141,12 +154,14 @@ func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary,
 // чтения), в UTC.
 func (rs *Reviews) update(ctx context.Context, id string, values map[string]any) error {
 	values["updated_at"] = time.Now().UTC()
-	return rs.db.WithContext(ctx).Model(&reviewRow{}).Where("id = ?", id).Updates(values).Error
+	if err := shared.CheckFence(ctx, rs.db, "reviews", id, rs.now().UTC()); err != nil {
+		return err
+	}
+	return shared.Fenced(ctx, rs.db.WithContext(ctx).Model(&reviewRow{}).Where("id = ? AND status IN ?", id, []string{"pending", "running"}), rs.now().UTC()).Updates(values).Error
 }
 
 func (rs *Reviews) RecoverInterrupted(ctx context.Context) (int64, error) {
-	res := rs.db.WithContext(ctx).Model(&reviewRow{}).Where("status IN ?", []string{"pending", "running"}).Updates(map[string]any{"status": "failed", "error": "прервано рестартом сервиса", "updated_at": time.Now().UTC()})
-	return res.RowsAffected, res.Error
+	return shared.RecoverExpired(ctx, rs.db, "reviews", rs.now().UTC(), 30*time.Second)
 }
 
 func (rs *Reviews) LookupCreation(ctx context.Context, client, key, hash string) (string, error) {
@@ -159,4 +174,11 @@ func (rs *Reviews) CreateOnce(ctx context.Context, client, key, hash string, req
 	return shared.CreateOnce(ctx, rs.db, client, "review", key, hash, func(tx *gorm.DB, id string) error {
 		return tx.Create(&reviewRow{ID: id, ClientID: client, Status: "pending", BriefText: req.BriefText}).Error
 	})
+}
+
+func (rs *Reviews) AcquireLease(ctx context.Context, id, owner string, ttl time.Duration) (int64, bool, error) {
+	return shared.AcquireLease(ctx, rs.db, "reviews", id, owner, ttl, rs.now().UTC())
+}
+func (rs *Reviews) RenewLease(ctx context.Context, id, owner string, attempt int64, ttl time.Duration) error {
+	return shared.RenewLease(ctx, rs.db, "reviews", id, owner, attempt, ttl, rs.now().UTC())
 }

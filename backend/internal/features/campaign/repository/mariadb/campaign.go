@@ -49,10 +49,19 @@ type deliverableRow struct {
 func (deliverableRow) TableName() string { return "deliverables" }
 
 // Campaigns — хранилище campaigns поверх общего соединения.
-type Campaigns struct{ db *gorm.DB }
+type Campaigns struct {
+	db  *gorm.DB
+	now func() time.Time
+}
 
 // NewCampaigns оборачивает соединение: сами запросы живут в этом файле.
-func NewCampaigns(db *gorm.DB) *Campaigns { return &Campaigns{db: db} }
+func NewCampaigns(db *gorm.DB, clocks ...func() time.Time) *Campaigns {
+	now := time.Now
+	if len(clocks) > 0 {
+		now = clocks[0]
+	}
+	return &Campaigns{db: db, now: now}
+}
 
 // Create вставляет кампанию в статусе pending и возвращает её id.
 func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
@@ -82,7 +91,11 @@ func (cs *Campaigns) SaveProgress(ctx context.Context, id string, snap run.Snaps
 	if err != nil {
 		return err
 	}
+	if err := shared.CheckFence(ctx, cs.db, "campaigns", id, cs.now().UTC()); err != nil {
+		return err
+	}
 	query := cs.db.WithContext(ctx).Model(&campaignRow{}).Where("id = ? AND progress_revision < ?", id, snap.Revision)
+	query = shared.Fenced(ctx, query, cs.now().UTC())
 	if snap.Phase == run.PhaseDone || snap.Phase == run.PhaseFailed {
 		query = query.Where("status IN ? OR status = ?", []string{"pending", "running"}, string(snap.Phase))
 	} else {
@@ -108,7 +121,10 @@ func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outco
 			"cost_usd":   res.CostUSD,
 			"updated_at": time.Now().UTC(),
 		}
-		if err := tx.Model(&campaignRow{}).Where("id = ?", id).Updates(values).Error; err != nil {
+		if err := shared.CheckFence(ctx, tx, "campaigns", id, cs.now().UTC()); err != nil {
+			return err
+		}
+		if err := shared.Fenced(ctx, tx.Model(&campaignRow{}).Where("id = ? AND status IN ?", id, []string{"pending", "running"}), cs.now().UTC()).Updates(values).Error; err != nil {
 			return err
 		}
 		if len(res.Deliverables) == 0 {
@@ -200,12 +216,14 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 // чтения), в UTC.
 func (cs *Campaigns) update(ctx context.Context, id string, values map[string]any) error {
 	values["updated_at"] = time.Now().UTC()
-	return cs.db.WithContext(ctx).Model(&campaignRow{}).Where("id = ?", id).Updates(values).Error
+	if err := shared.CheckFence(ctx, cs.db, "campaigns", id, cs.now().UTC()); err != nil {
+		return err
+	}
+	return shared.Fenced(ctx, cs.db.WithContext(ctx).Model(&campaignRow{}).Where("id = ? AND status IN ?", id, []string{"pending", "running"}), cs.now().UTC()).Updates(values).Error
 }
 
 func (rs *Campaigns) RecoverInterrupted(ctx context.Context) (int64, error) {
-	res := rs.db.WithContext(ctx).Model(&campaignRow{}).Where("status IN ?", []string{"pending", "running"}).Updates(map[string]any{"status": "failed", "error": "прервано рестартом сервиса", "updated_at": time.Now().UTC()})
-	return res.RowsAffected, res.Error
+	return shared.RecoverExpired(ctx, rs.db, "campaigns", rs.now().UTC(), 30*time.Second)
 }
 
 func (cs *Campaigns) LookupCreation(ctx context.Context, client, key, hash string) (string, error) {
@@ -219,4 +237,11 @@ func (cs *Campaigns) CreateOnce(ctx context.Context, client, key, hash string, b
 	return shared.CreateOnce(ctx, cs.db, client, "campaign", key, hash, func(tx *gorm.DB, id string) error {
 		return tx.Create(&campaignRow{ID: id, ClientID: client, Status: "pending", Brief: string(data)}).Error
 	})
+}
+
+func (cs *Campaigns) AcquireLease(ctx context.Context, id, owner string, ttl time.Duration) (int64, bool, error) {
+	return shared.AcquireLease(ctx, cs.db, "campaigns", id, owner, ttl, cs.now().UTC())
+}
+func (cs *Campaigns) RenewLease(ctx context.Context, id, owner string, attempt int64, ttl time.Duration) error {
+	return shared.RenewLease(ctx, cs.db, "campaigns", id, owner, attempt, ttl, cs.now().UTC())
 }

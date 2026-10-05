@@ -8,6 +8,7 @@ import (
 	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
 	"sync"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -87,6 +88,9 @@ func TestRecoverInterrupted(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
+	if err := st.db.Exec("UPDATE campaigns SET created_at=? WHERE id IN ?", time.Now().UTC().Add(-time.Minute), []string{pendingID, runningID}).Error; err != nil {
+		t.Fatal(err)
+	}
 	n, err := runner.RecoverInterrupted(ctx, st.campaigns, st.reviews)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
