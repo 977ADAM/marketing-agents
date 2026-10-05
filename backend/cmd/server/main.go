@@ -46,11 +46,14 @@ func main() {
 		_ = db.Close()
 		os.Exit(1)
 	}
-	st := sqlite.New(db)
-	defer st.Close()
+	// Три хранилища поверх одного соединения: у каждого свой порт.
+	campaigns := sqlite.NewCampaigns(db)
+	reviews := sqlite.NewReviews(db)
+	events := sqlite.NewEvents(db)
+	defer db.Close()
 	logger.Info("db ready", "path", cfg.SQLitePath, "schema_version", version)
 
-	if n, err := st.RecoverInterrupted(baseCtx); err != nil {
+	if n, err := sqlite.RecoverInterrupted(baseCtx, db); err != nil {
 		logger.Error("recover interrupted", "err", err)
 		os.Exit(1)
 	} else if n > 0 {
@@ -62,7 +65,7 @@ func main() {
 		logger.Error("trace mode", "err", err)
 		os.Exit(1)
 	}
-	recorder := trace.New(st, trace.Config{
+	recorder := trace.New(events, trace.Config{
 		Mode:            mode,
 		MaxPayloadBytes: cfg.TraceMaxPayloadBytes,
 		OnError:         func(err error) { logger.Warn("trace", "err", err) },
@@ -73,7 +76,7 @@ func main() {
 		"max_payload_bytes", cfg.TraceMaxPayloadBytes)
 	if cfg.TraceRetentionDays > 0 {
 		cutoff := time.Now().AddDate(0, 0, -cfg.TraceRetentionDays)
-		if n, err := st.DeleteRunEventsBefore(baseCtx, cutoff); err != nil {
+		if n, err := events.DeleteRunEventsBefore(baseCtx, cutoff); err != nil {
 			logger.Warn("trace retention", "err", err)
 		} else if n > 0 {
 			logger.Info("trace retention", "deleted", n, "days", cfg.TraceRetentionDays)
@@ -114,9 +117,9 @@ func main() {
 
 		Recorder: recorder,
 	})
-	hub := httpapi.NewHub(baseCtx, st)
-	runner := httpapi.NewRunner(baseCtx, st, st, orch, cfg.RunTimeout, logger, hub)
-	api := httpapi.New(st, st, st, runner, hub, cfg.RateLimitPerMin)
+	hub := httpapi.NewHub(baseCtx, campaigns, reviews)
+	runner := httpapi.NewRunner(baseCtx, campaigns, reviews, orch, cfg.RunTimeout, logger, hub)
+	api := httpapi.New(campaigns, reviews, events, runner, hub, cfg.RateLimitPerMin)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
 	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и

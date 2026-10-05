@@ -69,7 +69,7 @@ func (a *API) campaignTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 func (a *API) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectory(w, r, id, func(ctx context.Context) error {
-		_, err := a.reviews.GetReview(ctx, id)
+		_, err := a.reviews.GetCheck(ctx, id)
 		return err
 	})
 }
@@ -77,7 +77,7 @@ func (a *API) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
 func (a *API) reviewTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectoryEvent(w, r, id, func(ctx context.Context) error {
-		_, err := a.reviews.GetReview(ctx, id)
+		_, err := a.reviews.GetCheck(ctx, id)
 		return err
 	})
 }

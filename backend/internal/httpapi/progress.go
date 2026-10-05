@@ -9,12 +9,16 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
-// ProgressStore — то, что Hub'у нужно от стора (для кампаний и проверок).
-type ProgressStore interface {
+// CampaignProgressStore — что Hub'у нужно от хранилища кампаний.
+type CampaignProgressStore interface {
 	SaveProgress(ctx context.Context, id string, snap run.Snapshot) error
 	Get(ctx context.Context, id string) (*campaign.Record, error)
-	SaveReviewProgress(ctx context.Context, id string, snap run.Snapshot) error
-	GetReview(ctx context.Context, id string) (*review.Record, error)
+}
+
+// ReviewProgressStore — то же для проверок текстов.
+type ReviewProgressStore interface {
+	SaveCheckProgress(ctx context.Context, id string, snap run.Snapshot) error
+	GetCheck(ctx context.Context, id string) (*review.Record, error)
 }
 
 // CampaignProgress — то, что runner получает от Hub: интерфейс прогресса
@@ -38,14 +42,15 @@ const (
 // Hub держит живые прогоны (кампании и проверки текстов) и рассылает снимки
 // прогресса подписчикам.
 type Hub struct {
-	baseCtx context.Context
-	store   ProgressStore
-	mu      sync.Mutex
-	runs    map[string]*hubRun
+	baseCtx   context.Context
+	campaigns CampaignProgressStore
+	reviews   ReviewProgressStore
+	mu        sync.Mutex
+	runs      map[string]*hubRun
 }
 
-func NewHub(baseCtx context.Context, st ProgressStore) *Hub {
-	return &Hub{baseCtx: baseCtx, store: st, runs: map[string]*hubRun{}}
+func NewHub(baseCtx context.Context, campaigns CampaignProgressStore, reviews ReviewProgressStore) *Hub {
+	return &Hub{baseCtx: baseCtx, campaigns: campaigns, reviews: reviews, runs: map[string]*hubRun{}}
 }
 
 type hubRun struct {
@@ -121,7 +126,7 @@ func (h *Hub) subscribe(id string, kind runKind) (run.Snapshot, <-chan run.Snaps
 
 func (h *Hub) snapshotFromStore(id string, kind runKind) run.Snapshot {
 	if kind == kindReview {
-		r, err := h.store.GetReview(h.baseCtx, id)
+		r, err := h.reviews.GetCheck(h.baseCtx, id)
 		if err == nil && r != nil && r.Progress != nil {
 			return *r.Progress
 		}
@@ -130,7 +135,7 @@ func (h *Hub) snapshotFromStore(id string, kind runKind) run.Snapshot {
 		}
 		return run.Snapshot{Phase: run.PhaseFailed}
 	}
-	c, err := h.store.Get(h.baseCtx, id)
+	c, err := h.campaigns.Get(h.baseCtx, id)
 	if err == nil && c != nil && c.Progress != nil {
 		return *c.Progress
 	}
@@ -169,9 +174,9 @@ func (t *tracker) update(fn func(s *run.Snapshot)) {
 
 	switch t.run.kind {
 	case kindReview:
-		_ = t.hub.store.SaveReviewProgress(t.hub.baseCtx, t.id, snap)
+		_ = t.hub.reviews.SaveCheckProgress(t.hub.baseCtx, t.id, snap)
 	default:
-		_ = t.hub.store.SaveProgress(t.hub.baseCtx, t.id, snap)
+		_ = t.hub.campaigns.SaveProgress(t.hub.baseCtx, t.id, snap)
 	}
 	for _, c := range subs {
 		select {

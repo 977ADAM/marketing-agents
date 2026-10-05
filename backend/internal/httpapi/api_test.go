@@ -87,14 +87,14 @@ func (m *mockRepo) ListRecent(_ context.Context, limit int) ([]campaign.Summary,
 	}
 	return out, nil
 }
-func (m *mockRepo) CreateReview(_ context.Context, _, briefText string) (string, error) {
+func (m *mockRepo) CreateCheck(_ context.Context, _, briefText string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := "rev-1"
 	m.reviews = map[string]*review.Record{id: {ID: id, Status: "pending", BriefText: briefText}}
 	return id, nil
 }
-func (m *mockRepo) GetReview(_ context.Context, id string) (*review.Record, error) {
+func (m *mockRepo) GetCheck(_ context.Context, id string) (*review.Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.reviews[id]
@@ -103,7 +103,7 @@ func (m *mockRepo) GetReview(_ context.Context, id string) (*review.Record, erro
 	}
 	return r, nil
 }
-func (m *mockRepo) ListReviews(_ context.Context, limit int) ([]review.Summary, error) {
+func (m *mockRepo) ListChecks(_ context.Context, limit int) ([]review.Summary, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]review.Summary, 0, len(m.reviews))
@@ -135,13 +135,13 @@ func (errRepo) Get(context.Context, string) (*campaign.Record, error) {
 func (errRepo) ListRecent(context.Context, int) ([]campaign.Summary, error) {
 	return nil, errors.New("boom")
 }
-func (errRepo) CreateReview(context.Context, string, string) (string, error) {
+func (errRepo) CreateCheck(context.Context, string, string) (string, error) {
 	return "", errors.New("boom")
 }
-func (errRepo) GetReview(context.Context, string) (*review.Record, error) {
+func (errRepo) GetCheck(context.Context, string) (*review.Record, error) {
 	return nil, errors.New("boom")
 }
-func (errRepo) ListReviews(context.Context, int) ([]review.Summary, error) {
+func (errRepo) ListChecks(context.Context, int) ([]review.Summary, error) {
 	return nil, errors.New("boom")
 }
 func (errRepo) RunEvents(context.Context, string, int) ([]trace.Row, error) {
@@ -534,7 +534,7 @@ func TestPostReviewValidates(t *testing.T) {
 	}
 }
 
-func TestGetReviewNotFound(t *testing.T) {
+func TestGetCheckNotFound(t *testing.T) {
 	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/reviews/missing", nil)
 	rec := httptest.NewRecorder()
@@ -663,24 +663,24 @@ func TestExtractDocxTable(t *testing.T) {
 
 // Методы ниже нужны, чтобы мок удовлетворял полным портам campaign.Store и
 // review.Store: хендлеры их не дергают (прогон ведёт раннер), поэтому заглушки.
-func (m *mockRepo) MarkRunning(context.Context, string) error                      { return nil }
-func (m *mockRepo) SaveProgress(context.Context, string, run.Snapshot) error       { return nil }
-func (m *mockRepo) Complete(context.Context, string, campaign.Outcome) error       { return nil }
-func (m *mockRepo) Fail(context.Context, string, string) error                     { return nil }
-func (m *mockRepo) MarkReviewRunning(context.Context, string) error                { return nil }
-func (m *mockRepo) SaveReviewProgress(context.Context, string, run.Snapshot) error { return nil }
-func (m *mockRepo) CompleteReview(context.Context, string, review.Result) error    { return nil }
-func (m *mockRepo) FailReview(context.Context, string, string) error               { return nil }
+func (m *mockRepo) MarkRunning(context.Context, string) error                     { return nil }
+func (m *mockRepo) SaveProgress(context.Context, string, run.Snapshot) error      { return nil }
+func (m *mockRepo) Complete(context.Context, string, campaign.Outcome) error      { return nil }
+func (m *mockRepo) Fail(context.Context, string, string) error                    { return nil }
+func (m *mockRepo) MarkCheckRunning(context.Context, string) error                { return nil }
+func (m *mockRepo) SaveCheckProgress(context.Context, string, run.Snapshot) error { return nil }
+func (m *mockRepo) CompleteCheck(context.Context, string, review.Result) error    { return nil }
+func (m *mockRepo) FailCheck(context.Context, string, string) error               { return nil }
 
 func (errRepo) MarkRunning(context.Context, string) error                { return errors.New("boom") }
 func (errRepo) SaveProgress(context.Context, string, run.Snapshot) error { return errors.New("boom") }
 func (errRepo) Complete(context.Context, string, campaign.Outcome) error { return errors.New("boom") }
 func (errRepo) Fail(context.Context, string, string) error               { return errors.New("boom") }
-func (errRepo) MarkReviewRunning(context.Context, string) error          { return errors.New("boom") }
-func (errRepo) SaveReviewProgress(context.Context, string, run.Snapshot) error {
+func (errRepo) MarkCheckRunning(context.Context, string) error           { return errors.New("boom") }
+func (errRepo) SaveCheckProgress(context.Context, string, run.Snapshot) error {
 	return errors.New("boom")
 }
-func (errRepo) CompleteReview(context.Context, string, review.Result) error {
+func (errRepo) CompleteCheck(context.Context, string, review.Result) error {
 	return errors.New("boom")
 }
-func (errRepo) FailReview(context.Context, string, string) error { return errors.New("boom") }
+func (errRepo) FailCheck(context.Context, string, string) error { return errors.New("boom") }

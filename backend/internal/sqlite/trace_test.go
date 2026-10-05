@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
@@ -25,17 +24,17 @@ func TestRunEventsRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	at := time.Date(2026, 10, 3, 12, 30, 45, 123000000, time.UTC)
 
-	if err := s.SaveRunEvent(ctx, event("run-1", 1, at, `{"system":"промпт"}`)); err != nil {
+	if err := s.events.SaveRunEvent(ctx, event("run-1", 1, at, `{"system":"промпт"}`)); err != nil {
 		t.Fatalf("SaveRunEvent: %v", err)
 	}
-	if err := s.SaveRunEvent(ctx, event("run-1", 2, at.Add(time.Second), "")); err != nil {
+	if err := s.events.SaveRunEvent(ctx, event("run-1", 2, at.Add(time.Second), "")); err != nil {
 		t.Fatalf("SaveRunEvent: %v", err)
 	}
-	if err := s.SaveRunEvent(ctx, event("run-2", 1, at, "")); err != nil {
+	if err := s.events.SaveRunEvent(ctx, event("run-2", 1, at, "")); err != nil {
 		t.Fatalf("SaveRunEvent: %v", err)
 	}
 
-	list, err := s.RunEvents(ctx, "run-1", 0)
+	list, err := s.events.RunEvents(ctx, "run-1", 0)
 	if err != nil {
 		t.Fatalf("RunEvents: %v", err)
 	}
@@ -70,7 +69,7 @@ func TestRunEventsRoundTrip(t *testing.T) {
 	}
 
 	// Детальный запрос отдаёт payload.
-	full, err := s.RunEvent(ctx, "run-1", 1)
+	full, err := s.events.RunEvent(ctx, "run-1", 1)
 	if err != nil {
 		t.Fatalf("RunEvent: %v", err)
 	}
@@ -79,13 +78,13 @@ func TestRunEventsRoundTrip(t *testing.T) {
 	}
 
 	// Чужой прогон и несуществующий seq — не находка.
-	if _, err := s.RunEvent(ctx, "run-2", 1); err != nil {
+	if _, err := s.events.RunEvent(ctx, "run-2", 1); err != nil {
 		t.Errorf("своё событие второго прогона должно читаться: %v", err)
 	}
-	if _, err := s.RunEvent(ctx, "run-1", 99); !errors.Is(err, trace.ErrNotFound) {
+	if _, err := s.events.RunEvent(ctx, "run-1", 99); !errors.Is(err, trace.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
-	if _, err := s.RunEvent(ctx, "run-2", 2); !errors.Is(err, trace.ErrNotFound) {
+	if _, err := s.events.RunEvent(ctx, "run-2", 2); !errors.Is(err, trace.ErrNotFound) {
 		t.Errorf("чужой seq: err = %v, want ErrNotFound", err)
 	}
 }
@@ -99,16 +98,16 @@ func TestDeleteRunEventsBefore(t *testing.T) {
 	old := event("run-1", 1, now.AddDate(0, 0, -40), "")
 	fresh := event("run-1", 2, now.AddDate(0, 0, -1), "")
 	for _, ev := range []trace.Record{old, fresh} {
-		if err := s.SaveRunEvent(ctx, ev); err != nil {
+		if err := s.events.SaveRunEvent(ctx, ev); err != nil {
 			t.Fatalf("SaveRunEvent: %v", err)
 		}
 	}
-	id, err := s.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
+	id, err := s.campaigns.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	deleted, err := s.DeleteRunEventsBefore(ctx, now.AddDate(0, 0, -30))
+	deleted, err := s.events.DeleteRunEventsBefore(ctx, now.AddDate(0, 0, -30))
 	if err != nil {
 		t.Fatalf("DeleteRunEventsBefore: %v", err)
 	}
@@ -116,7 +115,7 @@ func TestDeleteRunEventsBefore(t *testing.T) {
 		t.Errorf("удалено %d событий, want 1", deleted)
 	}
 
-	left, err := s.RunEvents(ctx, "run-1", 0)
+	left, err := s.events.RunEvents(ctx, "run-1", 0)
 	if err != nil {
 		t.Fatalf("RunEvents: %v", err)
 	}
@@ -124,7 +123,7 @@ func TestDeleteRunEventsBefore(t *testing.T) {
 		t.Errorf("осталось %+v, want только свежее событие", left)
 	}
 	// Прогон на месте.
-	if _, err := s.Get(ctx, id); err != nil {
+	if _, err := s.campaigns.Get(ctx, id); err != nil {
 		t.Errorf("кампания должна остаться: %v", err)
 	}
 }
@@ -137,29 +136,20 @@ func TestRunEventsSurviveReopen(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 2; i++ {
-		s, err := sqlite.Open(ctx, path)
-		if err != nil {
-			t.Fatalf("Open #%d: %v", i+1, err)
-		}
-		if i == 0 {
-			applyMigrations(t, s.DB())
-		}
-		if err := s.SaveRunEvent(ctx, event("run-1", int64(i+1), time.Now().UTC(), "")); err != nil {
+		s := openStores(t, path)
+		if err := s.events.SaveRunEvent(ctx, event("run-1", int64(i+1), time.Now().UTC(), "")); err != nil {
 			t.Fatalf("SaveRunEvent #%d: %v", i+1, err)
 		}
-		if err := s.Close(); err != nil {
+		if err := s.db.Close(); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
 	}
 
-	s, err := sqlite.Open(ctx, path)
-	if err != nil {
-		t.Fatalf("Open после перезапуска: %v", err)
-	}
-	defer func() { _ = s.Close() }()
+	s := openStores(t, path)
+	defer func() { _ = s.db.Close() }()
 	// Повторное применение миграций по тому же файлу не падает.
-	applyMigrations(t, s.DB())
-	list, err := s.RunEvents(ctx, "run-1", 0)
+	applyMigrations(t, s.db)
+	list, err := s.events.RunEvents(ctx, "run-1", 0)
 	if err != nil {
 		t.Fatalf("RunEvents: %v", err)
 	}

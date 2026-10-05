@@ -2,232 +2,49 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/sqlite"
-	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
-// newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
-// и не требуют внешнего сервера (в отличие от прежнего Postgres-варианта).
-// Схему готовит applyMigrations — в приложении это делает сервис migrate.
-func newTestStore(t *testing.T) *sqlite.Store {
+// testStores — три хранилища поверх одной БД: адаптер разделён по сущностям,
+// поэтому и в тестах у каждой свой вход.
+type testStores struct {
+	campaigns *sqlite.Campaigns
+	reviews   *sqlite.Reviews
+	events    *sqlite.Events
+	db        *sql.DB
+}
+
+// openStores открывает БД по пути и готовит схему (в приложении это делает
+// отдельный сервис migrate).
+func openStores(t *testing.T, path string) *testStores {
 	t.Helper()
-	ctx := context.Background()
-	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	db, err := sqlite.OpenDB(context.Background(), path)
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenDB: %v", err)
 	}
-	t.Cleanup(func() { _ = st.Close() })
-	applyMigrations(t, st.DB())
-	return st
-}
-
-// Стратегия с кандидатами тем и счётчиком обращений к Wordstat переживает
-// запись и чтение: стратегия лежит в JSON-поле, поэтому миграция не нужна.
-func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	id, err := s.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T", Region: "213", TopicsCount: 2})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	strategy := campaign.Strategy{
-		Positioning: "позиционирование",
-		Topics:      []campaign.Topic{{Title: "Как выбрать зимние шины", Angle: "поймать в момент выбора", Points: []string{"какую зимнюю резину"}}},
-		TopicCandidates: []topic.TopicCandidate{{
-			ID: "t1", Title: "Как выбрать зимние шины", Goal: "поймать", Task: "дать чек-лист",
-			Source: topic.SourceWordstat, Selected: true, Volume: 92398, Head: "какую зимнюю резину",
-			Queries: []topic.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
-			Season:  &topic.Seasonality{Peak: 1700930, PeakMonth: "2025-10", Trough: 192109, Ratio: 8.85, Seasonal: true},
-		}, {
-			ID: "t2", Title: "Тема от модели", Goal: "g", Task: "t", Source: topic.SourceLLM,
-		}},
-		WordstatCalls: 4,
-	}
-	if err := s.Complete(ctx, id, campaign.Outcome{Strategy: strategy}); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-
-	got, err := s.Get(ctx, id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got.Brief.Region != "213" || got.Brief.TopicsCount != 2 {
-		t.Errorf("бриф: region = %q, topics_count = %d", got.Brief.Region, got.Brief.TopicsCount)
-	}
-	if got.Strategy == nil || len(got.Strategy.TopicCandidates) != 2 {
-		t.Fatalf("кандидаты не сохранились: %+v", got.Strategy)
-	}
-	first := got.Strategy.TopicCandidates[0]
-	if first.Volume != 92398 || first.Source != topic.SourceWordstat || !first.Selected {
-		t.Errorf("кандидат 1 = %+v", first)
-	}
-	if first.Season == nil || first.Season.Peak != 1700930 || !first.Season.Seasonal {
-		t.Errorf("сезонность = %+v", first.Season)
-	}
-	if len(first.Queries) != 1 || first.Queries[0].Phrase != "какую зимнюю резину" {
-		t.Errorf("цитаты = %+v", first.Queries)
-	}
-	if got.Strategy.WordstatCalls != 4 {
-		t.Errorf("WordstatCalls = %d, want 4", got.Strategy.WordstatCalls)
-	}
-	if got.Strategy.TopicCandidates[1].Source != topic.SourceLLM {
-		t.Errorf("источник кандидата 2 = %q", got.Strategy.TopicCandidates[1].Source)
+	t.Cleanup(func() { _ = db.Close() })
+	applyMigrations(t, db)
+	return &testStores{
+		campaigns: sqlite.NewCampaigns(db),
+		reviews:   sqlite.NewReviews(db),
+		events:    sqlite.NewEvents(db),
+		db:        db,
 	}
 }
 
-func TestCampaignRoundTrip(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
-
-	id, err := s.Create(ctx, "", b)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if err := s.MarkRunning(ctx, id); err != nil {
-		t.Fatalf("MarkRunning: %v", err)
-	}
-	res := campaign.Outcome{
-		Strategy:     campaign.Strategy{Positioning: "p", Topics: []campaign.Topic{{Title: "T1"}}},
-		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T1", Title: "A", Body: "B", CTA: "C"}, Review: campaign.Review{Score: 90, Verdict: "accept"}}},
-		CostUSD:      0.12,
-	}
-	if err := s.Complete(ctx, id, res); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-
-	got, err := s.Get(ctx, id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got.Status != "done" || len(got.Deliverables) != 1 || got.Deliverables[0].Review.Score != 90 {
-		t.Errorf("got = %+v", got)
-	}
-	if got.CostUSD == nil || *got.CostUSD != 0.12 {
-		t.Errorf("cost = %v", got.CostUSD)
-	}
-	if got.Brief.Product != "P" || got.Strategy == nil || got.Strategy.Positioning != "p" {
-		t.Errorf("brief/strategy not loaded: %+v", got)
-	}
-	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
-		t.Errorf("timestamps not loaded: %v / %v", got.CreatedAt, got.UpdatedAt)
-	}
-}
-
-func TestGetNotFound(t *testing.T) {
-	s := newTestStore(t)
-	if _, err := s.Get(context.Background(), "00000000-0000-0000-0000-0000000000ff"); err != campaign.ErrNotFound {
-		t.Errorf("err = %v, want ErrNotFound", err)
-	}
-}
-
-func TestListRecent(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
-
-	id1, err := s.Create(ctx, "", b)
-	if err != nil {
-		t.Fatalf("Create1: %v", err)
-	}
-	id2, err := s.Create(ctx, "", b)
-	if err != nil {
-		t.Fatalf("Create2: %v", err)
-	}
-
-	items, err := s.ListRecent(ctx, 50)
-	if err != nil {
-		t.Fatalf("ListRecent: %v", err)
-	}
-	if len(items) < 2 {
-		t.Fatalf("want >= 2 items, got %d", len(items))
-	}
-	// новые сверху: id2 создан позже id1, поэтому он должен идти раньше id1
-	posI1, posI2 := -1, -1
-	for i, it := range items {
-		if it.ID == id1 {
-			posI1 = i
-		}
-		if it.ID == id2 {
-			posI2 = i
-		}
-	}
-	if posI2 == -1 || posI1 == -1 || posI2 > posI1 {
-		t.Errorf("expected id2 before id1; posI1=%d posI2=%d", posI1, posI2)
-	}
-	if items[0].Brief.Product != "P" {
-		t.Errorf("brief not loaded: %+v", items[0])
-	}
-}
-
-func TestListRecentLimit(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
-	for i := 0; i < 3; i++ {
-		if _, err := s.Create(ctx, "", b); err != nil {
-			t.Fatalf("Create: %v", err)
-		}
-	}
-	items, err := s.ListRecent(ctx, 2)
-	if err != nil {
-		t.Fatalf("ListRecent: %v", err)
-	}
-	if len(items) != 2 {
-		t.Errorf("want 2, got %d", len(items))
-	}
-}
-
-func TestProgressRoundTrip(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-	id, err := s.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	// до сохранения прогресса — nil
-	got, err := s.Get(ctx, id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got.Progress != nil {
-		t.Fatalf("Progress = %+v, want nil", got.Progress)
-	}
-
-	snap := run.Snapshot{
-		Phase:      run.PhaseProducing,
-		TopicTotal: 2,
-		TopicsDone: 1,
-		Percent:    50,
-		Topics: []run.TopicProgress{
-			{Index: 0, Title: "T1", State: run.TopicDone, Score: 88},
-			{Index: 1, Title: "T2", State: run.TopicWriting},
-		},
-	}
-	if err := s.SaveProgress(ctx, id, snap); err != nil {
-		t.Fatalf("SaveProgress: %v", err)
-	}
-
-	got, err = s.Get(ctx, id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got.Progress == nil || got.Progress.Phase != run.PhaseProducing || got.Progress.Percent != 50 || got.Progress.TopicsDone != 1 {
-		t.Fatalf("Progress = %+v", got.Progress)
-	}
-	if len(got.Progress.Topics) != 2 || got.Progress.Topics[0].Score != 88 {
-		t.Fatalf("topics = %+v", got.Progress.Topics)
-	}
+// newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
+// и не требуют внешнего сервера.
+func newTestStore(t *testing.T) *testStores {
+	t.Helper()
+	return openStores(t, filepath.Join(t.TempDir(), "test.db"))
 }
 
 func TestRecoverInterrupted(t *testing.T) {
@@ -235,30 +52,30 @@ func TestRecoverInterrupted(t *testing.T) {
 	ctx := context.Background()
 
 	// Сбросить возможные «осиротевшие» от прошлых тестов, чтобы count был детерминирован.
-	if _, err := st.RecoverInterrupted(ctx); err != nil {
+	if _, err := sqlite.RecoverInterrupted(ctx, st.db); err != nil {
 		t.Fatalf("pre-drain: %v", err)
 	}
 
-	pendingID, err := st.Create(ctx, "", campaign.Brief{})
+	pendingID, err := st.campaigns.Create(ctx, "", campaign.Brief{})
 	if err != nil {
 		t.Fatalf("create pending: %v", err)
 	}
-	runningID, err := st.Create(ctx, "", campaign.Brief{})
+	runningID, err := st.campaigns.Create(ctx, "", campaign.Brief{})
 	if err != nil {
 		t.Fatalf("create running: %v", err)
 	}
-	if err := st.MarkRunning(ctx, runningID); err != nil {
+	if err := st.campaigns.MarkRunning(ctx, runningID); err != nil {
 		t.Fatalf("mark running: %v", err)
 	}
-	doneID, err := st.Create(ctx, "", campaign.Brief{})
+	doneID, err := st.campaigns.Create(ctx, "", campaign.Brief{})
 	if err != nil {
 		t.Fatalf("create done: %v", err)
 	}
-	if err := st.Complete(ctx, doneID, campaign.Outcome{}); err != nil {
+	if err := st.campaigns.Complete(ctx, doneID, campaign.Outcome{}); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
-	n, err := st.RecoverInterrupted(ctx)
+	n, err := sqlite.RecoverInterrupted(ctx, st.db)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
 	}
@@ -267,7 +84,7 @@ func TestRecoverInterrupted(t *testing.T) {
 	}
 
 	for _, id := range []string{pendingID, runningID} {
-		c, err := st.Get(ctx, id)
+		c, err := st.campaigns.Get(ctx, id)
 		if err != nil {
 			t.Fatalf("get %s: %v", id, err)
 		}
@@ -279,7 +96,7 @@ func TestRecoverInterrupted(t *testing.T) {
 		}
 	}
 
-	done, err := st.Get(ctx, doneID)
+	done, err := st.campaigns.Get(ctx, doneID)
 	if err != nil {
 		t.Fatalf("get done: %v", err)
 	}
@@ -287,7 +104,7 @@ func TestRecoverInterrupted(t *testing.T) {
 		t.Errorf("done campaign status = %q, want done (не тронута)", done.Status)
 	}
 
-	again, err := st.RecoverInterrupted(ctx)
+	again, err := sqlite.RecoverInterrupted(ctx, st.db)
 	if err != nil {
 		t.Fatalf("recover again: %v", err)
 	}
@@ -296,120 +113,11 @@ func TestRecoverInterrupted(t *testing.T) {
 	}
 }
 
-func TestReviewRoundTrip(t *testing.T) {
-	st := newTestStore(t)
-	ctx := context.Background()
-
-	id, err := st.CreateReview(ctx, "", "Продукт: шины Ikon. Запрет: не упоминать другие бренды.")
-	if err != nil {
-		t.Fatalf("CreateReview: %v", err)
-	}
-	if err := st.MarkReviewRunning(ctx, id); err != nil {
-		t.Fatalf("MarkReviewRunning: %v", err)
-	}
-	snap := run.Snapshot{
-		Phase:      run.PhaseProducing,
-		TopicTotal: 1,
-		TopicsDone: 0,
-		Percent:    10,
-		Topics:     []run.TopicProgress{{Index: 0, Title: "Статья", State: run.TopicWriting}},
-	}
-	if err := st.SaveReviewProgress(ctx, id, snap); err != nil {
-		t.Fatalf("SaveReviewProgress: %v", err)
-	}
-	res := review.Result{
-		Items: []review.TextReport{{
-			Title:      "Статья",
-			Compliance: review.CheckScore{Score: 90, Issues: []string{"нет слогана"}},
-			Quality:    review.CheckScore{Score: 85},
-			Overall:    85,
-			Verdict:    "pass",
-		}},
-		CostUSD: 0.05,
-	}
-	if err := st.CompleteReview(ctx, id, res); err != nil {
-		t.Fatalf("CompleteReview: %v", err)
-	}
-
-	got, err := st.GetReview(ctx, id)
-	if err != nil {
-		t.Fatalf("GetReview: %v", err)
-	}
-	if got.Status != "done" {
-		t.Errorf("status = %q, want done", got.Status)
-	}
-	if got.BriefText != "Продукт: шины Ikon. Запрет: не упоминать другие бренды." {
-		t.Errorf("brief_text = %q", got.BriefText)
-	}
-	if got.Result == nil || len(got.Result.Items) != 1 || got.Result.Items[0].Overall != 85 ||
-		got.Result.Items[0].Compliance.Issues[0] != "нет слогана" {
-		t.Errorf("result = %+v", got.Result)
-	}
-	if got.CostUSD == nil || *got.CostUSD != 0.05 {
-		t.Errorf("cost = %v", got.CostUSD)
-	}
-	if got.Progress == nil || got.Progress.Percent != 10 {
-		t.Errorf("progress = %+v", got.Progress)
-	}
-
-	items, err := st.ListReviews(ctx, 10)
-	if err != nil {
-		t.Fatalf("ListReviews: %v", err)
-	}
-	if len(items) != 1 || items[0].ID != id {
-		t.Errorf("ListReviews = %+v", items)
-	}
-
-	if _, err := st.GetReview(ctx, "нет-такой-проверки"); err != review.ErrNotFound {
-		t.Errorf("GetReview(unknown) err = %v, want ErrNotFound", err)
-	}
-}
-
-// Данные должны переживать перезапуск процесса: тот же файл, новое соединение.
-func TestDataSurvivesReopen(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "reopen.db")
-
-	first, err := sqlite.Open(ctx, path)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	applyMigrations(t, first.DB())
-	id, err := first.Create(ctx, "", campaign.Brief{Product: "Эко-бутылка"})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if err := first.Complete(ctx, id, campaign.Outcome{
-		Strategy:     campaign.Strategy{Positioning: "p"},
-		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T", Title: "A", Body: "B", CTA: "C"}}},
-		CostUSD:      0.01,
-	}); err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
-	if err := first.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	second, err := sqlite.Open(ctx, path)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	defer second.Close()
-
-	got, err := second.Get(ctx, id)
-	if err != nil {
-		t.Fatalf("Get after reopen: %v", err)
-	}
-	if got.Status != "done" || len(got.Deliverables) != 1 || got.Brief.Product != "Эко-бутылка" {
-		t.Errorf("after reopen: %+v", got)
-	}
-}
-
 // DSN включает foreign_keys=1: деливерабл с несуществующей кампанией не вставится.
 func TestForeignKeysEnforced(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if _, err := st.DB().ExecContext(ctx,
+	if _, err := st.db.ExecContext(ctx,
 		`INSERT INTO deliverables (id, campaign_id, topic, title, body, cta, review)
 		 VALUES ('d-1','00000000-0000-0000-0000-00000000dead','t','a','b','c','{}')`); err == nil {
 		t.Fatal("ожидали ошибку FOREIGN KEY: pragma foreign_keys=1 не применилась")
@@ -438,7 +146,7 @@ func TestDSN(t *testing.T) {
 func TestConcurrentProgressWrites(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	id, err := st.Create(ctx, "", campaign.Brief{Product: "P"})
+	id, err := st.campaigns.Create(ctx, "", campaign.Brief{Product: "P"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -457,7 +165,7 @@ func TestConcurrentProgressWrites(t *testing.T) {
 				Percent:    n,
 				Topics:     []run.TopicProgress{{Index: 0, Title: "T", State: run.TopicWriting, Iter: n}},
 			}
-			if err := st.SaveProgress(ctx, id, snap); err != nil {
+			if err := st.campaigns.SaveProgress(ctx, id, snap); err != nil {
 				errs <- err
 			}
 		}(i)
@@ -468,7 +176,7 @@ func TestConcurrentProgressWrites(t *testing.T) {
 		t.Errorf("SaveProgress: %v", err)
 	}
 
-	got, err := st.Get(ctx, id)
+	got, err := st.campaigns.Get(ctx, id)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

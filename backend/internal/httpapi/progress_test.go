@@ -43,13 +43,13 @@ func (f *fakeProgressStore) Get(_ context.Context, id string) (*campaign.Record,
 	}
 	return c, nil
 }
-func (f *fakeProgressStore) SaveReviewProgress(_ context.Context, id string, s run.Snapshot) error {
+func (f *fakeProgressStore) SaveCheckProgress(_ context.Context, id string, s run.Snapshot) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.savedRV[id] = s
 	return nil
 }
-func (f *fakeProgressStore) GetReview(_ context.Context, id string) (*review.Record, error) {
+func (f *fakeProgressStore) GetCheck(_ context.Context, id string) (*review.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.revs[id]
@@ -61,7 +61,7 @@ func (f *fakeProgressStore) GetReview(_ context.Context, id string) (*review.Rec
 
 func TestHubLiveSubscriber(t *testing.T) {
 	ps := newFakePS()
-	hub := httpapi.NewHub(context.Background(), ps)
+	hub := httpapi.NewHub(context.Background(), ps, ps)
 	tr := hub.Tracker("c1")
 
 	snap0, ch, cancel := hub.Subscribe("c1")
@@ -89,7 +89,7 @@ func TestHubLiveSubscriber(t *testing.T) {
 // Подбор тем: в снимке видна фаза researching, подэтап и сеялки как единицы работы.
 func TestTrackerResearchProgress(t *testing.T) {
 	ps := newFakePS()
-	hub := httpapi.NewHub(context.Background(), ps)
+	hub := httpapi.NewHub(context.Background(), ps, ps)
 	tr := hub.Tracker("r1")
 
 	_, ch, cancel := hub.Subscribe("r1")
@@ -137,7 +137,7 @@ func TestHubLateSubscriberFromStore(t *testing.T) {
 	ps := newFakePS()
 	ps.camps["done1"] = &campaign.Record{ID: "done1", Status: "done",
 		Progress: &run.Snapshot{Phase: run.PhaseDone, Percent: 100}}
-	hub := httpapi.NewHub(context.Background(), ps)
+	hub := httpapi.NewHub(context.Background(), ps, ps)
 
 	snap, ch, cancel := hub.Subscribe("done1")
 	defer cancel()
@@ -150,7 +150,7 @@ func TestHubLateSubscriberFromStore(t *testing.T) {
 }
 
 func TestHubFinishClosesSubscribers(t *testing.T) {
-	hub := httpapi.NewHub(context.Background(), newFakePS())
+	hub := httpapi.NewHub(context.Background(), newFakePS(), newFakePS())
 	tr := hub.Tracker("c2")
 	_, ch, cancel := hub.Subscribe("c2")
 	defer cancel()
@@ -166,7 +166,7 @@ func TestHubFinishClosesSubscribers(t *testing.T) {
 }
 
 func TestHubUpdateAfterCancelNoPanic(t *testing.T) {
-	hub := httpapi.NewHub(context.Background(), newFakePS())
+	hub := httpapi.NewHub(context.Background(), newFakePS(), newFakePS())
 	tr := hub.Tracker("c3")
 	_, _, cancel := hub.Subscribe("c3")
 

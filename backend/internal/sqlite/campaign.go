@@ -15,14 +15,20 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
+// Campaigns — хранилище campaigns поверх общего соединения.
+type Campaigns struct{ db *sql.DB }
+
+// NewCampaigns оборачивает соединение: сам SQL живёт в этом файле.
+func NewCampaigns(db *sql.DB) *Campaigns { return &Campaigns{db: db} }
+
 // Create вставляет кампанию в статусе pending и возвращает её id.
-func (s *Store) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
+func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
 	if clientID == "" {
 		clientID = DefaultClientID
 	}
 	id := newUUID()
 	briefJSON, _ := json.Marshal(b)
-	_, err := s.db.ExecContext(ctx,
+	_, err := cs.db.ExecContext(ctx,
 		`INSERT INTO campaigns (id, client_id, status, brief) VALUES (?, ?, 'pending', ?)`,
 		id, clientID, string(briefJSON))
 	return id, err
@@ -31,8 +37,8 @@ func (s *Store) Create(ctx context.Context, clientID string, b campaign.Brief) (
 // MarkRunning переводит кампанию в running.
 
 // MarkRunning переводит кампанию в running.
-func (s *Store) MarkRunning(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
+func (cs *Campaigns) MarkRunning(ctx context.Context, id string) error {
+	_, err := cs.db.ExecContext(ctx,
 		`UPDATE campaigns SET status='running', updated_at=`+nowExpr+` WHERE id=?`, id)
 	return err
 }
@@ -40,9 +46,9 @@ func (s *Store) MarkRunning(ctx context.Context, id string) error {
 // SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
 
 // SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
-func (s *Store) SaveProgress(ctx context.Context, id string, snap run.Snapshot) error {
+func (cs *Campaigns) SaveProgress(ctx context.Context, id string, snap run.Snapshot) error {
 	b, _ := json.Marshal(snap)
-	_, err := s.db.ExecContext(ctx,
+	_, err := cs.db.ExecContext(ctx,
 		`UPDATE campaigns SET progress=?, updated_at=`+nowExpr+` WHERE id=?`, string(b), id)
 	return err
 }
@@ -50,9 +56,9 @@ func (s *Store) SaveProgress(ctx context.Context, id string, snap run.Snapshot) 
 // Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
 
 // Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
-func (s *Store) Complete(ctx context.Context, id string, res campaign.Outcome) error {
+func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outcome) error {
 	stratJSON, _ := json.Marshal(res.Strategy)
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := cs.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -78,8 +84,8 @@ func (s *Store) Complete(ctx context.Context, id string, res campaign.Outcome) e
 // Fail переводит кампанию в failed с текстом ошибки.
 
 // Fail переводит кампанию в failed с текстом ошибки.
-func (s *Store) Fail(ctx context.Context, id, msg string) error {
-	_, err := s.db.ExecContext(ctx,
+func (cs *Campaigns) Fail(ctx context.Context, id, msg string) error {
+	_, err := cs.db.ExecContext(ctx,
 		`UPDATE campaigns SET status='failed', error=?, updated_at=`+nowExpr+` WHERE id=?`, msg, id)
 	return err
 }
@@ -89,8 +95,8 @@ func (s *Store) Fail(ctx context.Context, id, msg string) error {
 
 // ListRecent возвращает до limit последних кампаний, новые сверху.
 // rowid — тайбрейкер для записей с одинаковым created_at (точность — миллисекунды).
-func (s *Store) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
-	rows, err := s.db.QueryContext(ctx,
+func (cs *Campaigns) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
+	rows, err := cs.db.QueryContext(ctx,
 		`SELECT id, status, brief, cost_usd, created_at
 		 FROM campaigns ORDER BY created_at DESC, rowid DESC LIMIT ?`, limit)
 	if err != nil {
@@ -116,12 +122,12 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, 
 // Get читает кампанию вместе с deliverables.
 
 // Get читает кампанию вместе с deliverables.
-func (s *Store) Get(ctx context.Context, id string) (*campaign.Record, error) {
+func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, error) {
 	var c campaign.Record
 	var briefJSON, stratJSON, progressJSON []byte
 	var cost *float64
 	var errText *string
-	err := s.db.QueryRowContext(ctx,
+	err := cs.db.QueryRowContext(ctx,
 		`SELECT id, client_id, status, brief, strategy, cost_usd, error, progress, created_at, updated_at
 		 FROM campaigns WHERE id=?`, id).
 		Scan(&c.ID, &c.ClientID, &c.Status, &briefJSON, &stratJSON, &cost, &errText, &progressJSON, &c.CreatedAt, &c.UpdatedAt)
@@ -149,7 +155,7 @@ func (s *Store) Get(ctx context.Context, id string) (*campaign.Record, error) {
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := cs.db.QueryContext(ctx,
 		`SELECT topic, title, body, cta, review FROM deliverables
 		 WHERE campaign_id=? ORDER BY created_at, rowid`, id)
 	if err != nil {

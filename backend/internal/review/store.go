@@ -39,16 +39,16 @@ type Summary struct {
 
 // Store — хранение проверок текстов: порт у потребителя, реализация — адаптер.
 //
-// Имена методов с суффиксом Review (CreateReview, GetReview…) — временные: один
+// Имена методов с суффиксом Review (CreateCheck, GetCheck…) — временные: один
 // тип-адаптер реализует и campaign.Store, и review.Store, а同名 методы с разными
 // подписями в Go несовместимы. Суффиксы уйдут, когда адаптер разъедется по
 // сущностям (шаг 3 плана: sqlite/campaign.go и sqlite/review.go).
 type Store interface {
-	CreateReview(ctx context.Context, clientID, briefText string) (string, error)
-	MarkReviewRunning(ctx context.Context, id string) error
-	SaveReviewProgress(ctx context.Context, id string, snap run.Snapshot) error
-	CompleteReview(ctx context.Context, id string, res Result) error
-	FailReview(ctx context.Context, id, msg string) error
-	GetReview(ctx context.Context, id string) (*Record, error)
-	ListReviews(ctx context.Context, limit int) ([]Summary, error)
+	CreateCheck(ctx context.Context, clientID, briefText string) (string, error)
+	MarkCheckRunning(ctx context.Context, id string) error
+	SaveCheckProgress(ctx context.Context, id string, snap run.Snapshot) error
+	CompleteCheck(ctx context.Context, id string, res Result) error
+	FailCheck(ctx context.Context, id, msg string) error
+	GetCheck(ctx context.Context, id string) (*Record, error)
+	ListChecks(ctx context.Context, limit int) ([]Summary, error)
 }

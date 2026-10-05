@@ -9,13 +9,19 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
+// Events — хранилище events поверх общего соединения.
+type Events struct{ db *sql.DB }
+
+// NewEvents оборачивает соединение: сам SQL живёт в этом файле.
+func NewEvents(db *sql.DB) *Events { return &Events{db: db} }
+
 // timeLayout — формат, который драйвер modernc.org/sqlite разбирает в time.Time.
 // Совпадает с тем, что даёт strftime('%Y-%m-%d %H:%M:%f','now') в схеме.
 const timeLayout = "2006-01-02 15:04:05.000"
 
 // SaveRunEvent сохраняет событие трассы (реализует trace.Sink).
-func (s *Store) SaveRunEvent(ctx context.Context, rec trace.Record) error {
-	_, err := s.db.ExecContext(ctx,
+func (es *Events) SaveRunEvent(ctx context.Context, rec trace.Record) error {
+	_, err := es.db.ExecContext(ctx,
 		`INSERT INTO run_events
 			(id, run_id, seq, at, kind, name, status, duration_ms,
 			 prompt_tokens, completion_tokens, summary, payload, error)
@@ -29,11 +35,11 @@ func (s *Store) SaveRunEvent(ctx context.Context, rec trace.Record) error {
 
 // RunEvents возвращает ленту событий прогона без тел payload: их отдают отдельным
 // запросом, иначе ответ разрастается до мегабайт.
-func (s *Store) RunEvents(ctx context.Context, runID string, limit int) ([]trace.Row, error) {
+func (es *Events) RunEvents(ctx context.Context, runID string, limit int) ([]trace.Row, error) {
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := es.db.QueryContext(ctx,
 		`SELECT seq, at, kind, name, status, duration_ms, prompt_tokens, completion_tokens,
 		        summary, payload IS NOT NULL AND payload <> '', IFNULL(error,'')
 		 FROM run_events WHERE run_id=? ORDER BY seq LIMIT ?`, runID, limit)
@@ -55,10 +61,10 @@ func (s *Store) RunEvents(ctx context.Context, runID string, limit int) ([]trace
 }
 
 // RunEvent возвращает одно событие прогона вместе с payload.
-func (s *Store) RunEvent(ctx context.Context, runID string, seq int64) (*trace.Row, error) {
+func (es *Events) RunEvent(ctx context.Context, runID string, seq int64) (*trace.Row, error) {
 	var ev trace.Row
 	var payload, errText sql.NullString
-	err := s.db.QueryRowContext(ctx,
+	err := es.db.QueryRowContext(ctx,
 		`SELECT seq, at, kind, name, status, duration_ms, prompt_tokens, completion_tokens,
 		        summary, payload, error
 		 FROM run_events WHERE run_id=? AND seq=?`, runID, seq).
@@ -78,8 +84,8 @@ func (s *Store) RunEvent(ctx context.Context, runID string, seq int64) (*trace.R
 
 // DeleteRunEventsBefore удаляет события старше cutoff (ретенция). Возвращает
 // число удалённых строк; сами прогоны не трогает.
-func (s *Store) DeleteRunEventsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	tag, err := s.db.ExecContext(ctx,
+func (es *Events) DeleteRunEventsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := es.db.ExecContext(ctx,
 		`DELETE FROM run_events WHERE at < ?`, cutoff.UTC().Format(timeLayout))
 	if err != nil {
 		return 0, err

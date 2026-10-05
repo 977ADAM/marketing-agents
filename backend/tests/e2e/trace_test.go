@@ -27,10 +27,12 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	applyMigrations(t, db)
-	st := sqlite.New(db)
-	t.Cleanup(func() { _ = st.Close() })
+	t.Cleanup(func() { _ = db.Close() })
+	campaigns := sqlite.NewCampaigns(db)
+	reviews := sqlite.NewReviews(db)
+	evStore := sqlite.NewEvents(db)
 
-	rec := trace.New(st, trace.Config{Mode: trace.ModeSummary})
+	rec := trace.New(evStore, trace.Config{Mode: trace.ModeSummary})
 
 	fake := llm.NewFake()
 	fake.Responses[agents.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
@@ -57,25 +59,25 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		MaxWordstatCalls: 5,
 		DefaultRegion:    "225",
 	})
-	hub := httpapi.NewHub(ctx, st)
+	hub := httpapi.NewHub(ctx, campaigns, reviews)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner := httpapi.NewRunner(ctx, st, st, orch, 30*time.Second, logger, hub)
+	runner := httpapi.NewRunner(ctx, campaigns, reviews, orch, 30*time.Second, logger, hub)
 
 	brief := campaign.Brief{
 		Product: "Зимняя резина", Goal: "рост продаж", Audience: "автовладельцы",
 		Tone: "экспертный", Region: "213", TopicsCount: 1,
 	}
-	id, err := st.Create(ctx, "", brief)
+	id, err := campaigns.Create(ctx, "", brief)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	runner.Start(id, brief)
 
-	events := waitForResult(t, st, id)
+	rows := waitForResult(t, evStore, id)
 
 	// Все события прогона привязаны к кампании — иначе трассу не найти через API.
 	names := map[string]int{}
-	for _, ev := range events {
+	for _, ev := range rows {
 		names[ev.Name]++
 	}
 	for _, want := range []string{
@@ -88,11 +90,11 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	}
 
 	// В режиме summary тела не пишутся — это проверяем на событии вызова модели.
-	for _, ev := range events {
+	for _, ev := range rows {
 		if ev.Name != agents.RoleSeeds {
 			continue
 		}
-		full, err := st.RunEvent(ctx, id, ev.Seq)
+		full, err := evStore.RunEvent(ctx, id, ev.Seq)
 		if err != nil {
 			t.Fatalf("RunEvent: %v", err)
 		}
@@ -109,18 +111,18 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 }
 
 // waitForResult ждёт появления итогового события прогона.
-func waitForResult(t *testing.T, st *sqlite.Store, runID string) []trace.Row {
+func waitForResult(t *testing.T, events *sqlite.Events, runID string) []trace.Row {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		events, err := st.RunEvents(ctx, runID, 0)
+		rows, err := events.RunEvents(ctx, runID, 0)
 		if err != nil {
 			t.Fatalf("RunEvents: %v", err)
 		}
-		for _, ev := range events {
+		for _, ev := range rows {
 			if ev.Name == "run" {
-				return events
+				return rows
 			}
 		}
 		time.Sleep(20 * time.Millisecond)

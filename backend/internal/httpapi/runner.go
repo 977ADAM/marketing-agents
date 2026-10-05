@@ -83,7 +83,7 @@ func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 		ctx = trace.WithRunID(ctx, id)
 
 		tr := r.hub.ReviewTracker(id)
-		if err := r.reviews.MarkReviewRunning(ctx, id); err != nil {
+		if err := r.reviews.MarkCheckRunning(ctx, id); err != nil {
 			r.logger.Error("mark review running", "id", id, "err", err)
 			tr.Failed()
 			return
@@ -91,13 +91,13 @@ func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 		res, err := r.orch.Review(ctx, req, tr)
 		if err != nil {
 			r.logger.Error("review failed", "id", id, "err", err)
-			_ = r.reviews.FailReview(context.WithoutCancel(ctx), id, err.Error())
+			_ = r.reviews.FailCheck(context.WithoutCancel(ctx), id, err.Error())
 			tr.Failed()
 			return
 		}
-		if err := r.reviews.CompleteReview(context.WithoutCancel(ctx), id, res); err != nil {
+		if err := r.reviews.CompleteCheck(context.WithoutCancel(ctx), id, res); err != nil {
 			r.logger.Error("review complete", "id", id, "err", err)
-			_ = r.reviews.FailReview(context.WithoutCancel(ctx), id, "complete: "+err.Error())
+			_ = r.reviews.FailCheck(context.WithoutCancel(ctx), id, "complete: "+err.Error())
 			tr.Failed()
 			return
 		}

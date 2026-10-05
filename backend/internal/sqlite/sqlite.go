@@ -43,13 +43,7 @@ func DSN(path string) string {
 	return "file:" + path + "?" + pragmas
 }
 
-// Store — доступ к БД. Реализует интерфейсы httpapi.Repo и httpapi.ProgressStore.
-type Store struct{ db *sql.DB }
-
 // New оборачивает уже открытое соединение (без миграций).
-
-// New оборачивает уже открытое соединение (без миграций).
-func New(db *sql.DB) *Store { return &Store{db: db} }
 
 // OpenDB открывает (при необходимости создаёт каталог и файл) соединение с БД.
 // Миграции не применяет: это отдельный шаг — сервис migrate в docker-compose или
@@ -81,28 +75,7 @@ func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Open открывает БД и возвращает готовый Store. Схему не мигрирует: считается,
-// что миграции применены отдельным сервисом (см. internal/migrate).
-
-// Open открывает БД и возвращает готовый Store. Схему не мигрирует: считается,
-// что миграции применены отдельным сервисом (см. internal/migrate).
-func Open(ctx context.Context, path string) (*Store, error) {
-	db, err := OpenDB(ctx, path)
-	if err != nil {
-		return nil, err
-	}
-	return New(db), nil
-}
-
 // Close закрывает соединение с БД.
-
-// Close закрывает соединение с БД.
-func (s *Store) Close() error {
-	if s == nil || s.db == nil {
-		return nil
-	}
-	return s.db.Close()
-}
 
 // ensureDir создаёт каталог под файл БД, если его нет.
 
@@ -142,10 +115,9 @@ func newUUID() string {
 
 // Create вставляет кампанию в статусе pending и возвращает её id.
 
-// RecoverInterrupted помечает осиротевшие после рестарта кампании и проверки
-// (pending/running) как failed. Возвращает общее число восстановленных. Идемпотентен.
-func (s *Store) RecoverInterrupted(ctx context.Context) (int64, error) {
-	tag, err := s.db.ExecContext(ctx,
+// RecoverInterrupted// (pending/running) как failed. Возвращает общее число восстановленных. Идемпотентен.
+func RecoverInterrupted(ctx context.Context, db *sql.DB) (int64, error) {
+	tag, err := db.ExecContext(ctx,
 		`UPDATE campaigns SET status='failed', error='прервано рестартом сервиса', updated_at=`+nowExpr+`
 		 WHERE status IN ('pending','running')`)
 	if err != nil {
@@ -155,7 +127,7 @@ func (s *Store) RecoverInterrupted(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	tag, err = s.db.ExecContext(ctx,
+	tag, err = db.ExecContext(ctx,
 		`UPDATE reviews SET status='failed', error='прервано рестартом сервиса', updated_at=`+nowExpr+`
 		 WHERE status IN ('pending','running')`)
 	if err != nil {

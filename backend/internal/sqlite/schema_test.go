@@ -84,11 +84,8 @@ func TestCheckSchema(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("таблицы учёта нет", func(t *testing.T) {
-		st, err := openStore(t)
-		if err != nil {
-			t.Fatalf("open: %v", err)
-		}
-		if _, err := sqlite.CheckSchema(ctx, st.DB()); err == nil {
+		st := openStoreRaw(t)
+		if _, err := sqlite.CheckSchema(ctx, st.db); err == nil {
 			t.Fatal("ожидали отказ: миграции не применены")
 		} else if !strings.Contains(err.Error(), "не применены") {
 			t.Errorf("текст ошибки = %q, ожидали подсказку про неприменённые миграции", err)
@@ -96,15 +93,12 @@ func TestCheckSchema(t *testing.T) {
 	})
 
 	t.Run("таблица учёта старого формата", func(t *testing.T) {
-		st, err := openStore(t)
-		if err != nil {
-			t.Fatalf("open: %v", err)
-		}
-		if _, err := st.DB().ExecContext(ctx,
+		st := openStoreRaw(t)
+		if _, err := st.db.ExecContext(ctx,
 			`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at DATETIME)`); err != nil {
 			t.Fatalf("старая таблица учёта: %v", err)
 		}
-		if _, err := sqlite.CheckSchema(ctx, st.DB()); err == nil {
+		if _, err := sqlite.CheckSchema(ctx, st.db); err == nil {
 			t.Fatal("ожидали отказ: старая таблица учёта")
 		} else if !strings.Contains(err.Error(), "старого формата") {
 			t.Errorf("текст ошибки = %q, ожидали упоминание старого формата", err)
@@ -112,15 +106,12 @@ func TestCheckSchema(t *testing.T) {
 	})
 
 	t.Run("таблица учёта пуста", func(t *testing.T) {
-		st, err := openStore(t)
-		if err != nil {
-			t.Fatalf("open: %v", err)
-		}
-		if _, err := st.DB().ExecContext(ctx,
+		st := openStoreRaw(t)
+		if _, err := st.db.ExecContext(ctx,
 			`CREATE TABLE schema_migrations (version varchar(128) PRIMARY KEY)`); err != nil {
 			t.Fatalf("таблица учёта: %v", err)
 		}
-		if _, err := sqlite.CheckSchema(ctx, st.DB()); err == nil {
+		if _, err := sqlite.CheckSchema(ctx, st.db); err == nil {
 			t.Fatal("ожидали отказ: миграции не применены")
 		} else if !strings.Contains(err.Error(), "пуста") {
 			t.Errorf("текст ошибки = %q, ожидали упоминание пустой таблицы", err)
@@ -129,7 +120,7 @@ func TestCheckSchema(t *testing.T) {
 
 	t.Run("готово", func(t *testing.T) {
 		st := newTestStore(t)
-		version, err := sqlite.CheckSchema(ctx, st.DB())
+		version, err := sqlite.CheckSchema(ctx, st.db)
 		if err != nil {
 			t.Fatalf("CheckSchema: %v", err)
 		}
@@ -140,7 +131,18 @@ func TestCheckSchema(t *testing.T) {
 }
 
 // openStore открывает БД без применения схемы: нужна для негативных проверок.
-func openStore(t *testing.T) (*sqlite.Store, error) {
+// openStoreRaw открывает БД без применения схемы: нужна негативным проверкам.
+func openStoreRaw(t *testing.T) *testStores {
 	t.Helper()
-	return sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "schema.db"))
+	db, err := sqlite.OpenDB(context.Background(), filepath.Join(t.TempDir(), "schema.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return &testStores{
+		campaigns: sqlite.NewCampaigns(db),
+		reviews:   sqlite.NewReviews(db),
+		events:    sqlite.NewEvents(db),
+		db:        db,
+	}
 }
