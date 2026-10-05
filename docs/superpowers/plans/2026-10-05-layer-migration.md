@@ -80,6 +80,13 @@ backend/cmd/server/main.go — composition root: единственное мес
 описываются структурами домена. Миграции остаются внешними (`backend/migrations` +
 сервис `migrate`), Go-кода миграций в проекте нет.
 
+**Статус:** часть 1 сделана (`3c138fa`): пакет и файлы переименованы, порты и
+`campaign.Outcome` уже в домене (`6b1b773`). Осталась часть 2 — разделить один тип
+`sqlite.Store` на `Campaigns`, `Reviews`, `Events` (конструкторы от общего `*sql.DB`),
+снять временные суффиксы `Review` в `review.Store` (`CreateReview` → `Create` и т.д.),
+`RecoverInterrupted` сделать функцией пакета, `Open`/`New`/`Close` убрать (`OpenDB` +
+`*sql.DB` в composition root), тесты разложить по сущностям.
+
 ### Шаг 4. run: async-прогоны и hub
 
 `httpapi/runner.go` и `httpapi/progress.go` → `internal/run`; типы прогресса
