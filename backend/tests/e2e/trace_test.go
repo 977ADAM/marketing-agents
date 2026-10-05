@@ -4,8 +4,11 @@ import (
 	"context"
 	sloglogger "github.com/977ADAM/marketing-agents/internal/adapters/logger/slog"
 	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
+	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	reviewrepo "github.com/977ADAM/marketing-agents/internal/features/review/repository/mariadb"
 	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
+	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
 	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
 	"io"
 	"log/slog"
@@ -16,7 +19,7 @@ import (
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/repository"
+
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
 )
@@ -28,9 +31,9 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	// Схему готовит отдельный сервис миграций; testdb повторяет этот шаг на
 	// временной базе.
 	db, _ := testdb.New(t)
-	campaigns := mariadb.NewCampaigns(db)
-	reviews := mariadb.NewReviews(db)
-	evStore := mariadb.NewEvents(db)
+	campaigns := campaignrepo.NewCampaigns(db)
+	reviews := reviewrepo.NewReviews(db)
+	evStore := tracerepo.NewEvents(db)
 
 	rec := traceservice.New(evStore, trace.Config{Mode: trace.ModeSummary})
 
@@ -109,7 +112,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 }
 
 // waitForResult ждёт появления итогового события прогона.
-func waitForResult(t *testing.T, events *mariadb.Events, runID string) []trace.Row {
+func waitForResult(t *testing.T, events *tracerepo.Events, runID string) []trace.Row {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(15 * time.Second)

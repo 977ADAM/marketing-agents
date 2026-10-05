@@ -1,11 +1,10 @@
-package mariadb_test
+package repository_test
 
 import (
 	"context"
+	schema "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"strings"
 	"testing"
-
-	"github.com/977ADAM/marketing-agents/internal/repository"
 )
 
 // CheckSchema: понятные отказы на неподготовленной БД и версия на готовой.
@@ -14,7 +13,7 @@ func TestCheckSchema(t *testing.T) {
 
 	t.Run("таблицы учёта нет", func(t *testing.T) {
 		st := newEmptyStore(t)
-		if _, err := mariadb.CheckSchema(ctx, st.db); err == nil {
+		if _, err := schema.CheckSchema(ctx, st.db); err == nil {
 			t.Fatal("ожидали отказ: миграции не применены")
 		} else if !strings.Contains(err.Error(), "не применены") {
 			t.Errorf("текст ошибки = %q, ожидали подсказку про неприменённые миграции", err)
@@ -27,7 +26,7 @@ func TestCheckSchema(t *testing.T) {
 			Exec(`CREATE TABLE schema_migrations (name VARCHAR(128) PRIMARY KEY, applied_at DATETIME(3))`).Error; err != nil {
 			t.Fatalf("старая таблица учёта: %v", err)
 		}
-		if _, err := mariadb.CheckSchema(ctx, st.db); err == nil {
+		if _, err := schema.CheckSchema(ctx, st.db); err == nil {
 			t.Fatal("ожидали отказ: старая таблица учёта")
 		} else if !strings.Contains(err.Error(), "старого формата") {
 			t.Errorf("текст ошибки = %q, ожидали упоминание старого формата", err)
@@ -40,7 +39,7 @@ func TestCheckSchema(t *testing.T) {
 			Exec(`CREATE TABLE schema_migrations (version varchar(128) PRIMARY KEY)`).Error; err != nil {
 			t.Fatalf("таблица учёта: %v", err)
 		}
-		if _, err := mariadb.CheckSchema(ctx, st.db); err == nil {
+		if _, err := schema.CheckSchema(ctx, st.db); err == nil {
 			t.Fatal("ожидали отказ: миграции не применены")
 		} else if !strings.Contains(err.Error(), "пуста") {
 			t.Errorf("текст ошибки = %q, ожидали упоминание пустой таблицы", err)
@@ -49,7 +48,7 @@ func TestCheckSchema(t *testing.T) {
 
 	t.Run("готово", func(t *testing.T) {
 		st := newTestStore(t)
-		version, err := mariadb.CheckSchema(ctx, st.db)
+		version, err := schema.CheckSchema(ctx, st.db)
 		if err != nil {
 			t.Fatalf("CheckSchema: %v", err)
 		}

@@ -1,4 +1,4 @@
-package mariadb_test
+package repository_test
 
 import (
 	"context"

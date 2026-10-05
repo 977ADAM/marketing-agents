@@ -94,7 +94,7 @@ func Target(databaseURL string) string {
 
 // Open открывает соединение с MariaDB через GORM. Миграции не применяет: это
 // отдельный шаг (сервис migrate в docker-compose или `make migrate`), а сервер до
-// старта проверяет готовность схемы через mariadb.CheckSchema.
+// старта проверяет готовность схемы через schema.CheckSchema.
 //
 // Настройки: DSN из defaultConfig (parseTime, UTC, timeTruncate), пул на 8
 // соединений с ограниченным временем жизни (сервер и посредники рвут

@@ -3,6 +3,7 @@ package mariadb
 import (
 	"context"
 	"errors"
+	identity "github.com/977ADAM/marketing-agents/internal/core/identity"
 	"time"
 
 	"gorm.io/gorm"
@@ -39,7 +40,7 @@ func NewEvents(db *gorm.DB) *Events { return &Events{db: db} }
 // SaveRunEvent сохраняет событие трассы (реализует trace.Sink).
 func (es *Events) SaveRunEvent(ctx context.Context, rec trace.Record) error {
 	row := runEventRow{
-		ID: newUUID(), RunID: rec.RunID, Seq: rec.Seq, At: rec.At.UTC(),
+		ID: identity.NewUUID(), RunID: rec.RunID, Seq: rec.Seq, At: rec.At.UTC(),
 		Kind: string(rec.Kind), Name: rec.Name, Status: string(rec.Status),
 		DurationMS: rec.DurationMS, PromptTokens: rec.PromptTokens,
 		CompletionTokens: rec.CompletionTokens, Summary: rec.Summary,

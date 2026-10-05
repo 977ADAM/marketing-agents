@@ -8,15 +8,19 @@ import (
 	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
 	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
 	config "github.com/977ADAM/marketing-agents/internal/core/config"
+	schema "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
+	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	reviewrepo "github.com/977ADAM/marketing-agents/internal/features/review/repository/mariadb"
 	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
 	wordstat "github.com/977ADAM/marketing-agents/internal/features/topic/source/wordstat"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
+	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
 	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
 	apihttp "github.com/977ADAM/marketing-agents/internal/http"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/repository"
+
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,20 +49,20 @@ func main() {
 		logger.Error("db", "target", pool.Target(cfg.DatabaseURL), "err", err)
 		os.Exit(1)
 	}
-	version, err := mariadb.CheckSchema(baseCtx, db)
+	version, err := schema.CheckSchema(baseCtx, db)
 	if err != nil {
 		logger.Error("db schema", "target", pool.Target(cfg.DatabaseURL), "err", err)
 		_ = pool.Close(db)
 		os.Exit(1)
 	}
 	// Три хранилища поверх одного соединения: у каждого свой порт.
-	campaigns := mariadb.NewCampaigns(db)
-	reviews := mariadb.NewReviews(db)
-	events := mariadb.NewEvents(db)
+	campaigns := campaignrepo.NewCampaigns(db)
+	reviews := reviewrepo.NewReviews(db)
+	events := tracerepo.NewEvents(db)
 	defer func() { _ = pool.Close(db) }()
 	logger.Info("db ready", "target", pool.Target(cfg.DatabaseURL), "schema_version", version)
 
-	if n, err := mariadb.RecoverInterrupted(baseCtx, db); err != nil {
+	if n, err := runner.RecoverInterrupted(baseCtx, campaigns, reviews); err != nil {
 		logger.Error("recover interrupted", "err", err)
 		os.Exit(1)
 	} else if n > 0 {

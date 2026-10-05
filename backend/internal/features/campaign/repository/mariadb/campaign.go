@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	identity "github.com/977ADAM/marketing-agents/internal/core/identity"
 	"time"
 
 	"gorm.io/gorm"
@@ -55,9 +56,9 @@ func NewCampaigns(db *gorm.DB) *Campaigns { return &Campaigns{db: db} }
 // Create вставляет кампанию в статусе pending и возвращает её id.
 func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
 	if clientID == "" {
-		clientID = DefaultClientID
+		clientID = identity.DefaultClientID
 	}
-	id := newUUID()
+	id := identity.NewUUID()
 	briefJSON, _ := json.Marshal(b)
 	row := campaignRow{ID: id, ClientID: clientID, Status: "pending", Brief: string(briefJSON)}
 	if err := cs.db.WithContext(ctx).Create(&row).Error; err != nil {
@@ -91,7 +92,7 @@ func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outco
 			"status":     "done",
 			"strategy":   string(stratJSON),
 			"cost_usd":   res.CostUSD,
-			"updated_at": nowUTC(),
+			"updated_at": time.Now().UTC(),
 		}
 		if err := tx.Model(&campaignRow{}).Where("id = ?", id).Updates(values).Error; err != nil {
 			return err
@@ -103,7 +104,7 @@ func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outco
 		for i, d := range res.Deliverables {
 			reviewJSON, _ := json.Marshal(d.Review)
 			rows = append(rows, deliverableRow{
-				ID:         newUUID(),
+				ID:         identity.NewUUID(),
 				CampaignID: id,
 				Position:   i,
 				Topic:      d.Topic,
@@ -184,6 +185,11 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 // update — общий путь записи: updated_at ставим сами (в модели колонка только для
 // чтения), в UTC.
 func (cs *Campaigns) update(ctx context.Context, id string, values map[string]any) error {
-	values["updated_at"] = nowUTC()
+	values["updated_at"] = time.Now().UTC()
 	return cs.db.WithContext(ctx).Model(&campaignRow{}).Where("id = ?", id).Updates(values).Error
+}
+
+func (rs *Campaigns) RecoverInterrupted(ctx context.Context) (int64, error) {
+	res := rs.db.WithContext(ctx).Model(&campaignRow{}).Where("status IN ?", []string{"pending", "running"}).Updates(map[string]any{"status": "failed", "error": "прервано рестартом сервиса", "updated_at": time.Now().UTC()})
+	return res.RowsAffected, res.Error
 }

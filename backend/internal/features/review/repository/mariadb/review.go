@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	identity "github.com/977ADAM/marketing-agents/internal/core/identity"
 	"time"
 
 	"gorm.io/gorm"
@@ -38,9 +39,9 @@ func NewReviews(db *gorm.DB) *Reviews { return &Reviews{db: db} }
 // CreateCheck вставляет проверку в статусе pending и возвращает её id.
 func (rs *Reviews) CreateCheck(ctx context.Context, clientID, briefText string) (string, error) {
 	if clientID == "" {
-		clientID = DefaultClientID
+		clientID = identity.DefaultClientID
 	}
-	id := newUUID()
+	id := identity.NewUUID()
 	row := reviewRow{ID: id, ClientID: clientID, Status: "pending", BriefText: briefText}
 	if err := rs.db.WithContext(ctx).Create(&row).Error; err != nil {
 		return "", err
@@ -126,6 +127,11 @@ func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary,
 // update — общий путь записи: updated_at ставим сами (в модели колонка только для
 // чтения), в UTC.
 func (rs *Reviews) update(ctx context.Context, id string, values map[string]any) error {
-	values["updated_at"] = nowUTC()
+	values["updated_at"] = time.Now().UTC()
 	return rs.db.WithContext(ctx).Model(&reviewRow{}).Where("id = ?", id).Updates(values).Error
+}
+
+func (rs *Reviews) RecoverInterrupted(ctx context.Context) (int64, error) {
+	res := rs.db.WithContext(ctx).Model(&reviewRow{}).Where("status IN ?", []string{"pending", "running"}).Updates(map[string]any{"status": "failed", "error": "прервано рестартом сервиса", "updated_at": time.Now().UTC()})
+	return res.RowsAffected, res.Error
 }

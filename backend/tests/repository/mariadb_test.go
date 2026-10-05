@@ -1,7 +1,11 @@
-package mariadb_test
+package repository_test
 
 import (
 	"context"
+	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
+	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
+	reviewrepo "github.com/977ADAM/marketing-agents/internal/features/review/repository/mariadb"
+	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
 	"sync"
 	"testing"
 
@@ -10,25 +14,25 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
-	"github.com/977ADAM/marketing-agents/internal/repository"
+
 	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
 )
 
 // testStores — три хранилища поверх одной БД: адаптер разделён по сущностям,
 // поэтому и в тестах у каждой свой вход.
 type testStores struct {
-	campaigns *mariadb.Campaigns
-	reviews   *mariadb.Reviews
-	events    *mariadb.Events
+	campaigns *campaignrepo.Campaigns
+	reviews   *reviewrepo.Reviews
+	events    *tracerepo.Events
 	db        *gorm.DB
 }
 
 // newStores оборачивает соединение тремя хранилищами.
 func newStores(db *gorm.DB) *testStores {
 	return &testStores{
-		campaigns: mariadb.NewCampaigns(db),
-		reviews:   mariadb.NewReviews(db),
-		events:    mariadb.NewEvents(db),
+		campaigns: campaignrepo.NewCampaigns(db),
+		reviews:   reviewrepo.NewReviews(db),
+		events:    tracerepo.NewEvents(db),
 		db:        db,
 	}
 }
@@ -83,7 +87,7 @@ func TestRecoverInterrupted(t *testing.T) {
 		t.Fatalf("complete: %v", err)
 	}
 
-	n, err := mariadb.RecoverInterrupted(ctx, st.db)
+	n, err := runner.RecoverInterrupted(ctx, st.campaigns, st.reviews)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
 	}
@@ -112,7 +116,7 @@ func TestRecoverInterrupted(t *testing.T) {
 		t.Errorf("done campaign status = %q, want done (не тронута)", done.Status)
 	}
 
-	again, err := mariadb.RecoverInterrupted(ctx, st.db)
+	again, err := runner.RecoverInterrupted(ctx, st.campaigns, st.reviews)
 	if err != nil {
 		t.Fatalf("recover again: %v", err)
 	}
