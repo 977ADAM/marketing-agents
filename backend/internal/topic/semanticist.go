@@ -22,7 +22,7 @@ const DefaultSeedCount = 12
 
 // ErrUnknownQuery — модель сослалась на запрос, которого нет в данных Wordstat.
 // Это главная защита от выдуманных частотностей: цитаты обязаны быть реальными.
-var ErrUnknownQuery = errors.New("cluster: запрос отсутствует в данных Wordstat")
+var ErrUnknownQuery = errors.New("select: запрос отсутствует в данных Wordstat")
 
 // Semanticist — агент, который предлагает темы на основе поискового спроса:
 // сначала сеялки по брифу, затем группировка уже собранных фраз в темы.
