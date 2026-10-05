@@ -2,22 +2,22 @@ services:
   # Миграции — отдельный одноразовый сервис: применяет схему к SQLite на общем
   # volume и завершается. API стартует только после его успешного выхода
   # (condition: service_completed_successfully) и сам миграции не применяет —
-  # только проверяет версию схемы. Секреты сюда не передаём: сервису нужен
-  # лишь путь к БД.
+  # только проверяет готовность схемы. Секреты сюда не передаём: сервису нужен
+  # лишь путь к БД и каталог с миграциями.
+  #
+  # Образ собирается из backend/Dockerfile.migrate (апстрим-CLI golang-migrate с
+  # драйвером sqlite): в готовом migrate/migrate драйвера SQLite нет.
   migrate:
     build:
       context: ./backend
-      target: migrate
-    environment:
-      SQLITE_PATH: /data/marketing.db
+      dockerfile: Dockerfile.migrate
     volumes:
+      - ./backend/migrations:/migrations:ro
       - sqlite:/data
     restart: "no"
 
   backend:
-    build:
-      context: ./backend
-      target: server
+    build: ./backend
     env_file: ./backend/.env
     environment:
       SQLITE_PATH: /data/marketing.db

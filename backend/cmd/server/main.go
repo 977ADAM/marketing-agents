@@ -14,7 +14,6 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/config"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -40,7 +39,7 @@ func main() {
 		logger.Error("db", "path", cfg.SQLitePath, "err", err)
 		os.Exit(1)
 	}
-	version, err := migrate.CheckReady(baseCtx, db)
+	version, err := store.CheckSchema(baseCtx, db)
 	if err != nil {
 		logger.Error("db schema", "path", cfg.SQLitePath, "err", err)
 		_ = db.Close()

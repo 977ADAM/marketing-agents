@@ -4,6 +4,11 @@ COMPOSE  ?= docker compose
 BACKEND  ?= backend
 FRONTEND ?= frontend
 API_URL  ?= http://127.0.0.1:8080
+# Версия апстрим-CLI миграций и файл БД для локальных целей migrate (путь
+# относительно backend/). Если SQLITE_PATH задан в backend/.env иначе — передай
+# его явно: make migrate SQLITE_PATH=/другой/путь/marketing.db
+MIGRATE_VERSION ?= v4.20.1
+SQLITE_PATH     ?= data/marketing.db
 
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
@@ -97,17 +102,22 @@ check-frontend: $(FRONTEND)/node_modules
 ## verify: полный набор перед коммитом (build + check + test)
 verify: build check test
 
-# --- миграции схемы (golang-migrate) ---
-# Приложение миграции не применяет: в compose это отдельный сервис migrate,
-# локально — эти цели. Сервер на старте только проверяет версию схемы.
+# --- миграции схемы (апстрим-CLI golang-migrate) ---
+# Приложение миграции не применяет: в compose это сервис migrate (образ из
+# backend/Dockerfile.migrate), локально — эти цели. CLI ставится в backend/bin с
+# тегом sqlite: в готовых сборках и образе golang-migrate драйвера SQLite нет.
 
-## migrate: применить миграции схемы (golang-migrate, up)
-migrate: env
-	cd $(BACKEND) && $(GO) run ./cmd/migrate up
+$(BACKEND)/bin/migrate:
+	@mkdir -p $(BACKEND)/bin
+	cd $(BACKEND) && GOBIN=$(CURDIR)/$(BACKEND)/bin $(GO) install -tags sqlite github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)
+
+## migrate: применить миграции схемы (CLI ставится при первом запуске)
+migrate: $(BACKEND)/bin/migrate
+	cd $(BACKEND) && ./bin/migrate -path migrations -database "sqlite://$(SQLITE_PATH)" up
 
 ## migrate-down: откатить последнюю миграцию
-migrate-down: env
-	cd $(BACKEND) && $(GO) run ./cmd/migrate down
+migrate-down: $(BACKEND)/bin/migrate
+	cd $(BACKEND) && ./bin/migrate -path migrations -database "sqlite://$(SQLITE_PATH)" down 1
 
 # --- локальный запуск (без Docker) ---
 

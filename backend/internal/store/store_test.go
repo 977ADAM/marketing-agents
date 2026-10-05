@@ -8,14 +8,13 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
-	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
 // и не требуют внешнего сервера (в отличие от прежнего Postgres-варианта).
-// Схему готовит migrate.Up — в приложении это делает отдельный сервис миграций.
+// Схему готовит applyMigrations — в приложении это делает сервис migrate.
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	ctx := context.Background()
@@ -24,9 +23,7 @@ func newTestStore(t *testing.T) *store.Store {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if err := migrate.Up(ctx, st.DB()); err != nil {
-		t.Fatalf("migrate.Up: %v", err)
-	}
+	applyMigrations(t, st.DB())
 	return st
 }
 
@@ -375,9 +372,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	if err := migrate.Up(ctx, first.DB()); err != nil {
-		t.Fatalf("migrate.Up: %v", err)
-	}
+	applyMigrations(t, first.DB())
 	id, err := first.Create(ctx, "", agents.Brief{Product: "Эко-бутылка"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)

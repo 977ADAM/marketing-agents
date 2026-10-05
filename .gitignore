@@ -7,6 +7,8 @@
 .superpowers/
 
 /frontend/node_modules/
+# CLI миграций, который ставит make migrate
+/backend/bin/
 
 # SQLite: файл БД и его WAL-сайдкары
 /data/

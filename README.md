@@ -39,14 +39,13 @@
 ```
 backend/            Go-сервис (отдельный модуль): API /api/*, /healthz, SQLite
   cmd/server/       точка входа API
-  cmd/migrate/      отдельный шаг миграций схемы (в compose — одноразовый сервис)
-  internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace, migrate
+  internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
-  internal/migrate  миграции схемы (golang-migrate): .up.sql/.down.sql рядом с пакетом
+  migrations/       миграции схемы: NNNN_name.up.sql / .down.sql (апстрим-CLI golang-migrate)
   tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
-  Dockerfile        два образа: API и сервис миграций (distroless + SQLite)
+  Dockerfile        образ API; Dockerfile.migrate — образ сервиса миграций
 frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   src/routes/       страницы /, /campaigns/[id], /reviews, /reviews/[id]
   src/routes/api/   прокси /api/* на Go-API (endpoint-роут +server.ts)
@@ -69,10 +68,10 @@ Go-команды запускаются из `backend/`, фронтовые —
 Nginx в стек не входит — снаружи стоит nginx сервера и проксирует на контейнер
 фронта (единственная опубликованная точка входа).
 
-Схему БД применяет **отдельный шаг миграций** (`cmd/migrate`, библиотека
-golang-migrate): в compose это одноразовый сервис `migrate`, локально — `make
-migrate`. Сервер миграции не применяет, а на старте проверяет версию схемы и
-падает с понятной ошибкой, если она не готова.
+Схему БД применяет **отдельный сервис миграций** (апстрим-CLI golang-migrate):
+в compose это одноразовый сервис `migrate`, локально — `make migrate`. Сервер
+миграции не применяет, а на старте только проверяет, что схема готова, и падает
+с понятной ошибкой, если нет.
 
 Короткие команды на все шаги ниже собраны в `Makefile` — `make help` печатает
 список целей. Основные: `make migrate` (применить схему), `make dev` (миграции,
@@ -90,7 +89,9 @@ curl localhost:8080/healthz            # ok (запрос уходит чере�
 ```
 - `migrate` — одноразовый сервис: применяет схему к SQLite на volume `sqlite` и
   завершается; `backend` стартует только после его успешного выхода
-  (`condition: service_completed_successfully`). Ключи API миграциям не передаются;
+  (`condition: service_completed_successfully`). Ключи API миграциям не передаются.
+  Образ собирается из `backend/Dockerfile.migrate`, потому что в готовом образе
+  `migrate/migrate` нет драйвера SQLite (подробности — в «Миграции схемы»);
 - `frontend` публикуется на `127.0.0.1:8080`: SvelteKit отдаёт приложение и сам
   проксирует `/api/*` и `/healthz` в `backend` по внутренней сети compose;
 - `backend` наружу не публикуется, БД лежит на volume `sqlite`
@@ -100,7 +101,7 @@ curl localhost:8080/healthz            # ok (запрос уходит чере�
 ```bash
 cd backend
 cp .env.example .env       # при первом запуске: указать DEEPSEEK_API_KEY
-make -C .. migrate         # применить схему (или: go run ./cmd/migrate up)
+make -C .. migrate         # применить схему (CLI миграций ставится при первом запуске)
 go run ./cmd/server        # API на 127.0.0.1:8080, БД → backend/data/marketing.db
 ```
 ```bash
@@ -280,27 +281,41 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 
 ### Миграции схемы
 
-Схему ведёт [golang-migrate](https://github.com/golang-migrate/migrate) в пакете
-`internal/migrate`: файлы лежат рядом с пакетом, вшиты в бинарь (`source/iofs`) и
-идут парами `NNNN_name.up.sql` + `NNNN_name.down.sql`. Драйвер БД —
-`database/sqlite` (тот же modernc, чистый Go), учёт версий — в `schema_migrations`
-(`version`, `dirty`).
+Схему ведёт [golang-migrate](https://github.com/golang-migrate/migrate) обычными
+SQL-файлами в `backend/migrations`, парами `NNNN_name.up.sql` +
+`NNNN_name.down.sql`; учёт версий — в `schema_migrations` (`version`, `dirty`).
+Своего кода миграций в проекте нет — применяет их апстрим-CLI.
 
-Применяет миграции отдельный шаг, а не сервер:
+Применяет миграции отдельный сервис, а не сервер:
 
-- в compose — сервис `migrate` (одноразовый, `target: migrate` в
-  `backend/Dockerfile`); `backend` ждёт его успешного выхода и на старте только
-  сверяет версию схемы, ключи API миграциям не передаются;
-- локально — `make migrate` (или `go run ./cmd/migrate up`); есть также `down`,
-  `version` и `force <N>` — вывести БД из «грязного» состояния.
+- в compose — сервис `migrate` (образ из `backend/Dockerfile.migrate`);
+  `backend` ждёт его успешного выхода и на старте только проверяет, что таблица
+  учёта существует и не помечена «грязной», а ключи API миграциям не передаются;
+- локально — `make migrate` (при первом запуске ставит CLI в `backend/bin`) и
+  `make migrate-down`. Вручную:
+  `backend/bin/migrate -path backend/migrations -database "sqlite://<путь>" version`
+  (а также `force <N>`, `down 1`).
 
-Если схема не готова, сервер не стартует и объясняет причину: «миграции не
-применены», «схема устарела: применено 1 из 2», «в „грязном“ состоянии».
+**Почему образ собирается свой.** В готовом образе `migrate/migrate` драйвера
+SQLite нет: он собирается с тегами `DATABASE` (postgres, mysql, clickhouse и
+другие), где `sqlite`/`sqlite3` отсутствуют — драйвер подключается только файлом
+`internal/cli/build_sqlite.go` с тегом `//go:build sqlite`. Такой бинарь на нашей
+БД отвечает `error: failed to open database: database driver: unknown driver sqlite
+(forgotten import?)`. Поэтому `Dockerfile.migrate` делает `go install -tags sqlite`
+ровно того же апстрим-CLI: собственной логики миграций нет, только сборка с нужным
+тегом. По той же причине `make migrate` ставит CLI с `-tags sqlite`.
 
-БД прежних версий (учёт в `schema_migrations` с колонками `name`, `applied_at`)
-переводится автоматически при первом `up`: старая таблица переименовывается в
-`schema_migrations_legacy`, версия помечается через `force`, а сами миграции
-повторно не выполняются — данные не трогаются.
+**БД прежних версий.** Учёт старого самописного раннера лежал в `schema_migrations`
+с колонками `name`/`applied_at`, и golang-migrate такую таблицу не понимает. Разово:
+
+```bash
+# 1) отложить старую таблицу учёта (данные при этом не трогаются)
+sqlite3 backend/data/marketing.db "ALTER TABLE schema_migrations RENAME TO schema_migrations_legacy;"
+# 2) применить схему: миграции идемпотентны (CREATE TABLE IF NOT EXISTS), поэтому
+#    на существующей схеме они просто заводят учёт нужного формата
+make migrate
+```
+Таблицу `schema_migrations_legacy` можно оставить как есть или удалить.
 
 Соединение открывается с `journal_mode=WAL`, `busy_timeout=5000`,
 `foreign_keys=1` и `_txlock=immediate` — параллельные прогоны (каждая тема

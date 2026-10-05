@@ -10,7 +10,6 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -26,9 +25,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	if err := migrate.Up(ctx, db); err != nil {
-		t.Fatalf("migrate.Up: %v", err)
-	}
+	applyMigrations(t, db)
 	st := store.New(db)
 	t.Cleanup(func() { _ = st.Close() })
 
