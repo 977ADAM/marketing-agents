@@ -229,3 +229,84 @@ func TestSemanticistFallbackAllInvalidIsError(t *testing.T) {
 		t.Fatal("ожидалась ошибка: пригодных тем нет")
 	}
 }
+
+// Select: модель получает настоящие частотности и сама решает, что берём.
+func TestSemanticistSelectShowsCountsAndKeepsDecision(t *testing.T) {
+	data := []topic.PhraseCount{
+		{Phrase: "зимняя резина", Count: 1028481},
+		{Phrase: "какую зимнюю резину", Count: 92398},
+		{Phrase: "шип", Count: 500000},
+	}
+	fake := mock.NewLLM()
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
+		 "queries":["какую зимнюю резину"],"intent":"выбор","selected":true},
+		{"title":"Что такое шип","goal":"—","task":"—","queries":["шип"],
+		 "selected":false,"reject":"не наша аудитория"}]}`}
+
+	drafts, usage, err := topic.NewSemanticist(fake).Select(context.Background(), testBriefing(), data, 1)
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if usage.PromptTokens == 0 {
+		t.Error("usage не зафиксирован")
+	}
+	if len(drafts) != 2 {
+		t.Fatalf("drafts = %d, want 2", len(drafts))
+	}
+	if !drafts[0].Selected || drafts[0].Reject != "" {
+		t.Errorf("выбранная тема: selected=%v reject=%q", drafts[0].Selected, drafts[0].Reject)
+	}
+	if drafts[1].Selected || drafts[1].Reject == "" {
+		t.Errorf("отклонённая тема: selected=%v reject=%q", drafts[1].Selected, drafts[1].Reject)
+	}
+
+	// Числа уходят модели: без них решение о пороге невозможно.
+	req, ok := fake.LastRequest()
+	if !ok {
+		t.Fatal("запрос не зафиксирован")
+	}
+	if req.Role != topic.RoleSelect {
+		t.Errorf("роль = %q, want %q", req.Role, topic.RoleSelect)
+	}
+	for _, want := range []string{"зимняя резина — 1028481", "какую зимнюю резину — 92398", "Нужно статей: 1"} {
+		if !strings.Contains(req.User, want) {
+			t.Errorf("в промпте нет %q:\n%s", want, req.User)
+		}
+	}
+}
+
+// Цитаты по-прежнему обязаны быть из данных: выдуманная фраза валит подбор.
+func TestSemanticistSelectRejectsUnknownQuery(t *testing.T) {
+	data := []topic.PhraseCount{{Phrase: "зимняя резина", Count: 1000}}
+	fake := mock.NewLLM()
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[{"title":"t","goal":"g","task":"k",
+		"queries":["летняя резина"],"selected":true}]}`}
+
+	_, _, err := topic.NewSemanticist(fake).Select(context.Background(), testBriefing(), data, 1)
+	if !errors.Is(err, topic.ErrUnknownQuery) {
+		t.Fatalf("err = %v, want ErrUnknownQuery", err)
+	}
+}
+
+// Пустые данные — ошибка без обращения к модели.
+func TestSemanticistSelectEmptyDataSkipsLLM(t *testing.T) {
+	fake := mock.NewLLM()
+	_, _, err := topic.NewSemanticist(fake).Select(context.Background(), testBriefing(), nil, 1)
+	if err == nil {
+		t.Fatal("ожидали ошибку на пустых данных")
+	}
+	if len(fake.Requests) != 0 {
+		t.Errorf("вызовов модели = %d, want 0", len(fake.Requests))
+	}
+}
+
+// Тема без обязательных полей — ошибка, а не тихо отброшенная запись.
+func TestSemanticistSelectRequiresFields(t *testing.T) {
+	data := []topic.PhraseCount{{Phrase: "зимняя резина", Count: 1000}}
+	fake := mock.NewLLM()
+	fake.Responses[topic.RoleSelect] = []string{`{"topics":[{"title":"","goal":"g","task":"k","queries":["зимняя резина"]}]}`}
+	if _, _, err := topic.NewSemanticist(fake).Select(context.Background(), testBriefing(), data, 1); err == nil {
+		t.Fatal("ожидали ошибку про незаполненные поля")
+	}
+}

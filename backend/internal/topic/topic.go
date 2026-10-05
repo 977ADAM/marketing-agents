@@ -25,14 +25,20 @@ const (
 	SourceLLM      = "llm"
 )
 
-// TopicDraft — тема-кандидат от модели. Чисел здесь нет и быть не может:
-// объём, сезонность и источник дописывает код (см. TopicCandidate).
+// TopicDraft — тема-кандидат от модели. Решение о том, идёт тема в работу или
+// нет, тоже принимает модель (Selected/Reject): пороги и отбор — её дело.
+// Чисел здесь нет и быть не может: объём, сезонность и источник дописывает код
+// по данным Wordstat (см. TopicCandidate).
 type TopicDraft struct {
 	Title   string   `json:"title"`
 	Goal    string   `json:"goal"`
 	Task    string   `json:"task"`
 	Queries []string `json:"queries"`
 	Intent  string   `json:"intent,omitempty"`
+	// Selected — тема идёт в работу (решение модели).
+	Selected bool `json:"selected"`
+	// Reject — почему модель не взяла тему: короткая причина без цифр.
+	Reject string `json:"reject,omitempty"`
 }
 
 // PhraseCount — фраза и её частотность: доказательство темы.

@@ -13,6 +13,7 @@ import (
 const (
 	RoleSeeds    = "semanticist_seeds"
 	RoleCluster  = "semanticist_cluster"
+	RoleSelect   = "semanticist_select"
 	RoleFallback = "semanticist_fallback"
 )
 
@@ -73,6 +74,79 @@ func (s *Semanticist) Seeds(ctx context.Context, b Briefing, count int) ([]strin
 		return nil, usage, fmt.Errorf("semanticist seeds: модель не вернула ни одной фразы")
 	}
 	return seeds, usage, nil
+}
+
+const selectSystem = `Ты — редактор нативных статей. Тебе даны реальные поисковые фразы с
+частотностями за последние 30 дней (показов в месяц) по продукту из брифа.
+
+Собери из этих фраз темы статей и сам реши, какие темы идут в работу: порог объёма,
+сезонность и релевантность оцениваешь ты, а не система.
+
+Ответ строго в JSON:
+{"topics": [{"title": "...", "goal": "...", "task": "...", "queries": ["..."],
+             "intent": "...", "selected": true, "reject": "..."}]}
+
+Правила:
+- в queries указывай ТОЛЬКО фразы из переданного списка и дословно; фразы вне
+  списка будут отброшены вместе с темой;
+- selected: true — тему берём в работу; у остальных тем заполни reject короткой
+  причиной без цифр (например «объём мал», «не наша аудитория», «технический
+  запрос: размер или модель»);
+- в работу нужно столько тем, сколько статей в задании; если подходящих меньше —
+  отметь столько, сколько обоснованно, и объясни это в reject остальных;
+- title — хук: понятная формулировка вопроса плюс обещание пользы
+  (например, «Как выбрать зимние шины: 6 простых правил»);
+- goal — кого и в какой момент мы ловим этой статьёй;
+- task — что статья даёт читателю;
+- intent — одно слово: вопрос, выбор, сравнение, инструкция или коммерческий;
+- свои числа и проценты не приводи: частотности, объём и сезонность система
+  подставит сама из данных Wordstat.`
+
+// Select отдаёт модели сырые данные спроса (фразы с частотностями) и просит
+// собрать темы и самой решить, какие идут в работу.
+//
+// Пороги, сезонность и релевантность — решение модели; код проверяет только то,
+// что каждая цитата есть в данных (иначе ErrUnknownQuery) и что обязательные поля
+// заполнены. Числа в промпте настоящие: их посчитал код по ответам Wordstat.
+func (s *Semanticist) Select(ctx context.Context, b Briefing, data []PhraseCount, want int) ([]TopicDraft, corellm.Usage, error) {
+	if len(data) == 0 {
+		return nil, corellm.Usage{}, fmt.Errorf("semanticist select: пустой список фраз")
+	}
+	if want <= 0 {
+		want = 1
+	}
+
+	phrases := make([]string, 0, len(data))
+	lines := make([]string, 0, len(data))
+	for _, p := range data {
+		phrases = append(phrases, p.Phrase)
+		lines = append(lines, fmt.Sprintf("- %s — %d", p.Phrase, p.Count))
+	}
+	user := fmt.Sprintf(
+		"Продукт: %s\nЦель: %s\nАудитория: %s\nТон: %s\n\nНужно статей: %d\n\nФразы из Wordstat (фраза — показов за 30 дней):\n%s",
+		b.Product, b.Goal, b.Audience, b.Tone, want, strings.Join(lines, "\n"))
+
+	var out struct {
+		Topics []TopicDraft `json:"topics"`
+	}
+	usage, err := s.llm.Complete(ctx, RoleSelect, selectSystem, user, &out)
+	if err != nil {
+		return nil, usage, fmt.Errorf("semanticist select: %w", err)
+	}
+	if len(out.Topics) == 0 {
+		return nil, usage, fmt.Errorf("semanticist select: модель не вернула ни одной темы")
+	}
+
+	drafts, err := validateDrafts(out.Topics, phrases)
+	if err != nil {
+		return nil, usage, err
+	}
+	for i := range drafts {
+		if drafts[i].Selected {
+			drafts[i].Reject = "" // у выбранной темы причины отказа быть не может
+		}
+	}
+	return drafts, usage, nil
 }
 
 // Cluster группирует собранные фразы в темы-кандидаты и проверяет, что каждая
