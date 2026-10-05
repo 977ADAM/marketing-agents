@@ -1,4 +1,4 @@
-package store_test
+package sqlite_test
 
 import (
 	"context"
@@ -10,17 +10,17 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
 // newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
 // и не требуют внешнего сервера (в отличие от прежнего Postgres-варианта).
 // Схему готовит applyMigrations — в приложении это делает сервис migrate.
-func newTestStore(t *testing.T) *store.Store {
+func newTestStore(t *testing.T) *sqlite.Store {
 	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	st, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "reopen.db")
 
-	first, err := store.Open(ctx, path)
+	first, err := sqlite.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	second, err := store.Open(ctx, path)
+	second, err := sqlite.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -418,17 +418,17 @@ func TestForeignKeysEnforced(t *testing.T) {
 
 // DSN: нужные pragma на месте, готовый URI не переписывается.
 func TestDSN(t *testing.T) {
-	dsn := store.DSN("data/x.db")
+	dsn := sqlite.DSN("data/x.db")
 	for _, want := range []string{"file:data/x.db?", "busy_timeout(5000)", "journal_mode(WAL)", "foreign_keys(1)", "_txlock=immediate"} {
 		if !strings.Contains(dsn, want) {
 			t.Errorf("DSN = %q, нет %q", dsn, want)
 		}
 	}
 	custom := "file:/tmp/x.db?_pragma=foreign_keys(1)"
-	if got := store.DSN(custom); got != custom {
+	if got := sqlite.DSN(custom); got != custom {
 		t.Errorf("DSN(готовый URI) = %q, want %q", got, custom)
 	}
-	if dsn := store.DSN(":memory:"); dsn == "" || strings.Contains(dsn, "journal_mode") {
+	if dsn := sqlite.DSN(":memory:"); dsn == "" || strings.Contains(dsn, "journal_mode") {
 		t.Errorf("DSN(:memory:) = %q — WAL для памяти не нужен", dsn)
 	}
 }

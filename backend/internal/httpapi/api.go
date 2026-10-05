@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/trace"
+	"golang.org/x/time/rate"
 )
 
 // Runner запускает фоновый прогон кампании или проверки текстов (асинхронно).

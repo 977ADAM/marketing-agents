@@ -1,4 +1,4 @@
-package store_test
+package sqlite_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/sqlite"
 )
 
 // applyMigrations готовит схему так же, как сервис migrate (образ dbmate):
@@ -88,7 +88,7 @@ func TestCheckSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("open: %v", err)
 		}
-		if _, err := store.CheckSchema(ctx, st.DB()); err == nil {
+		if _, err := sqlite.CheckSchema(ctx, st.DB()); err == nil {
 			t.Fatal("ожидали отказ: миграции не применены")
 		} else if !strings.Contains(err.Error(), "не применены") {
 			t.Errorf("текст ошибки = %q, ожидали подсказку про неприменённые миграции", err)
@@ -104,7 +104,7 @@ func TestCheckSchema(t *testing.T) {
 			`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at DATETIME)`); err != nil {
 			t.Fatalf("старая таблица учёта: %v", err)
 		}
-		if _, err := store.CheckSchema(ctx, st.DB()); err == nil {
+		if _, err := sqlite.CheckSchema(ctx, st.DB()); err == nil {
 			t.Fatal("ожидали отказ: старая таблица учёта")
 		} else if !strings.Contains(err.Error(), "старого формата") {
 			t.Errorf("текст ошибки = %q, ожидали упоминание старого формата", err)
@@ -120,7 +120,7 @@ func TestCheckSchema(t *testing.T) {
 			`CREATE TABLE schema_migrations (version varchar(128) PRIMARY KEY)`); err != nil {
 			t.Fatalf("таблица учёта: %v", err)
 		}
-		if _, err := store.CheckSchema(ctx, st.DB()); err == nil {
+		if _, err := sqlite.CheckSchema(ctx, st.DB()); err == nil {
 			t.Fatal("ожидали отказ: миграции не применены")
 		} else if !strings.Contains(err.Error(), "пуста") {
 			t.Errorf("текст ошибки = %q, ожидали упоминание пустой таблицы", err)
@@ -129,7 +129,7 @@ func TestCheckSchema(t *testing.T) {
 
 	t.Run("готово", func(t *testing.T) {
 		st := newTestStore(t)
-		version, err := store.CheckSchema(ctx, st.DB())
+		version, err := sqlite.CheckSchema(ctx, st.DB())
 		if err != nil {
 			t.Fatalf("CheckSchema: %v", err)
 		}
@@ -140,7 +140,7 @@ func TestCheckSchema(t *testing.T) {
 }
 
 // openStore открывает БД без применения схемы: нужна для негативных проверок.
-func openStore(t *testing.T) (*store.Store, error) {
+func openStore(t *testing.T) (*sqlite.Store, error) {
 	t.Helper()
-	return store.Open(context.Background(), filepath.Join(t.TempDir(), "schema.db"))
+	return sqlite.Open(context.Background(), filepath.Join(t.TempDir(), "schema.db"))
 }

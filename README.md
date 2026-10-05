@@ -39,7 +39,8 @@
 ```
 backend/            Go-сервис (отдельный модуль): API /api/*, /healthz, SQLite
   cmd/server/       точка входа API
-  internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace
+  internal/         домен (campaign, review, topic, score), сценарии (orchestrator),
+                    адаптеры (sqlite, llm, wordstat), транспорт (httpapi), ядро (run, trace)
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
   migrations/       миграции схемы: NNNN_name.sql с секциями -- migrate:up / -- migrate:down (dbmate)

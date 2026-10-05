@@ -15,7 +15,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
@@ -35,18 +35,18 @@ func main() {
 	// SQLite: соединение открывается здесь, а схему применяет отдельный сервис
 	// миграций (в compose — migrate, локально — make migrate). Сервер только
 	// проверяет готовность схемы и не стартует на неподготовленной БД.
-	db, err := store.OpenDB(baseCtx, cfg.SQLitePath)
+	db, err := sqlite.OpenDB(baseCtx, cfg.SQLitePath)
 	if err != nil {
 		logger.Error("db", "path", cfg.SQLitePath, "err", err)
 		os.Exit(1)
 	}
-	version, err := store.CheckSchema(baseCtx, db)
+	version, err := sqlite.CheckSchema(baseCtx, db)
 	if err != nil {
 		logger.Error("db schema", "path", cfg.SQLitePath, "err", err)
 		_ = db.Close()
 		os.Exit(1)
 	}
-	st := store.New(db)
+	st := sqlite.New(db)
 	defer st.Close()
 	logger.Info("db ready", "path", cfg.SQLitePath, "schema_version", version)
 

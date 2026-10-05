@@ -12,7 +12,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -22,12 +22,12 @@ import (
 func TestRunnerWritesTrajectory(t *testing.T) {
 	ctx := context.Background()
 	// Схему готовит отдельный сервис миграций; тест повторяет этот шаг явно.
-	db, err := store.OpenDB(ctx, t.TempDir()+"/trace.db")
+	db, err := sqlite.OpenDB(ctx, t.TempDir()+"/trace.db")
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
 	applyMigrations(t, db)
-	st := store.New(db)
+	st := sqlite.New(db)
 	t.Cleanup(func() { _ = st.Close() })
 
 	rec := trace.New(st, trace.Config{Mode: trace.ModeSummary})
@@ -109,7 +109,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 }
 
 // waitForResult ждёт появления итогового события прогона.
-func waitForResult(t *testing.T, st *store.Store, runID string) []trace.Row {
+func waitForResult(t *testing.T, st *sqlite.Store, runID string) []trace.Row {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(15 * time.Second)

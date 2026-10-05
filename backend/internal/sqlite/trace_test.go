@@ -1,4 +1,4 @@
-package store_test
+package sqlite_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
@@ -137,7 +137,7 @@ func TestRunEventsSurviveReopen(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 2; i++ {
-		s, err := store.Open(ctx, path)
+		s, err := sqlite.Open(ctx, path)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i+1, err)
 		}
@@ -152,7 +152,7 @@ func TestRunEventsSurviveReopen(t *testing.T) {
 		}
 	}
 
-	s, err := store.Open(ctx, path)
+	s, err := sqlite.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open после перезапуска: %v", err)
 	}

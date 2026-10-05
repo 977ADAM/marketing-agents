@@ -1,8 +1,6 @@
 package orchestrator
 
-import (
-	"github.com/977ADAM/marketing-agents/internal/topic"
-)
+import "github.com/977ADAM/marketing-agents/internal/topic"
 
 // RankVolume — шов для тестов ранжирования тем: у сезонной темы в межсезонье
 // сравнение идёт по пику, а не по текущему объёму.

@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
+	"golang.org/x/sync/errgroup"
 )
 
 type Options struct {

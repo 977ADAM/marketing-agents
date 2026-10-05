@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joho/godotenv"
-
 	"github.com/977ADAM/marketing-agents/internal/trace"
+	"github.com/joho/godotenv"
 )
 
 // Config — конфигурация сервиса, собранная из переменных окружения.
