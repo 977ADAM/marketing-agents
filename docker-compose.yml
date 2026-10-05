@@ -1,27 +1,64 @@
 services:
+  mariadb:
+    # Официальный образ (Ubuntu noble, LTS-ветка 11.4): ~101 МБ сжатым / ~490 МБ
+    # на диске, зато entrypoint, инициализация datadir и healthcheck из коробки.
+    # Alpine-варианта у официальной сборки нет — экономия на нём стоила бы
+    # собственного entrypoint и поддержки.
+    image: mariadb:11.4
+    # MARIADB_* — те же переменные, что читает приложение: один файл на всех.
+    env_file: ./backend/.env
+    command:
+      # Время в БД — UTC: CURRENT_TIMESTAMP(3) в схеме и DATETIME(3) из Go должны
+      # означать одно и то же независимо от таймзоны хоста.
+      - --default-time-zone=+00:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mariadb:/var/lib/mysql
+    # Локальный запуск Go-API (make dev) ходит в контейнер с хоста, поэтому порт
+    # публикуется — только на loopback, как и всё остальное в проекте.
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
   migrate:
     image: ghcr.io/amacneil/dbmate:2.36.0
-    environment:
-      DATABASE_URL: sqlite:/data/marketing.db
-      DBMATE_MIGRATIONS_DIR: /migrations
-      DBMATE_NO_DUMP_SCHEMA: "true"
-    command: ["up"]
+    env_file: ./backend/.env
+    # dbmate понимает те же mysql://-адреса, что MariaDB. Адрес собираем внутри
+    # контейнера из MARIADB_* (compose не умеет подставлять переменные из
+    # env_file в интерполяцию), поэтому секреты остаются в backend/.env.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export DATABASE_URL="mysql://$$MARIADB_USER:$$MARIADB_PASSWORD@mariadb:3306/$$MARIADB_DATABASE"
+        exec dbmate --wait --no-dump-schema --migrations-dir /migrations "$${DBMATE_CMD:-up}"
     volumes:
       - ./backend/migrations:/migrations:ro
-      - sqlite:/data
+    depends_on:
+      mariadb:
+        condition: service_healthy
     restart: "no"
 
   backend:
     build: ./backend
     env_file: ./backend/.env
     environment:
-      SQLITE_PATH: /data/marketing.db
+      # В контейнере БД доступна по имени сервиса; адрес приложение собирает из
+      # MARIADB_*. HTTP_ADDR переопределяем на все интерфейсы: иначе фронт не
+      # достучится до API по внутренней сети.
+      MARIADB_HOST: mariadb
       HTTP_ADDR: ":8080"
-    volumes:
-      - sqlite:/data
     expose:
       - "8080"
     depends_on:
+      mariadb:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
 
@@ -39,4 +76,4 @@ services:
       - "127.0.0.1:8080:8080"
 
 volumes:
-  sqlite:
+  mariadb:

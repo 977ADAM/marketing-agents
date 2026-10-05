@@ -1,9 +1,4 @@
-// Package sqlite — адаптер хранения на SQLite (modernc.org/sqlite, чистый Go).
-//
-// Здесь только SQL и перевод строк в доменные типы: порты объявлены в доменных
-// пакетах (campaign.Store, review.Store, trace.Store, trace.Sink), а имена файлов
-// — по сущности, а не по слою.
-package sqlite
+package mariadb
 
 import (
 	"context"
@@ -35,15 +30,11 @@ func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Bri
 }
 
 // MarkRunning переводит кампанию в running.
-
-// MarkRunning переводит кампанию в running.
 func (cs *Campaigns) MarkRunning(ctx context.Context, id string) error {
 	_, err := cs.db.ExecContext(ctx,
 		`UPDATE campaigns SET status='running', updated_at=`+nowExpr+` WHERE id=?`, id)
 	return err
 }
-
-// SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
 
 // SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
 func (cs *Campaigns) SaveProgress(ctx context.Context, id string, snap run.Snapshot) error {
@@ -52,8 +43,6 @@ func (cs *Campaigns) SaveProgress(ctx context.Context, id string, snap run.Snaps
 		`UPDATE campaigns SET progress=?, updated_at=`+nowExpr+` WHERE id=?`, string(b), id)
 	return err
 }
-
-// Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
 
 // Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
 func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outcome) error {
@@ -69,19 +58,17 @@ func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outco
 		string(stratJSON), res.CostUSD, id); err != nil {
 		return err
 	}
-	for _, d := range res.Deliverables {
+	for i, d := range res.Deliverables {
 		reviewJSON, _ := json.Marshal(d.Review)
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO deliverables (id, campaign_id, topic, title, body, cta, review)
-			 VALUES (?,?,?,?,?,?,?)`,
-			newUUID(), id, d.Topic, d.Title, d.Body, d.CTA, string(reviewJSON)); err != nil {
+			`INSERT INTO deliverables (id, campaign_id, position, topic, title, body, cta, review)
+			 VALUES (?,?,?,?,?,?,?,?)`,
+			newUUID(), id, i, d.Topic, d.Title, d.Body, d.CTA, string(reviewJSON)); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
-
-// Fail переводит кампанию в failed с текстом ошибки.
 
 // Fail переводит кампанию в failed с текстом ошибки.
 func (cs *Campaigns) Fail(ctx context.Context, id, msg string) error {
@@ -90,15 +77,13 @@ func (cs *Campaigns) Fail(ctx context.Context, id, msg string) error {
 	return err
 }
 
-// RecoverInterrupted помечает осиротевшие после рестарта кампании и проверки
-// (pending/running) как failed. Возвращает общее число восстановленных. Идемпотентен.
-
 // ListRecent возвращает до limit последних кампаний, новые сверху.
-// rowid — тайбрейкер для записей с одинаковым created_at (точность — миллисекунды).
+// seq — порядок вставки: тайбрейкер для записей с одинаковым created_at
+// (точность — миллисекунды).
 func (cs *Campaigns) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
 	rows, err := cs.db.QueryContext(ctx,
 		`SELECT id, status, brief, cost_usd, created_at
-		 FROM campaigns ORDER BY created_at DESC, rowid DESC LIMIT ?`, limit)
+		 FROM campaigns ORDER BY created_at DESC, seq DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -118,8 +103,6 @@ func (cs *Campaigns) ListRecent(ctx context.Context, limit int) ([]campaign.Summ
 	}
 	return out, rows.Err()
 }
-
-// Get читает кампанию вместе с deliverables.
 
 // Get читает кампанию вместе с deliverables.
 func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, error) {
@@ -155,9 +138,11 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 		}
 	}
 
+	// Порядок статей — как в медиаплане (position), а не по времени: created_at
+	// у них общий, вставка идёт одной транзакцией.
 	rows, err := cs.db.QueryContext(ctx,
 		`SELECT topic, title, body, cta, review FROM deliverables
-		 WHERE campaign_id=? ORDER BY created_at, rowid`, id)
+		 WHERE campaign_id=? ORDER BY position, created_at`, id)
 	if err != nil {
 		return nil, err
 	}

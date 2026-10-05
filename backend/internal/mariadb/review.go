@@ -1,4 +1,4 @@
-package sqlite
+package mariadb
 
 import (
 	"context"
@@ -16,7 +16,7 @@ type Reviews struct{ db *sql.DB }
 // NewReviews оборачивает соединение: сам SQL живёт в этом файле.
 func NewReviews(db *sql.DB) *Reviews { return &Reviews{db: db} }
 
-// CreateReview вставляет проверку в статусе pending и возвращает её id.
+// CreateCheck вставляет проверку в статусе pending и возвращает её id.
 func (rs *Reviews) CreateCheck(ctx context.Context, clientID, briefText string) (string, error) {
 	if clientID == "" {
 		clientID = DefaultClientID
@@ -28,14 +28,14 @@ func (rs *Reviews) CreateCheck(ctx context.Context, clientID, briefText string) 
 	return id, err
 }
 
-// MarkReviewRunning переводит проверку в running.
+// MarkCheckRunning переводит проверку в running.
 func (rs *Reviews) MarkCheckRunning(ctx context.Context, id string) error {
 	_, err := rs.db.ExecContext(ctx,
 		`UPDATE reviews SET status='running', updated_at=`+nowExpr+` WHERE id=?`, id)
 	return err
 }
 
-// SaveReviewProgress сохраняет снимок прогресса проверки (перезаписывает прошлый).
+// SaveCheckProgress сохраняет снимок прогресса проверки (перезаписывает прошлый).
 func (rs *Reviews) SaveCheckProgress(ctx context.Context, id string, snap run.Snapshot) error {
 	b, _ := json.Marshal(snap)
 	_, err := rs.db.ExecContext(ctx,
@@ -43,7 +43,7 @@ func (rs *Reviews) SaveCheckProgress(ctx context.Context, id string, snap run.Sn
 	return err
 }
 
-// CompleteReview сохраняет результат и переводит проверку в done.
+// CompleteCheck сохраняет результат и переводит проверку в done.
 func (rs *Reviews) CompleteCheck(ctx context.Context, id string, res review.Result) error {
 	resultJSON, _ := json.Marshal(res)
 	_, err := rs.db.ExecContext(ctx,
@@ -52,14 +52,14 @@ func (rs *Reviews) CompleteCheck(ctx context.Context, id string, res review.Resu
 	return err
 }
 
-// FailReview переводит проверку в failed с текстом ошибки.
+// FailCheck переводит проверку в failed с текстом ошибки.
 func (rs *Reviews) FailCheck(ctx context.Context, id, msg string) error {
 	_, err := rs.db.ExecContext(ctx,
 		`UPDATE reviews SET status='failed', error=?, updated_at=`+nowExpr+` WHERE id=?`, msg, id)
 	return err
 }
 
-// GetReview читает проверку вместе с результатом.
+// GetCheck читает проверку вместе с результатом.
 func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, error) {
 	var r review.Record
 	var resultJSON, progressJSON []byte
@@ -94,11 +94,12 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 	return &r, nil
 }
 
-// ListReviews возвращает до limit последних проверок, новые сверху.
+// ListChecks возвращает до limit последних проверок, новые сверху.
+// seq — порядок вставки: тайбрейкер для записей с одинаковым created_at.
 func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary, error) {
 	rows, err := rs.db.QueryContext(ctx,
 		`SELECT id, status, brief_text, cost_usd, created_at
-		 FROM reviews ORDER BY created_at DESC, rowid DESC LIMIT ?`, limit)
+		 FROM reviews ORDER BY created_at DESC, seq DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}

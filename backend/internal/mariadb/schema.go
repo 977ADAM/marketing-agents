@@ -1,4 +1,4 @@
-package sqlite
+package mariadb
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func CheckSchema(ctx context.Context, db *sql.DB) (string, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errors.New("миграции не применены: таблица учёта пуста, запустите сервис migrate")
 		}
-		return "", fmt.Errorf("store: чтение версии схемы: %w", err)
+		return "", fmt.Errorf("mariadb: чтение версии схемы: %w", err)
 	}
 	return version, nil
 }
@@ -46,33 +46,32 @@ func CheckSchema(ctx context.Context, db *sql.DB) (string, error) {
 func tableColumns(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
 	var exists int
 	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&exists); err != nil {
-		return nil, fmt.Errorf("store: проверка таблицы %s: %w", table, err)
+		`SELECT COUNT(*) FROM information_schema.tables
+		 WHERE table_schema = DATABASE() AND table_name = ?`, table).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("mariadb: проверка таблицы %s: %w", table, err)
 	}
 	if exists == 0 {
 		return nil, nil
 	}
 
-	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	rows, err := db.QueryContext(ctx,
+		`SELECT column_name FROM information_schema.columns
+		 WHERE table_schema = DATABASE() AND table_name = ?`, table)
 	if err != nil {
-		return nil, fmt.Errorf("store: колонки таблицы %s: %w", table, err)
+		return nil, fmt.Errorf("mariadb: колонки таблицы %s: %w", table, err)
 	}
 	defer rows.Close()
 
 	columns := map[string]bool{}
 	for rows.Next() {
-		var (
-			cid, notNull, pk int
-			name, typ        string
-			dflt             sql.NullString
-		)
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
-			return nil, fmt.Errorf("store: колонки таблицы %s: %w", table, err)
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("mariadb: колонки таблицы %s: %w", table, err)
 		}
 		columns[name] = true
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: колонки таблицы %s: %w", table, err)
+		return nil, fmt.Errorf("mariadb: колонки таблицы %s: %w", table, err)
 	}
 	return columns, nil
 }

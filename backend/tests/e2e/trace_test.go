@@ -10,10 +10,11 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/runner"
-	"github.com/977ADAM/marketing-agents/internal/sqlite"
+	"github.com/977ADAM/marketing-agents/internal/testdb"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
@@ -23,16 +24,12 @@ import (
 // события через декораторы, рекордер складывает их в БД с тем же run_id.
 func TestRunnerWritesTrajectory(t *testing.T) {
 	ctx := context.Background()
-	// Схему готовит отдельный сервис миграций; тест повторяет этот шаг явно.
-	db, err := sqlite.OpenDB(ctx, t.TempDir()+"/trace.db")
-	if err != nil {
-		t.Fatalf("OpenDB: %v", err)
-	}
-	applyMigrations(t, db)
-	t.Cleanup(func() { _ = db.Close() })
-	campaigns := sqlite.NewCampaigns(db)
-	reviews := sqlite.NewReviews(db)
-	evStore := sqlite.NewEvents(db)
+	// Схему готовит отдельный сервис миграций; testdb повторяет этот шаг на
+	// временной базе.
+	db, _ := testdb.New(t)
+	campaigns := mariadb.NewCampaigns(db)
+	reviews := mariadb.NewReviews(db)
+	evStore := mariadb.NewEvents(db)
 
 	rec := trace.New(evStore, trace.Config{Mode: trace.ModeSummary})
 
@@ -111,7 +108,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 }
 
 // waitForResult ждёт появления итогового события прогона.
-func waitForResult(t *testing.T, events *sqlite.Events, runID string) []trace.Row {
+func waitForResult(t *testing.T, events *mariadb.Events, runID string) []trace.Row {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(15 * time.Second)

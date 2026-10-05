@@ -15,9 +15,9 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/config"
 	apihttp "github.com/977ADAM/marketing-agents/internal/http"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/runner"
-	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
@@ -34,28 +34,28 @@ func main() {
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	defer baseCancel()
 
-	// SQLite: соединение открывается здесь, а схему применяет отдельный сервис
+	// MariaDB: соединение открывается здесь, а схему применяет отдельный сервис
 	// миграций (в compose — migrate, локально — make migrate). Сервер только
 	// проверяет готовность схемы и не стартует на неподготовленной БД.
-	db, err := sqlite.OpenDB(baseCtx, cfg.SQLitePath)
+	db, err := mariadb.OpenDB(baseCtx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("db", "path", cfg.SQLitePath, "err", err)
+		logger.Error("db", "target", mariadb.Target(cfg.DatabaseURL), "err", err)
 		os.Exit(1)
 	}
-	version, err := sqlite.CheckSchema(baseCtx, db)
+	version, err := mariadb.CheckSchema(baseCtx, db)
 	if err != nil {
-		logger.Error("db schema", "path", cfg.SQLitePath, "err", err)
+		logger.Error("db schema", "target", mariadb.Target(cfg.DatabaseURL), "err", err)
 		_ = db.Close()
 		os.Exit(1)
 	}
 	// Три хранилища поверх одного соединения: у каждого свой порт.
-	campaigns := sqlite.NewCampaigns(db)
-	reviews := sqlite.NewReviews(db)
-	events := sqlite.NewEvents(db)
+	campaigns := mariadb.NewCampaigns(db)
+	reviews := mariadb.NewReviews(db)
+	events := mariadb.NewEvents(db)
 	defer db.Close()
-	logger.Info("db ready", "path", cfg.SQLitePath, "schema_version", version)
+	logger.Info("db ready", "target", mariadb.Target(cfg.DatabaseURL), "schema_version", version)
 
-	if n, err := sqlite.RecoverInterrupted(baseCtx, db); err != nil {
+	if n, err := mariadb.RecoverInterrupted(baseCtx, db); err != nil {
 		logger.Error("recover interrupted", "err", err)
 		os.Exit(1)
 	} else if n > 0 {

@@ -5,12 +5,32 @@ BACKEND  ?= backend
 FRONTEND ?= frontend
 API_URL  ?= http://127.0.0.1:8080
 
+# Настройки MariaDB берём из backend/.env: тесты поднимают временные базы, поэтому
+# им нужен root-доступ к серверу. Файла может не быть — тогда переменные пустые, а
+# тесты с БД пропускаются (testdb видит незаданный TEST_DATABASE_URL).
+-include $(BACKEND)/.env
+
+# Адрес MariaDB для тестов. База в адресе не нужна: её заводит testdb на каждый тест.
+TEST_DATABASE_URL ?= mysql://root:$(MARIADB_ROOT_PASSWORD)@127.0.0.1:$(if $(MARIADB_PORT),$(MARIADB_PORT),3306)/
+
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-unit test-e2e test-live test-frontend check check-frontend verify \
         backend frontend start-frontend dev \
-        migrate migrate-down \
+        db-up db-down migrate migrate-down \
         docker-build up docker-down docker-logs docker-ps health clean
+
+# run-tests: поднимает MariaDB (если есть Docker) и запускает go test. Без Docker
+# тесты с MariaDB пропускаются с понятным сообщением, остальные выполняются.
+define run_go_tests
+	@if docker info >/dev/null 2>&1; then \
+		$(COMPOSE) up -d --wait mariadb >/dev/null && \
+		cd $(BACKEND) && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(GO) test $(1); \
+	else \
+		echo "Docker недоступен: тесты с MariaDB пропущены (нужна make db-up)"; \
+		cd $(BACKEND) && $(GO) test $(1); \
+	fi
+endef
 
 # --- подготовка окружения ---
 
@@ -68,17 +88,17 @@ build-frontend: $(FRONTEND)/node_modules
 ## test: тесты бэкенда и фронта
 test: test-backend test-frontend
 
-## test-backend: go test по всем пакетам (internal + tests/e2e + tests/live)
+## test-backend: go test по всем пакетам (internal + tests/e2e + tests/live) на живой MariaDB
 test-backend:
-	cd $(BACKEND) && $(GO) test ./...
+	$(call run_go_tests,./...)
 
 ## test-unit: только юнит-тесты пакетов internal (без сквозных)
 test-unit:
-	cd $(BACKEND) && $(GO) test ./internal/...
+	$(call run_go_tests,./internal/...)
 
 ## test-e2e: сквозные тесты (стор → трасса → оркестратор → раннер)
 test-e2e:
-	cd $(BACKEND) && $(GO) test ./tests/e2e/...
+	$(call run_go_tests,./tests/e2e/...)
 
 ## test-live: дымовой тест против живого MCP (ходит в сеть и тратит квоту; нужны WORDSTAT_MCP_*)
 test-live:
@@ -97,11 +117,20 @@ check-frontend: $(FRONTEND)/node_modules
 ## verify: полный набор перед коммитом (build + check + test)
 verify: build check test
 
-# --- миграции схемы (готовый образ dbmate) ---
+# --- БД и миграции схемы (MariaDB + готовый образ dbmate) ---
 # Приложение миграции не применяет: в compose это сервис migrate, локально — эти
 # цели. Они запускают тот же сервис через compose, поэтому нужен живой Docker.
 # Альтернатива без Docker: `brew install dbmate` и
-#   dbmate --no-dump-schema -d backend/migrations -u sqlite:backend/data/marketing.db up
+#   dbmate --no-dump-schema -d backend/migrations \
+#     -u "mysql://marketing:пароль@127.0.0.1:3306/marketing" up
+
+## db-up: поднять MariaDB (нужен Docker; нужна для make dev и тестов с БД)
+db-up:
+	$(COMPOSE) up -d --wait mariadb
+
+## db-down: остановить MariaDB
+db-down:
+	$(COMPOSE) stop mariadb
 
 ## migrate: применить миграции схемы (сервис migrate из compose)
 migrate:
@@ -109,7 +138,7 @@ migrate:
 
 ## migrate-down: откатить последнюю миграцию
 migrate-down:
-	$(COMPOSE) run --rm migrate rollback
+	$(COMPOSE) run --rm -e DBMATE_CMD=rollback migrate
 
 # --- локальный запуск (без Docker) ---
 

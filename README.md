@@ -1,6 +1,7 @@
 # marketing-agents
 
-Мультиагентный сервис маркетингового контента: Go + DeepSeek. Два режима:
+Мультиагентный сервис маркетингового контента: Go + DeepSeek, данные — в MariaDB.
+Два режима:
 
 1. **Генерация кампании**: бриф → подбор тем по поисковому спросу (Wordstat) →
    стратег (позиционирование) → копирайтеры (по темам, параллельно) → критик →
@@ -41,14 +42,15 @@
 ## Структура
 
 ```
-backend/            Go-сервис (отдельный модуль): API /api/*, /healthz, SQLite
-  cmd/server/       точка входа API
+backend/            Go-сервис (отдельный модуль): API /api/*, /healthz; данные — MariaDB
+  cmd/server/       точка входа API (composition root)
   internal/         ядро (core/corellm, core/corelogger, run, score, trace),
                     домен (campaign, review, topic), сценарии (orchestrator),
-                    адаптеры (sqlite, llm, wordstat, sloglogger), транспорт (http),
+                    адаптеры (mariadb, llm, wordstat, sloglogger), транспорт (http),
                     async-прогоны (runner)
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
+  internal/testdb   временная база MariaDB для тестов: заводит её на каждый тест
   migrations/       миграции схемы: NNNN_name.sql с секциями -- migrate:up / -- migrate:down (dbmate)
   tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
@@ -61,7 +63,8 @@ frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   vitest.config.ts  конфигурация юнит-тестов (vitest)
   src/env.ts        объявление переменных окружения фронта
   Dockerfile        образ фронта: сборка + Node-сервер SvelteKit
-docker-compose.yml  стек из двух сервисов: backend (внутренний) + frontend (порт 8080)
+docker-compose.yml  стек: mariadb (внутренний) + backend (внутренний) + frontend
+                    (публикуется на 127.0.0.1:8080) и одноразовый сервис migrate
 ```
 
 Go-команды запускаются из `backend/`, фронтовые — из `frontend/`.
@@ -71,18 +74,28 @@ Go-команды запускаются из `backend/`, фронтовые —
 
 ## Запуск
 
-Внешних сервисов не нужно: БД — файл SQLite, создаётся при первом старте.
-Nginx в стек не входит — снаружи стоит nginx сервера и проксирует на контейнер
-фронта (единственная опубликованная точка входа).
+Внешних сервисов не нужно: БД — контейнер MariaDB (`mariadb:11.4`), том переживает
+`down/up`. Nginx в стек не входит — снаружи стоит nginx сервера и проксирует на
+контейнер фронта (единственная опубликованная точка входа).
+
+**Про образ БД.** Официальный `mariadb:11.4` занимает ~101 МБ сжатым (то, что
+тянется при `pull`) и ~490 МБ на диске. Это самый крупный образ стека, поэтому
+альтернативы проверены: alpine-варианта у официальной сборки нет (есть noble /
+jammy / ubi9), сборка своего образа `alpine` + `apk add mariadb mariadb-client`
+даёт ~316 МБ на диске (−174 МБ), но тогда entrypoint, инициализацию datadir и
+healthcheck пишем и поддерживаем сами. Выбран официальный образ: обновления и
+готовый `healthcheck.sh` важнее экономии диска, а сервис БД всё равно живёт на
+сервере, а не в ноутбуке разработчика.
 
 Схему БД применяет **отдельный сервис миграций** на готовом образе
-[dbmate](https://github.com/amacneil/dbmate): в compose это одноразовый сервис
-`migrate`, локально — `make migrate`. Сервер миграции не применяет, а на старте
-только проверяет, что учёт версий на месте, и падает с понятной ошибкой, если нет.
+[dbmate](https://github.com/amacneil/dbmate) (MariaDB он понимает через обычные
+`mysql://`-адреса): в compose это одноразовый сервис `migrate`, локально —
+`make migrate`. Сервер миграции не применяет, а на старте только проверяет, что
+учёт версий на месте, и падает с понятной ошибкой, если нет.
 
 Короткие команды на все шаги ниже собраны в `Makefile` — `make help` печатает
-список целей. Основные: `make migrate` (применить схему), `make dev` (миграции,
-затем API и dev-сервер фронта вместе),
+список целей. Основные: `make db-up` (поднять MariaDB), `make migrate` (применить
+схему), `make dev` (миграции, затем API и dev-сервер фронта вместе),
 `make verify` (сборка + статические проверки + тесты бэкенда и фронта),
 `make backend` / `make frontend` (каждое по отдельности), `make up` / `make down` /
 `make logs` (стек compose), `make health`. Зависимости ставятся автоматически
@@ -90,26 +103,31 @@ Nginx в стек не входит — снаружи стоит nginx серв
 
 **Docker Compose** (штатный путь, из корня репозитория):
 ```bash
-cp backend/.env.example backend/.env   # указать DEEPSEEK_API_KEY (+ BASIC_AUTH_USER/PASS для UI)
+cp backend/.env.example backend/.env   # DEEPSEEK_API_KEY, пароли MARIADB_* (+ BASIC_AUTH_* для UI)
 docker compose up -d --build
 curl localhost:8080/healthz            # ok (запрос уходит через фронт в API)
 ```
+- `mariadb` — сервис с томом `mariadb` и healthcheck (`healthcheck.sh --connect
+  --innodb_initialized`); пароли и имя базы берутся из того же `backend/.env`,
+  переменные называются так же, как их понимает официальный образ
+  (`MARIADB_ROOT_PASSWORD`, `MARIADB_DATABASE`, `MARIADB_USER`, `MARIADB_PASSWORD`);
 - `migrate` — одноразовый сервис на готовом образе
-  `ghcr.io/amacneil/dbmate:2.36.0`: применяет схему к SQLite на volume `sqlite` и
-  завершается; `backend` стартует только после его успешного выхода
-  (`condition: service_completed_successfully`). Ключи API миграциям не передаются.
-  Почему не golang-migrate — в «Миграции схемы»;
+  `ghcr.io/amacneil/dbmate:2.36.0`: адрес собирает из `MARIADB_*` и применяет
+  схему, после чего завершается; `backend` стартует только после его успешного
+  выхода (`condition: service_completed_successfully`). Ключи API миграциям не
+  передаются. Почему не golang-migrate — в «Миграции схемы»;
 - `frontend` публикуется на `127.0.0.1:8080`: SvelteKit отдаёт приложение и сам
   проксирует `/api/*` и `/healthz` в `backend` по внутренней сети compose;
-- `backend` наружу не публикуется, БД лежит на volume `sqlite`
-  (`/data/marketing.db`), поэтому данные переживают `down/up` и пересборку.
+- `backend` наружу не публикуется; `mariadb` — только на `127.0.0.1:3306`, чтобы
+  локальный (не контейнерный) API мог к ней подключиться.
 
-**Локально без Docker**:
+**Локально без Docker** (нужен только контейнер с БД):
 ```bash
 cd backend
-cp .env.example .env       # при первом запуске: указать DEEPSEEK_API_KEY
-make -C .. migrate         # применить схему (сервис migrate из compose; нужен Docker)
-go run ./cmd/server        # API на 127.0.0.1:8080, БД → backend/data/marketing.db
+cp .env.example .env       # DEEPSEEK_API_KEY и пароли MARIADB_*
+make -C .. db-up           # поднять MariaDB (образ mariadb:11.4, порт 127.0.0.1:3306)
+make -C .. migrate         # применить схему (сервис migrate из compose)
+go run ./cmd/server        # API на 127.0.0.1:8080, БД → 127.0.0.1:3306/marketing
 ```
 ```bash
 cd frontend
@@ -134,22 +152,23 @@ npm run build
 BACKEND_URL=http://127.0.0.1:8080 npm start   # UI → http://localhost:3000
 ```
 
-**Сетевой доступ.** Локально оба сервиса слушают только loopback: у API дефолт
-`HTTP_ADDR=127.0.0.1:8080`, `npm start` поднимает фронт на `127.0.0.1:3000` — с
-других машин они недоступны. В compose адреса другие, и это осознанно: фронт
-публикуется только на `127.0.0.1:8080` (наружу ничего не выставлено), а внутри
-контейнера он и бэкенд слушают все интерфейсы — иначе проброс портов и общение
-контейнеров по внутренней сети не работают.
+**Сетевой доступ.** Локально всё слушает только loopback: у API дефолт
+`HTTP_ADDR=127.0.0.1:8080`, `npm start` поднимает фронт на `127.0.0.1:3000`,
+MariaDB из compose опубликована на `127.0.0.1:3306` — с других машин они
+недоступны. В compose адреса другие, и это осознанно: фронт публикуется только на
+`127.0.0.1:8080` (наружу ничего не выставлено), а внутри контейнера фронт и
+бэкенд слушают все интерфейсы — иначе проброс портов и общение контейнеров по
+внутренней сети не работают.
 
 ## API
 
 ### Кампании (генерация)
 - `POST /api/campaigns` — `{product, goal, audience, tone, region?, topics_count?, client_id?}`
   → `202 {id, status}`. `region` — geo ID Яндекса (`225` Россия, `213` Москва),
-  `topics_count` — сколько статей нужно по медиаплану (1..20); идей подбирается
-  вдвое больше. Валидация до запуска: регион — только цифры, число статей в диапазоне.
+  `topics_count` — сколько статей нужно по медиаплану (1..20): столько тем и
+  просим у модели. Валидация до запуска: регион — только цифры, число статей в диапазоне.
 - `GET /api/campaigns/{id}` — статус и результат: `strategy.topics` (отобранные темы),
-  `strategy.topic_candidates` (все рассмотренные 2N — с объёмом, цитатами запросов,
+  `strategy.topic_candidates` (все рассмотренные темы — с объёмом, цитатами запросов,
   сезонностью, индексом интереса по регионам, источником `wordstat|llm` и причиной
   отклонения), `strategy.wordstat_calls` (сколько обращений к Wordstat потребовалось)
 - `GET /api/campaigns/{id}/events` — SSE-поток живого прогресса: фаза `researching`
@@ -242,8 +261,18 @@ npm test         # юнит-тесты (vitest)
   оркестратор и раннер в одном сценарии;
 - `tests/live` — opt-in дымовой тест против настоящего MCP-сервера.
 
+**Тесты и база.** Тестам, которые ходят в БД, нужен сервер MariaDB: адрес задаёт
+`TEST_DATABASE_URL` (например `mysql://root:пароль@127.0.0.1:3306/` — базу в
+адресе указывать не нужно). Каждому тесту `internal/testdb` заводит отдельную
+временную базу, применяет к ней миграции и удаляет её после — та же изоляция, что
+раньше давал файл в `t.TempDir()`. Учёт для тестов — root: временные базы создаёт
+сам тест. `make test-backend` (а также `test-unit` и `test-e2e`) поднимают
+контейнер `mariadb` и подставляют адрес из `backend/.env`; без Docker тесты с БД
+пропускаются с понятным сообщением, остальные выполняются.
+
 ```bash
-cd backend && go test ./...     # все Go-тесты: internal + tests/e2e + tests/live (SQLite во временном каталоге)
+cd backend && go test ./...     # все Go-тесты: internal + tests/e2e + tests/live
+                                # (нужна MariaDB: TEST_DATABASE_URL или make test-backend)
 cd frontend && npm run check    # svelte-check: типы и Svelte-диагностики
 cd frontend && npm test         # vitest: api-клиент, сторы (в т.ч. SSE-прогресс), словари, формат
 ```
@@ -283,10 +312,31 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 
 ## Хранилище данных
 
-БД — один файл SQLite (`SQLITE_PATH`, по умолчанию `data/marketing.db` относительно
-рабочего каталога), драйвер `modernc.org/sqlite` (чистый Go: CGO не нужен, бинарь
-остаётся статическим, рантайм-образ — distroless). Каталог под файл создаётся при
-старте.
+БД — MariaDB 11.4 (InnoDB, `utf8mb4`), драйвер `github.com/go-sql-driver/mysql`
+(чистый Go: CGO не нужен, бинарь остаётся статическим, рантайм-образ — distroless;
+драйвер официально поддерживает MariaDB 10.11+). Адрес по умолчанию собирается из
+`MARIADB_*` (`127.0.0.1:3306/marketing`), целиком его задаёт `DATABASE_URL` в
+формате `mysql://user:pass@host:3306/dbname` — ту же схему понимает dbmate.
+
+Что важно в настройках соединения (см. `internal/mariadb`):
+
+- `parseTime` + `loc=UTC` и `time_zone='+00:00'`: время в БД всегда UTC, поэтому
+  `CURRENT_TIMESTAMP(3)` в схеме и `time.Time` из Go означают одно и то же;
+- `timeTruncate=1ms`: время обрезается до точности колонок `DATETIME(3)`. Без
+  этого MariaDB округляет значение, и сравнение с индексированной колонкой теряет
+  range-scan (предупреждение из README драйвера);
+- пул соединений живёт ограниченно (`ConnMaxLifetime` 3 минуты): сервер и
+  посредники рвут простаивающие соединения;
+- внешние ключи работают всегда (InnoDB), а параллельные записи прогресса по темам
+  разводит сам сервер — прежние настройки SQLite (`WAL`, `busy_timeout`,
+  `_txlock=immediate`) больше не нужны.
+
+Колонки: `MEDIUMTEXT` (16 МБ) там, где объём не наш (стратегия со всеми
+кандидатами, черновики статей, JSON ревью и трассы), `TEXT` (64 КБ) — для коротких
+полей без индексов, `VARCHAR(36)` — идентификаторы (UUID генерирует Go). Порядок
+истории держит `seq BIGINT AUTO_INCREMENT`: `created_at` имеет точность
+миллисекунд, и без тайбрейкера «новые сверху» недетерминированы. Статьи внутри
+кампании упорядочены колонкой `position` — порядок тем в медиаплане.
 
 ### Миграции схемы
 
@@ -294,65 +344,55 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 `backend/migrations`: один файл — одна миграция с секциями `-- migrate:up` /
 `-- migrate:down`, версия — ведущие цифры имени (`0001_init.sql`). Применённые
 версии dbmate пишет в `schema_migrations (version varchar primary key)` — таблицу
-создаёт сам.
+создаёт сам. MariaDB dbmate подключает теми же `mysql://`-адресами, что и MySQL.
 
 Применяет миграции отдельный сервис, а не сервер:
 
 - в compose — сервис `migrate` на готовом образе
-  `ghcr.io/amacneil/dbmate:2.36.0` (настройки через `DATABASE_URL`,
-  `DBMATE_MIGRATIONS_DIR`, `DBMATE_NO_DUMP_SCHEMA`); `backend` ждёт его успешного
-  выхода и на старте лишь проверяет, что таблица учёта существует и не пуста, а
-  ключи API миграциям не передаются;
+  `ghcr.io/amacneil/dbmate:2.36.0`: адрес собирает из `MARIADB_*` внутри
+  контейнера (секреты остаются в `backend/.env`), ждёт готовности сервера
+  (`--wait`) и применяет схему; `backend` ждёт его успешного выхода и на старте
+  лишь проверяет, что таблица учёта существует и не пуста, а ключи API миграциям
+  не передаются. Откат — `make migrate-down` (тот же сервис с `DBMATE_CMD=rollback`);
 - локально — `make migrate` и `make migrate-down` (запускают тот же сервис через
   compose, поэтому нужен Docker). Без Docker: `brew install dbmate` и
-  `dbmate --no-dump-schema -d backend/migrations -u sqlite:backend/data/marketing.db up`.
+  `dbmate --no-dump-schema -d backend/migrations -u "mysql://user:pass@127.0.0.1:3306/marketing" up`.
 
-**Почему не golang-migrate.** У него нет готового образа с SQLite: `migrate/migrate`
-собирается с тегами `DATABASE` (postgres, mysql, clickhouse…), где `sqlite` и
-`sqlite3` отсутствуют, — драйвер подключается только файлом
-`internal/cli/build_sqlite.go` с тегом `//go:build sqlite`. Такой бинарь на нашей БД
-отвечает `error: failed to open database: database driver: unknown driver sqlite
-(forgotten import?)`, а чтобы получить рабочий, образ пришлось бы собирать
-самому (`go install -tags sqlite`). dbmate же даёт SQLite в готовом образе: он
-собирается с `CGO_ENABLED=1` и статической линковкой (`-extldflags "-static"` для
-linux), SQLite — его основной драйвер.
-
-**БД прежних версий.** Учёт старого самописного раннера лежал в `schema_migrations`
-с колонками `name`/`applied_at`, а dbmate такую таблицу не понимает (`no such
-column: version`). Разово:
-
-```bash
-# 1) отложить старую таблицу учёта (данные при этом не трогаются)
-sqlite3 backend/data/marketing.db "ALTER TABLE schema_migrations RENAME TO schema_migrations_legacy;"
-# 2) применить миграции: они идемпотентны (CREATE TABLE IF NOT EXISTS), поэтому на
-#    существующей схеме просто заводится учёт нужного формата
-make migrate
-```
-Таблицу `schema_migrations_legacy` можно оставить как есть или удалить.
-
-Соединение открывается с `journal_mode=WAL`, `busy_timeout=5000`,
-`foreign_keys=1` и `_txlock=immediate` — параллельные прогоны (каждая тема
-пишет прогресс из своей горутины) не ловят «database is locked».
+**Почему не golang-migrate.** Пока БД была SQLite, у `migrate/migrate` не было
+готового образа с этим драйвером, и вопрос закрывался сам. Для MariaDB такого
+препятствия нет (он умеет MySQL), но менять работающий инструмент причин нет:
+dbmate уже применяет схему, сам создаёт базу, умеет ждать готовности сервера
+(`--wait`) и пишет версии в ту же простую таблицу `schema_migrations`.
 
 Отдельная таблица `run_events` хранит трассу прогонов (append-only, индексы по
 `(run_id, seq)` и `at`). События старше `TRACE_RETENTION_DAYS` удаляются при старте
 сервиса; сами прогоны и их результаты при этом не трогаются.
 
-Бэкап — копия файла; на работающем сервисе лучше через сам SQLite:
+Бэкап — дампом MariaDB, останавливать сервис не нужно:
 ```bash
-sqlite3 backend/data/marketing.db ".backup backup.db"
+docker compose exec mariadb sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" "$MARIADB_DATABASE"' > backup.sql
 ```
 
-> Данные прежней Postgres-версии автоматически не переносятся — нужен отдельный
-> перенос (`pg_dump` → вставка в SQLite). Строка `postgres://...` в
-> `DATABASE_URL` приводит к ошибке старта с подсказкой про `SQLITE_PATH`.
+> **Данные прежней версии не переносятся автоматически.** Прежний билд хранил всё
+> в SQLite; переезд делался на пустой базе (схема создаётся с нуля). Для переноса
+> старой базы нужен отдельный шаг: `.dump` из SQLite, преобразование типов
+> (`TEXT` → `VARCHAR`/`MEDIUMTEXT`) и вставка в MariaDB. Адрес вида
+> `postgres://...`, `sqlite:...` или путь к файлу в `DATABASE_URL` — ошибка старта
+> с подсказкой про `mysql://`.
 
 ## Конфигурация
 
 **Бэкенд** — env, см. `backend/.env.example`. Адрес прослушивания — `HTTP_ADDR`,
 по умолчанию `127.0.0.1:8080` (только локально; в compose переопределяется на
-`:8080` — внутри контейнера нужны все интерфейсы). Файл БД — `SQLITE_PATH`
-(`DATABASE_URL` с путём к файлу ещё принимается для совместимости). Модели
+`:8080` — внутри контейнера нужны все интерфейсы). Адрес БД приложение собирает из
+`MARIADB_HOST` (по умолчанию `127.0.0.1`), `MARIADB_PORT` (`3306`),
+`MARIADB_DATABASE` (`marketing`), `MARIADB_USER` и `MARIADB_PASSWORD`; явный
+`DATABASE_URL` (`mysql://user:pass@host:3306/dbname`) имеет приоритет. Те же
+переменные `MARIADB_*` читает официальный образ MariaDB, поэтому в compose и
+контейнер БД, и приложение берут их из одного `backend/.env`, а приложению
+переопределяется только `MARIADB_HOST=mariadb`. `MARIADB_ROOT_PASSWORD` нужен
+сервису `mariadb` (создание базы и пользователя) и тестам, которые заводят
+временные базы. Модели
 разнесены по ролям: `MODEL_DEFAULT` (`deepseek-v4-pro`) — стратег и критик,
 `MODEL_FAST` (`deepseek-v4-flash`) — копирайтеры; привязка ролей — через
 `SetRoleModel` (см. `backend/cmd/server/main.go`). Доступ к API закрывается
@@ -386,6 +426,12 @@ MCP-сервер Wordstat (`yandex-wordstat-mcp`, Streamable HTTP + basic-auth),
 
 ## Известные ограничения
 
+- **MariaDB — самый крупный образ стека.** ~101 МБ сжатым / ~490 МБ на диске
+  против нуля у прежнего SQLite-файла. Меньше можно только своим alpine-образом
+  (~316 МБ) или внешним сервером БД; оба варианта требуют своей поддержки.
+- **Переноса данных из SQLite нет.** Прежняя база не мигрируется автоматически:
+  переезд делался на пустой базе. Нужен перенос — `.dump` из SQLite и вставка в
+  MariaDB с преобразованием типов.
 - **Сбой во время прогона.** Если процесс упадёт, кампания останется в статусе
   `running`, а работа LLM потеряется. Восстановление после сбоя — предмет Фазы 2
   (частично закрыто: прогресс персистится, при рестарте `RecoverInterrupted`

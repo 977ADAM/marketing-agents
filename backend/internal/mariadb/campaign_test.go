@@ -1,12 +1,12 @@
-package sqlite_test
+package mariadb_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/run"
+	"github.com/977ADAM/marketing-agents/internal/testdb"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
@@ -211,12 +211,12 @@ func TestProgressRoundTrip(t *testing.T) {
 	}
 }
 
-// Данные должны переживать перезапуск процесса: тот же файл, новое соединение.
+// Данные должны переживать перезапуск процесса: та же база, новое соединение.
 func TestDataSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "reopen.db")
+	dsn := testdb.NewDSN(t)
 
-	first := openStores(t, path)
+	first := openStores(t, dsn)
 	id, err := first.campaigns.Create(ctx, "", campaign.Brief{Product: "Эко-бутылка"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -232,8 +232,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	second := openStores(t, path)
-	defer second.db.Close()
+	second := openStores(t, dsn)
 
 	got, err := second.campaigns.Get(ctx, id)
 	if err != nil {

@@ -1,4 +1,4 @@
-package sqlite_test
+package mariadb_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/testdb"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
@@ -128,15 +129,14 @@ func TestDeleteRunEventsBefore(t *testing.T) {
 	}
 }
 
-// События переживают перезапуск, а повторный Open по тому же файлу не падает и
-// повторно схему не мигрирует (учёт ведёт golang-migrate в schema_migrations).
+// События переживают перезапуск, а повторное применение миграций к той же базе
+// не падает: учёт версий ведёт schema_migrations (как dbmate).
 func TestRunEventsSurviveReopen(t *testing.T) {
-	dir := t.TempDir()
-	path := dir + "/events.db"
+	dsn := testdb.NewDSN(t)
 	ctx := context.Background()
 
 	for i := 0; i < 2; i++ {
-		s := openStores(t, path)
+		s := openStores(t, dsn)
 		if err := s.events.SaveRunEvent(ctx, event("run-1", int64(i+1), time.Now().UTC(), "")); err != nil {
 			t.Fatalf("SaveRunEvent #%d: %v", i+1, err)
 		}
@@ -145,10 +145,7 @@ func TestRunEventsSurviveReopen(t *testing.T) {
 		}
 	}
 
-	s := openStores(t, path)
-	defer func() { _ = s.db.Close() }()
-	// Повторное применение миграций по тому же файлу не падает.
-	applyMigrations(t, s.db)
+	s := openStores(t, dsn)
 	list, err := s.events.RunEvents(ctx, "run-1", 0)
 	if err != nil {
 		t.Fatalf("RunEvents: %v", err)

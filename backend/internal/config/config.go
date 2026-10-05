@@ -3,17 +3,21 @@ package config
 
 import (
 	"fmt"
-	"github.com/joho/godotenv"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Config — конфигурация сервиса, собранная из переменных окружения.
 type Config struct {
-	HTTPAddr     string
-	SQLitePath   string // файл БД (SQLite); каталог создаётся при старте
+	HTTPAddr string
+	// DatabaseURL — адрес MariaDB: mysql://user:pass@host:port/dbname.
+	// Задаётся напрямую или собирается из MARIADB_* (см. databaseURL).
+	DatabaseURL  string
 	APIKey       string
 	BaseURL      string
 	ModelDefault string // сильная модель: стратег и критик
@@ -48,9 +52,6 @@ type Config struct {
 	TraceMaxPayloadBytes int    // обрезка одного payload
 }
 
-// DefaultSQLitePath — путь к файлу БД по умолчанию (относительно рабочего каталога).
-const DefaultSQLitePath = "data/marketing.db"
-
 // DefaultHTTPAddr — адрес прослушивания по умолчанию: только loopback, чтобы
 // локальный запуск не торчал в сеть (у API по умолчанию выключен basic-auth).
 // В docker-compose переменная переопределяется на ":8080": внутри контейнера
@@ -58,6 +59,14 @@ const DefaultSQLitePath = "data/marketing.db"
 // внутренней сети, а проброс порта не заработает. Наружу контейнер при этом
 // не выставлен — порт публикуется только на 127.0.0.1 (см. docker-compose.yml).
 const DefaultHTTPAddr = "127.0.0.1:8080"
+
+// Значения по умолчанию для сборки DATABASE_URL из MARIADB_*: локальный запуск
+// без Docker ходит в контейнер MariaDB, опубликованный на loopback.
+const (
+	DefaultMariaDBHost     = "127.0.0.1"
+	DefaultMariaDBPort     = "3306"
+	DefaultMariaDBDatabase = "marketing"
+)
 
 // DefaultWordstatRegion — регион по умолчанию для подбора тем: 225 — Россия.
 const DefaultWordstatRegion = "225"
@@ -78,14 +87,11 @@ func Load() (*Config, error) {
 	// .env опционален: если файла нет — читаем только реальное окружение.
 	_ = godotenv.Load()
 
-	dbPath, err := sqlitePath()
-	if err != nil {
-		return nil, err
-	}
+	dbURL := databaseURL()
 
 	cfg := &Config{
 		HTTPAddr:     getStr("HTTP_ADDR", DefaultHTTPAddr),
-		SQLitePath:   dbPath,
+		DatabaseURL:  dbURL,
 		APIKey:       getStr("DEEPSEEK_API_KEY", ""),
 		BaseURL:      getStr("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
 		ModelDefault: getStr("MODEL_DEFAULT", "deepseek-v4-pro"),
@@ -130,8 +136,8 @@ func (c *Config) validate() error {
 	if c.HTTPAddr == "" {
 		return fmt.Errorf("HTTP_ADDR не может быть пустым")
 	}
-	if c.SQLitePath == "" {
-		return fmt.Errorf("SQLitePath не может быть пустым")
+	if err := validateDatabaseURL(c.DatabaseURL); err != nil {
+		return err
 	}
 	if c.BaseURL == "" {
 		return fmt.Errorf("DEEPSEEK_BASE_URL не может быть пустым")
@@ -197,6 +203,74 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// databaseURL выбирает адрес БД: DATABASE_URL, иначе сборка из MARIADB_*.
+//
+// MARIADB_* — те же переменные, что понимает официальный образ MariaDB, поэтому
+// один файл backend/.env обслуживает и контейнер БД, и приложение: в compose
+// достаточно переопределить MARIADB_HOST на имя сервиса.
+func databaseURL() string {
+	if v := strings.TrimSpace(os.Getenv("DATABASE_URL")); v != "" {
+		return v
+	}
+	user := strings.TrimSpace(os.Getenv("MARIADB_USER"))
+	pass := os.Getenv("MARIADB_PASSWORD")
+	if user == "" || pass == "" {
+		return "" // validate объяснит, чего не хватает
+	}
+	return fmt.Sprintf("mysql://%s:%s@%s:%s/%s",
+		url.QueryEscape(user), url.QueryEscape(pass),
+		getStr("MARIADB_HOST", DefaultMariaDBHost),
+		getStr("MARIADB_PORT", DefaultMariaDBPort),
+		getStr("MARIADB_DATABASE", DefaultMariaDBDatabase))
+}
+
+// validateDatabaseURL проверяет, что адрес БД — это mysql://-адрес MariaDB.
+// Пароль в тексте ошибки не показываем: сообщение попадает в логи.
+func validateDatabaseURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("адрес БД не задан: укажите DATABASE_URL=mysql://user:pass@host:3306/dbname " +
+			"или MARIADB_HOST/MARIADB_PORT/MARIADB_USER/MARIADB_PASSWORD/MARIADB_DATABASE")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("DATABASE_URL: %w", err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "mysql", "mariadb":
+	case "sqlite", "sqlite3", "file":
+		return fmt.Errorf("DATABASE_URL=%s: хранилище переехало с SQLite на MariaDB — укажите mysql://user:pass@host:3306/dbname",
+			redactURL(raw))
+	case "postgres", "postgresql":
+		return fmt.Errorf("DATABASE_URL=%s: этот билд хранит данные в MariaDB — укажите mysql://user:pass@host:3306/dbname",
+			redactURL(raw))
+	case "":
+		// Путь к файлу (прежний SQLite-адрес) схему не задаёт — подсказываем то же.
+		return fmt.Errorf("DATABASE_URL=%s: похоже на путь к файлу SQLite, а хранилище теперь MariaDB — укажите mysql://user:pass@host:3306/dbname",
+			redactURL(raw))
+	default:
+		return fmt.Errorf("DATABASE_URL=%s: ожидали mysql:// (MariaDB использует ту же схему)", redactURL(raw))
+	}
+	if u.Host == "" {
+		return fmt.Errorf("DATABASE_URL=%s: не указан хост MariaDB", redactURL(raw))
+	}
+	if strings.Trim(u.Path, "/") == "" {
+		return fmt.Errorf("DATABASE_URL=%s: не указано имя базы", redactURL(raw))
+	}
+	return nil
+}
+
+// redactURL прячет пароль в адресе БД.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "mysql://?"
+	}
+	if u.User != nil {
+		u.User = url.User(u.User.Username())
+	}
+	return u.String()
+}
+
 // isGeoID проверяет, что значение — geo ID Яндекса: непустая строка из цифр.
 func isGeoID(v string) bool {
 	if v == "" {
@@ -208,30 +282,6 @@ func isGeoID(v string) bool {
 		}
 	}
 	return true
-}
-
-// sqlitePath выбирает файл БД: SQLITE_PATH, иначе DATABASE_URL (совместимость
-// с прежней конфигурацией, если там путь/URI файла, а не строка подключения
-// к сетевой СУБД), иначе дефолт.
-func sqlitePath() (string, error) {
-	if p := strings.TrimSpace(os.Getenv("SQLITE_PATH")); p != "" {
-		return p, nil
-	}
-	if dsn := strings.TrimSpace(os.Getenv("DATABASE_URL")); dsn != "" {
-		// Отклоняем любые URL-схемы, кроме file:// — этот билд хранит данные
-		// в SQLite, а не в сетевой СУБД.
-		if i := strings.Index(dsn, "://"); i > 0 {
-			scheme := strings.ToLower(dsn[:i])
-			if scheme != "file" {
-				return "", fmt.Errorf(
-					"DATABASE_URL=%q looks like a connection string (%s://), but this build stores data in SQLite: set SQLITE_PATH (file path) instead",
-					dsn, scheme,
-				)
-			}
-		}
-		return dsn, nil
-	}
-	return DefaultSQLitePath, nil
 }
 
 // getStr читает строковую переменную окружения, возвращая def, если она не задана.

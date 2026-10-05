@@ -9,27 +9,25 @@
 
 -- migrate:up
 CREATE TABLE IF NOT EXISTS run_events (
-    id                TEXT PRIMARY KEY,
-    run_id            TEXT NOT NULL,
-    seq               INTEGER NOT NULL,
-    at                DATETIME NOT NULL,
-    kind              TEXT NOT NULL,
-    name              TEXT NOT NULL,
-    status            TEXT NOT NULL,
-    duration_ms       INTEGER NOT NULL DEFAULT 0,
-    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
-    completion_tokens INTEGER NOT NULL DEFAULT 0,
-    summary           TEXT NOT NULL,
-    payload           TEXT,
-    error             TEXT
-);
-
--- Лента читается по прогону в порядке появления событий.
-CREATE INDEX IF NOT EXISTS idx_run_events_run ON run_events (run_id, seq);
--- Ретенция удаляет по времени.
-CREATE INDEX IF NOT EXISTS idx_run_events_at ON run_events (at);
+    id                VARCHAR(36) NOT NULL,
+    run_id            VARCHAR(64) NOT NULL,
+    seq               BIGINT NOT NULL,
+    at                DATETIME(3) NOT NULL,
+    kind              VARCHAR(32) NOT NULL,
+    name              VARCHAR(64) NOT NULL,
+    status            VARCHAR(32) NOT NULL,
+    duration_ms       BIGINT NOT NULL DEFAULT 0,
+    prompt_tokens     BIGINT NOT NULL DEFAULT 0,
+    completion_tokens BIGINT NOT NULL DEFAULT 0,
+    summary           MEDIUMTEXT NOT NULL,
+    payload           MEDIUMTEXT NULL,
+    error             MEDIUMTEXT NULL,
+    PRIMARY KEY (id),
+    -- Лента читается по прогону в порядке появления событий.
+    KEY idx_run_events_run (run_id, seq),
+    -- Ретенция удаляет по времени.
+    KEY idx_run_events_at (at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- migrate:down
-DROP INDEX IF EXISTS idx_run_events_at;
-DROP INDEX IF EXISTS idx_run_events_run;
 DROP TABLE IF EXISTS run_events;

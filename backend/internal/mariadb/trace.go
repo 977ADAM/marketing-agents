@@ -1,4 +1,4 @@
-package sqlite
+package mariadb
 
 import (
 	"context"
@@ -15,18 +15,17 @@ type Events struct{ db *sql.DB }
 // NewEvents оборачивает соединение: сам SQL живёт в этом файле.
 func NewEvents(db *sql.DB) *Events { return &Events{db: db} }
 
-// timeLayout — формат, который драйвер modernc.org/sqlite разбирает в time.Time.
-// Совпадает с тем, что даёт strftime('%Y-%m-%d %H:%M:%f','now') в схеме.
-const timeLayout = "2006-01-02 15:04:05.000"
-
 // SaveRunEvent сохраняет событие трассы (реализует trace.Sink).
+//
+// Время уходит как time.Time в UTC: колонка DATETIME(3), драйвер настроен на
+// parseTime + loc=UTC и сам обрезает значение до миллисекунд (timeTruncate).
 func (es *Events) SaveRunEvent(ctx context.Context, rec trace.Record) error {
 	_, err := es.db.ExecContext(ctx,
 		`INSERT INTO run_events
 			(id, run_id, seq, at, kind, name, status, duration_ms,
 			 prompt_tokens, completion_tokens, summary, payload, error)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		newUUID(), rec.RunID, rec.Seq, rec.At.UTC().Format(timeLayout),
+		newUUID(), rec.RunID, rec.Seq, rec.At.UTC(),
 		string(rec.Kind), rec.Name, string(rec.Status), rec.DurationMS,
 		rec.PromptTokens, rec.CompletionTokens, rec.Summary,
 		nullable(rec.PayloadJSON), nullable(rec.Error))
@@ -41,7 +40,7 @@ func (es *Events) RunEvents(ctx context.Context, runID string, limit int) ([]tra
 	}
 	rows, err := es.db.QueryContext(ctx,
 		`SELECT seq, at, kind, name, status, duration_ms, prompt_tokens, completion_tokens,
-		        summary, payload IS NOT NULL AND payload <> '', IFNULL(error,'')
+		        summary, (payload IS NOT NULL AND payload <> ''), IFNULL(error,'')
 		 FROM run_events WHERE run_id=? ORDER BY seq LIMIT ?`, runID, limit)
 	if err != nil {
 		return nil, err
@@ -51,10 +50,14 @@ func (es *Events) RunEvents(ctx context.Context, runID string, limit int) ([]tra
 	out := make([]trace.Row, 0, limit)
 	for rows.Next() {
 		var ev trace.Row
+		// Признак «тело есть» приходит числом (в MariaDB это выражение, а не
+		// колонка BOOLEAN), поэтому читаем в int и сравниваем сами.
+		var hasPayload int
 		if err := rows.Scan(&ev.Seq, &ev.At, &ev.Kind, &ev.Name, &ev.Status, &ev.DurationMS,
-			&ev.PromptTokens, &ev.CompletionTokens, &ev.Summary, &ev.HasPayload, &ev.Error); err != nil {
+			&ev.PromptTokens, &ev.CompletionTokens, &ev.Summary, &hasPayload, &ev.Error); err != nil {
 			return nil, err
 		}
+		ev.HasPayload = hasPayload == 1
 		out = append(out, ev)
 	}
 	return out, rows.Err()
@@ -86,7 +89,7 @@ func (es *Events) RunEvent(ctx context.Context, runID string, seq int64) (*trace
 // число удалённых строк; сами прогоны не трогает.
 func (es *Events) DeleteRunEventsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	tag, err := es.db.ExecContext(ctx,
-		`DELETE FROM run_events WHERE at < ?`, cutoff.UTC().Format(timeLayout))
+		`DELETE FROM run_events WHERE at < ?`, cutoff.UTC())
 	if err != nil {
 		return 0, err
 	}

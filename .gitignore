@@ -7,11 +7,5 @@
 .superpowers/
 
 /frontend/node_modules/
-# SQLite: файл БД и его WAL-сайдкары
-/data/
-/backend/data/
-*.db
-*.db-wal
-*.db-shm
 
 .DS_Store
