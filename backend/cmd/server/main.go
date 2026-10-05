@@ -17,7 +17,7 @@ import (
 	apihttp "github.com/977ADAM/marketing-agents/internal/http"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/repository/mariadb"
+	"github.com/977ADAM/marketing-agents/internal/repository"
 	"github.com/977ADAM/marketing-agents/internal/runner"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
