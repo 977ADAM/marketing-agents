@@ -3,6 +3,8 @@ package repository_test
 import (
 	"context"
 	"errors"
+	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,5 +155,36 @@ func TestRunEventsSurviveReopen(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Errorf("события не пережили перезапуск: %d", len(list))
+	}
+}
+
+func TestDurableTraceSequenceAcrossRecorders(t *testing.T) {
+	s := newTestStore(t)
+	ctx := trace.WithRunID(context.Background(), "resumed")
+	a := traceservice.New(s.events, trace.Config{Mode: trace.ModeSummary})
+	b := traceservice.New(s.events, trace.Config{Mode: trace.ModeSummary})
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				a.Event(ctx, trace.Event{Name: "first"})
+			} else {
+				b.Event(ctx, trace.Event{Name: "second"})
+			}
+		}(i)
+	}
+	wg.Wait()
+	trace.FinishRun(a, "resumed")
+	c := traceservice.New(s.events, trace.Config{Mode: trace.ModeSummary})
+	c.Event(ctx, trace.Event{Name: "resume"})
+	page, err := s.events.RunEventsPage(ctx, "resumed", 0, 5)
+	if err != nil || page.Total != 11 || len(page.Rows) != 5 || !page.HasMore || page.NextSeq != 5 {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	next, err := s.events.RunEventsPage(ctx, "resumed", page.NextSeq, 10)
+	if err != nil || len(next.Rows) != 6 || next.Rows[0].Seq != 6 || next.NextSeq != 11 || next.HasMore {
+		t.Fatalf("next=%+v err=%v", next, err)
 	}
 }

@@ -249,3 +249,14 @@ func TestUsageNamesActualModelOnParseFailure(t *testing.T) {
 		t.Fatalf("usage=%+v err=%v", u, err)
 	}
 }
+
+func TestPublicParseErrorDoesNotContainResponse(t *testing.T) {
+	secret := "CLIENT_PRIVATE_CONTENT"
+	rt := roundTripFunc(func(*http.Request) (*http.Response, error) { return jsonResponse("m", secret, 3, 2), nil })
+	client := llm.New("key", "https://example.test", "m", 0, &http.Client{Transport: rt})
+	var out struct{ OK bool }
+	_, err := client.Complete(context.Background(), "critic", "S", "U", &out)
+	if err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("response leaked: %v", err)
+	}
+}

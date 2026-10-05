@@ -2,6 +2,9 @@ package campaignservice_test
 
 import (
 	"context"
+ corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
+ trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
+ traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
 	"fmt"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	service "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
@@ -112,3 +115,9 @@ func TestResearchFailurePreservesUsage(t *testing.T) {
 		t.Fatalf("usage=%+v cost=%v err=%v", res.Usage, res.CostUSD, err)
 	}
 }
+
+type cancelClient struct{cancel context.CancelFunc}
+func (c cancelClient) Complete(context.Context,string,string,string,any)(corellm.Usage,error){c.cancel();return corellm.Usage{PromptTokens:10},context.Canceled}
+type contextSink struct{records []trace.Record}
+func (s *contextSink) SaveRunEvent(ctx context.Context,r trace.Record)error{if err:=ctx.Err();err!=nil{return err};s.records=append(s.records,r);return nil}
+func TestCancelledRunStillWritesResultTrace(t *testing.T){ctx,cancel:=context.WithCancel(context.Background());defer cancel();ctx=trace.WithRunID(ctx,"timeout");sink:=&contextSink{};rec:=traceservice.New(sink,trace.Config{Mode:trace.ModeSummary});_,err:=service.NewWorkflow(cancelClient{cancel},service.Options{Recorder:rec}).Run(ctx,testBrief(),nil);if err==nil||len(sink.records)!=1||sink.records[0].Kind!=trace.KindResult{t.Fatalf("err=%v records=%+v",err,sink.records)}}

@@ -148,3 +148,14 @@ type Config struct {
 // DefaultMaxPayloadBytes — лимит payload по умолчанию: бриф и черновик статьи
 // целиком не нужны, а мегабайты в БД не нужны тем более.
 const DefaultMaxPayloadBytes = 32 << 10
+
+// SequencedSink allocates and persists an event atomically across processes.
+type SequencedSink interface {
+	SaveSequencedEvent(context.Context, Record) error
+}
+
+func FinishRun(rec Recorder, id string) {
+	if f, ok := rec.(interface{ FinishRun(string) }); ok {
+		f.FinishRun(id)
+	}
+}

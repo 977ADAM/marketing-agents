@@ -47,9 +47,11 @@ type trajectoryEventFull struct {
 }
 
 type trajectoryResponse struct {
-	ID     string            `json:"id"`
-	Total  int               `json:"total"`
-	Events []trajectoryEvent `json:"events"`
+	NextSeq int64             `json:"next_seq"`
+	HasMore bool              `json:"has_more"`
+	ID      string            `json:"id"`
+	Total   int               `json:"total"`
+	Events  []trajectoryEvent `json:"events"`
 }
 
 func (a *Handler) campaignTrajectory(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +104,17 @@ func (a *Handler) writeTrajectory(w http.ResponseWriter, r *http.Request, id str
 		limit = maxTrajectoryLimit
 	}
 
-	rows, err := a.traces.RunEvents(r.Context(), id, limit)
+	after := int64(0)
+	if v := r.URL.Query().Get("after_seq"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			response.WriteError(w, http.StatusBadRequest, "validation", "after_seq must be nonnegative")
+			return
+		}
+		after = n
+	}
+	page, err := a.traces.RunEventsPage(r.Context(), id, after, limit)
+	rows := page.Rows
 	if err != nil {
 		response.WriteError(w, http.StatusInternalServerError, "internal", "could not load trajectory")
 		return
@@ -116,7 +128,7 @@ func (a *Handler) writeTrajectory(w http.ResponseWriter, r *http.Request, id str
 			CompletionTokens: row.CompletionTokens, HasPayload: row.HasPayload, Error: row.Error,
 		})
 	}
-	response.WriteJSON(w, http.StatusOK, trajectoryResponse{ID: id, Total: len(events), Events: events})
+	response.WriteJSON(w, http.StatusOK, trajectoryResponse{ID: id, Total: page.Total, NextSeq: page.NextSeq, HasMore: page.HasMore, Events: events})
 }
 
 // writeTrajectoryEvent отдаёт одно событие вместе с телом.
@@ -184,6 +196,7 @@ type ReviewReader interface {
 	GetCheck(context.Context, string) (*review.Record, error)
 }
 type TraceQuery interface {
+	RunEventsPage(context.Context, string, int64, int) (trace.Page, error)
 	RunEvents(context.Context, string, int) ([]trace.Row, error)
 	RunEvent(context.Context, string, int64) (*trace.Row, error)
 }

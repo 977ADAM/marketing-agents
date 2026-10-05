@@ -251,6 +251,8 @@ export interface TrajectoryEvent {
 
 /** Лента событий прогона: что делали агенты и инструменты. */
 export interface Trajectory {
+	next_seq?: number;
+	has_more?: boolean;
 	id: string;
 	total: number;
 	events: TrajectoryEvent[];

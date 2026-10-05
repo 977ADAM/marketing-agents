@@ -2,6 +2,7 @@ package traceservice_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
 	"strings"
@@ -161,11 +162,12 @@ func TestPayloadTruncated(t *testing.T) {
 	})
 
 	got := sink.all()[0].PayloadJSON
-	if len(got) > 40+len(traceservice.TruncateMark)+4 { // +4: закрывающая кавычка и скобка JSON
-		t.Errorf("payload не обрезан: %d байт", len(got))
+	var envelope struct {
+		Data      any
+		Truncated bool
 	}
-	if !strings.Contains(got, traceservice.TruncateMark) {
-		t.Errorf("нет пометки об обрезке: %q", got)
+	if err := json.Unmarshal([]byte(got), &envelope); err != nil || !envelope.Truncated || len(got) > 40 {
+		t.Fatalf("invalid bounded envelope %q: %v", got, err)
 	}
 }
 

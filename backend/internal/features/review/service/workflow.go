@@ -49,6 +49,20 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, CostKnown: known, Usage: usage}); saveErr != nil && err == nil {
 			err = saveErr
 		}
+		rec := trace.OrNop(o.opt.Recorder)
+		status := trace.StatusOK
+		summary := fmt.Sprintf("готово: текстов %d, прошло %d", len(res.Items), res.Passed)
+		message := ""
+		if err != nil {
+			status = trace.StatusError
+			summary = "проверка прервана"
+			message = err.Error()
+		}
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		rec.Event(final, trace.Event{Kind: trace.KindResult, Name: "review", Status: status, Summary: summary, Error: message, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens, Payload: map[string]any{"items": res.Items, "cost_usd": res.CostUSD, "cost_known": known}})
+		trace.FinishRun(rec, trace.RunIDFrom(ctx))
+
 	}()
 
 	titles := make([]string, len(req.Texts))

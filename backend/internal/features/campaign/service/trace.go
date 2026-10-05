@@ -3,6 +3,7 @@ package campaignservice
 import (
 	"context"
 	"fmt"
+	"time"
 
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
@@ -52,5 +53,8 @@ func (o *Workflow) traceResult(ctx context.Context, res Result, err error) {
 		ev.Error = err.Error()
 		ev.Summary = "прогон прерван: " + err.Error()
 	}
-	o.trace.Event(ctx, ev)
+	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	o.trace.Event(final, ev)
+	trace.FinishRun(o.trace, trace.RunIDFrom(ctx))
 }

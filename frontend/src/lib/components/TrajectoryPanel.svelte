@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { errorMessage } from '#lib/api/client.js';
-	import { getTrajectory, getTrajectoryEvent } from '#lib/api/trajectory.js';
-	import type { Trajectory, TrajectoryEvent } from '#lib/api/types.js';
+	import { getTrajectoryEvent } from '#lib/api/trajectory.js';
+	import type { TrajectoryEvent } from '#lib/api/types.js';
+	import { onDestroy } from 'svelte';
+	import { createTrajectoryStore } from '#lib/stores/trajectory.js';
 	import { TRACE_KIND_LABELS, TRACE_STATUS_LABELS } from '#lib/labels.js';
 
 	let {
@@ -10,24 +12,15 @@
 		done = false
 	}: { kind: 'campaign' | 'review'; id: string; done?: boolean } = $props();
 
-	let trajectory = $state<Trajectory | null>(null);
+	// svelte-ignore state_referenced_locally
+	const stream = createTrajectoryStore(kind, id);
+	const { data: trajectory, error: streamError, loading } = stream;
 	let error = $state<string | null>(null);
-	let loading = $state(false);
-	// Тела событий подгружаются лениво, по одному: в ленте их нет.
+	let opened = $state(false);
+	let alive = true;
 	let details = $state<Record<number, TrajectoryEvent>>({});
 	let openSeq = $state<number | null>(null);
-
-	async function load(runID: string) {
-		loading = true;
-		try {
-			trajectory = await getTrajectory(kind, runID);
-			error = null;
-		} catch (err) {
-			error = errorMessage(err);
-		} finally {
-			loading = false;
-		}
-	}
+	onDestroy(() => { alive = false; stream.destroy(); });
 
 	async function toggle(ev: TrajectoryEvent) {
 		if (!ev.has_payload) return;
@@ -39,19 +32,15 @@
 		if (details[ev.seq]) return;
 		try {
 			const full = await getTrajectoryEvent(kind, id, ev.seq);
-			details = { ...details, [ev.seq]: full };
+			if (alive) details = { ...details, [ev.seq]: full };
 		} catch (err) {
-			error = errorMessage(err);
+			if (alive) error = errorMessage(err);
 		}
 	}
 
-	// Перечитываем ленту при смене прогона и когда прогон завершился: события
-	// копятся по ходу, а окончательный состав появляется в конце.
 	$effect(() => {
-		void load(id);
-	});
-	$effect(() => {
-		if (done) void load(id);
+		stream.setActive(opened && !done);
+		if (opened) void stream.refresh();
 	});
 
 	function time(at: string): string {
@@ -60,22 +49,22 @@
 	}
 </script>
 
-<details class="trajectory">
+<details class="trajectory" bind:open={opened}>
 	<summary>
-		Трасса прогона{#if trajectory && trajectory.total > 0}: {trajectory.total} событий{/if}
+		Трасса прогона{#if  $trajectory && $trajectory.total > 0}: {$trajectory.total} событий{/if}
 	</summary>
 
-	{#if loading && !trajectory}
+	{#if $loading && !$trajectory}
 		<p class="muted">Загружаем трассу…</p>
-	{:else if error}
-		<p class="error" role="alert">{error}</p>
-	{:else if !trajectory || trajectory.events.length === 0}
+	{:else if error || $streamError}
+		<p class="error" role="alert">{error ?? $streamError}</p>
+	{:else if !$trajectory || $trajectory.events.length === 0}
 		<p class="muted">
 			Событий нет: трасса выключена (<code>TRACE_MODE=off</code>) или прогон шёл до её появления.
 		</p>
 	{:else}
 		<ol class="trace">
-			{#each trajectory.events as ev (ev.seq)}
+			{#each $trajectory.events as ev (ev.seq)}
 				<li class="trace-event trace-{ev.kind}" class:trace-failed={ev.status === 'error'}>
 					<button
 						type="button"
@@ -111,5 +100,8 @@
 				</li>
 			{/each}
 		</ol>
+	{/if}
+	{#if $trajectory?.has_more}
+		<button type="button" disabled={$loading} onclick={() => void stream.refresh()}>Загрузить ещё</button>
 	{/if}
 </details>

@@ -52,6 +52,9 @@ func (es *Events) SaveRunEvent(ctx context.Context, rec trace.Record) error {
 // RunEvents возвращает ленту событий прогона без тел payload: их отдают отдельным
 // запросом, иначе ответ разрастается до мегабайт.
 func (es *Events) RunEvents(ctx context.Context, runID string, limit int) ([]trace.Row, error) {
+	return es.eventsAfter(ctx, runID, 0, limit)
+}
+func (es *Events) eventsAfter(ctx context.Context, runID string, after int64, limit int) ([]trace.Row, error) {
 	if limit <= 0 {
 		limit = 500
 	}
@@ -75,7 +78,7 @@ func (es *Events) RunEvents(ctx context.Context, runID string, limit int) ([]tra
 		        completion_tokens, summary,
 		        (payload IS NOT NULL AND payload <> '') AS has_payload,
 		        IFNULL(error, '') AS error`).
-		Where("run_id = ?", runID).Order("seq").Limit(limit).Find(&rows).Error
+		Where("run_id = ? AND seq > ?", runID, after).Order("seq").Limit(limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -134,4 +137,41 @@ func nullable(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func (es *Events) SaveSequencedEvent(ctx context.Context, rec trace.Record) error {
+	return es.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("INSERT INTO run_event_sequences (run_id,last_seq) VALUES (?,0) ON DUPLICATE KEY UPDATE last_seq=last_seq", rec.RunID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE run_event_sequences SET last_seq=GREATEST(last_seq,(SELECT IFNULL(MAX(seq),0) FROM run_events WHERE run_id=?))+1 WHERE run_id=?", rec.RunID, rec.RunID).Error; err != nil {
+			return err
+		}
+		if err := tx.Table("run_event_sequences").Select("last_seq").Where("run_id=?", rec.RunID).Scan(&rec.Seq).Error; err != nil {
+			return err
+		}
+		return NewEvents(tx).SaveRunEvent(ctx, rec)
+	})
+}
+
+func (es *Events) RunEventsPage(ctx context.Context, id string, after int64, limit int) (trace.Page, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	var total int64
+	if err := es.db.WithContext(ctx).Model(&runEventRow{}).Where("run_id=?", id).Count(&total).Error; err != nil {
+		return trace.Page{}, err
+	}
+	rows, err := es.eventsAfter(ctx, id, after, limit+1)
+	if err != nil {
+		return trace.Page{}, err
+	}
+	page := trace.Page{Rows: rows, Total: int(total), HasMore: len(rows) > limit}
+	if page.HasMore {
+		page.Rows = rows[:limit]
+	}
+	if len(page.Rows) > 0 {
+		page.NextSeq = page.Rows[len(page.Rows)-1].Seq
+	}
+	return page, nil
 }

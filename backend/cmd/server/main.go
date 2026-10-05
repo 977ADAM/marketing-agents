@@ -89,11 +89,33 @@ func main() {
 		"max_payload_bytes", cfg.TraceMaxPayloadBytes)
 	if cfg.TraceRetentionDays > 0 {
 		cutoff := time.Now().AddDate(0, 0, -cfg.TraceRetentionDays)
-		if n, err := events.DeleteRunEventsBefore(baseCtx, cutoff); err != nil {
+		retentionCtx, retentionCancel := context.WithTimeout(baseCtx, 5*time.Second)
+		defer retentionCancel()
+		if n, err := events.DeleteRunEventsBefore(retentionCtx, cutoff); err != nil {
 			logger.Warn("trace retention", "err", err)
 		} else if n > 0 {
 			logger.Info("trace retention", "deleted", n, "days", cfg.TraceRetentionDays)
 		}
+	}
+
+	if cfg.TraceRetentionDays > 0 {
+		go func() {
+			ticker := time.NewTicker(24 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-baseCtx.Done():
+					return
+				case <-ticker.C:
+					ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
+					_, err := events.DeleteRunEventsBefore(ctx, time.Now().AddDate(0, 0, -cfg.TraceRetentionDays))
+					cancel()
+					if err != nil {
+						logger.Error("trace retention", "err", err)
+					}
+				}
+			}
+		}()
 	}
 
 	baseLLM := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
@@ -131,7 +153,7 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews, sloglogger.New(logger))
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{Prices: &cfg.ModelPrices, Checkpoints: reviews, CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
+	background := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{Recorder: recorder, Prices: &cfg.ModelPrices, Checkpoints: reviews, CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
@@ -140,14 +162,14 @@ func main() {
 			case <-baseCtx.Done():
 				return
 			case <-ticker.C:
-				if _, err := runnerpkgRecover(baseCtx, campaigns, reviews); err != nil {
+				if _, err := runner.RecoverInterrupted(baseCtx, campaigns, reviews); err != nil {
 					logger.Error("recover expired runs", "err", err)
 				}
 			}
 		}
 	}()
-	campaignService := campaignservice.NewService(campaigns, runner, cfg.Limits)
-	reviewService := reviewservice.NewService(reviews, runner, cfg.Limits)
+	campaignService := campaignservice.NewService(campaigns, background, cfg.Limits)
+	reviewService := reviewservice.NewService(reviews, background, cfg.Limits)
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
 	api := server.New(cfg.Limits)
 	api.RegisterRoutes(campaignhttp.NewHandler(campaignService, hub, limiter, cfg.Limits).Routes()...)
@@ -181,15 +203,11 @@ func main() {
 	logger.Info("shutting down")
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer shutCancel()
-	if err := runner.Drain(shutCtx); err != nil {
+	if err := background.Drain(shutCtx); err != nil {
 		logger.Warn("background drain", "err", err)
 		finalCtx, finalCancel := context.WithTimeout(context.Background(), cfg.FinalizeTimeout)
 		defer finalCancel()
-		_ = runner.Drain(finalCtx)
+		_ = background.Drain(finalCtx)
 	}
 	baseCancel()
-}
-
-func runnerpkgRecover(ctx context.Context, stores ...runner.Recoverer) (int64, error) {
-	return runner.RecoverInterrupted(ctx, stores...)
 }

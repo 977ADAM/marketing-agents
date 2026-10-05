@@ -32,3 +32,13 @@ type Store interface {
 	RunEvents(ctx context.Context, runID string, limit int) ([]Row, error)
 	RunEvent(ctx context.Context, runID string, seq int64) (*Row, error)
 }
+
+type Page struct {
+	Rows    []Row
+	Total   int
+	NextSeq int64
+	HasMore bool
+}
+type PagedStore interface {
+	RunEventsPage(context.Context, string, int64, int) (Page, error)
+}

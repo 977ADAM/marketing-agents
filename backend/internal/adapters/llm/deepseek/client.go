@@ -73,9 +73,10 @@ func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, 
 		return usage, errors.New("llm: empty choices")
 	}
 	content := resp.Choices[0].Message.Content
+	usage.Response = content
 
 	if err := decodeJSON(content, out); err != nil {
-		return usage, fmt.Errorf("llm: parse JSON: %w (content=%q)", err, truncate(content, 400))
+		return usage, fmt.Errorf("llm: parse JSON response")
 	}
 	return usage, nil
 }

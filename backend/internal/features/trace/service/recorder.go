@@ -23,6 +23,9 @@ func New(sink trace.Sink, cfg trace.Config) trace.Recorder {
 	if cfg.MaxPayloadBytes <= 0 {
 		cfg.MaxPayloadBytes = trace.DefaultMaxPayloadBytes
 	}
+	if cfg.MaxPayloadBytes < 32 {
+		cfg.MaxPayloadBytes = 32
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -60,7 +63,7 @@ func (r *recorder) Event(ctx context.Context, ev trace.Event) {
 
 	rec := trace.Record{
 		RunID:            runID,
-		Seq:              r.nextSeq(runID),
+		Seq:              0,
 		At:               r.cfg.Now(),
 		Kind:             ev.Kind,
 		Name:             ev.Name,
@@ -72,7 +75,14 @@ func (r *recorder) Event(ctx context.Context, ev trace.Event) {
 		PayloadJSON:      payload,
 		Error:            ev.Error,
 	}
-	if err := r.sink.SaveRunEvent(ctx, rec); err != nil && r.cfg.OnError != nil {
+	var saveErr error
+	if sink, ok := r.sink.(trace.SequencedSink); ok {
+		saveErr = sink.SaveSequencedEvent(ctx, rec)
+	} else {
+		rec.Seq = r.nextSeq(runID)
+		saveErr = r.sink.SaveRunEvent(ctx, rec)
+	}
+	if err := saveErr; err != nil && r.cfg.OnError != nil {
 		r.cfg.OnError(fmt.Errorf("trace: сохранить %s/%s: %w", runID, ev.Name, err))
 	}
 }
@@ -95,8 +105,31 @@ func (r *recorder) encodePayload(payload any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return truncate(string(data), r.cfg.MaxPayloadBytes), nil
+	envelope := func(value any, truncated bool) []byte {
+		b, _ := json.Marshal(struct {
+			Data      any  `json:"data"`
+			Truncated bool `json:"truncated"`
+		}{value, truncated})
+		return b
+	}
+	full := envelope(json.RawMessage(data), false)
+	if len(full) <= r.cfg.MaxPayloadBytes {
+		return string(full), nil
+	}
+	text := string(data)
+	low, high := 0, len(text)
+	for low < high {
+		mid := (low + high + 1) / 2
+		prefix := strings.ToValidUTF8(text[:mid], "")
+		if len(envelope(prefix, true)) <= r.cfg.MaxPayloadBytes {
+			low = mid
+		} else {
+			high = mid - 1
+		}
+	}
+	return string(envelope(strings.ToValidUTF8(text[:low], ""), true)), nil
 }
+func (r *recorder) FinishRun(id string) { r.mu.Lock(); delete(r.seq, id); r.mu.Unlock() }
 
 // truncateMark — пометка об обрезке: по ней видно, что payload неполный.
 const truncateMark = "…(обрезано)"

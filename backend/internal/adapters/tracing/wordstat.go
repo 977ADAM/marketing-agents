@@ -58,6 +58,7 @@ func (s *TracingSource) Demand(ctx context.Context, p topic.DemandParams) (topic
 		payload["hasData"] = demand.HasData
 		payload["cacheHit"] = demand.CacheHit
 		payload["requests"] = len(demand.Requests)
+		payload["result"] = demand
 		payload["associations"] = len(demand.Associations)
 		ev.Summary = fmt.Sprintf("top_requests «%s»%s: %s показов, %d фраз",
 			p.Phrase, regionNote(p.Regions), humanCount(demand.TotalCount), len(demand.Requests))
@@ -65,7 +66,9 @@ func (s *TracingSource) Demand(ctx context.Context, p topic.DemandParams) (topic
 			ev.Summary = fmt.Sprintf("top_requests «%s»%s: спроса нет", p.Phrase, regionNote(p.Regions))
 		}
 	}
-	s.rec.Event(ctx, ev)
+	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	s.rec.Event(final, ev)
 	return demand, err
 }
 
@@ -91,10 +94,13 @@ func (s *TracingSource) Dynamics(ctx context.Context, p topic.DynamicsParams) (t
 		ev.Summary = fmt.Sprintf("dynamics «%s»: ошибка", p.Phrase)
 	} else {
 		payload["points"] = len(dyn.Points)
+		payload["result"] = dyn
 		ev.Summary = fmt.Sprintf("dynamics «%s»%s: %d точек сезонности",
 			p.Phrase, regionNote(p.Regions), len(dyn.Points))
 	}
-	s.rec.Event(ctx, ev)
+	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	s.rec.Event(final, ev)
 	return dyn, err
 }
 
@@ -128,7 +134,9 @@ func (s *TracingSource) Regions(ctx context.Context, p wordstat.RegionsParams) (
 		payload["regions"] = len(regions.Items)
 		ev.Summary = fmt.Sprintf("regions «%s»: %d регионов", p.Phrase, len(regions.Items))
 	}
-	s.rec.Event(ctx, ev)
+	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	s.rec.Event(final, ev)
 	return regions, err
 }
 

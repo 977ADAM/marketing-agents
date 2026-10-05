@@ -9,8 +9,8 @@ function base(kind: 'campaign' | 'review'): string {
 }
 
 /** Лента событий прогона: без тел, но с признаком has_payload у каждого события. */
-export function getTrajectory(kind: 'campaign' | 'review', id: string): Promise<Trajectory> {
-	return request<Trajectory>(`${base(kind)}/${id}/trajectory`);
+export function getTrajectory(kind: 'campaign' | 'review', id: string, after = 0, signal?: AbortSignal): Promise<Trajectory> {
+	return request<Trajectory>(`${base(kind)}/${id}/trajectory${after > 0 ? `?after_seq=${after}` : ''}`, { signal });
 }
 
 /**

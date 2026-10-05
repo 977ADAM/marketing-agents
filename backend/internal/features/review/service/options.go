@@ -1,9 +1,11 @@
 package reviewservice
 
+import trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 import run "github.com/977ADAM/marketing-agents/internal/core/run"
 import corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 
 type Options struct {
+	Recorder                             trace.Recorder
 	Prices                               *corellm.Prices
 	Checkpoints                          run.CheckpointStore
 	CostPer1KPrompt, CostPer1KCompletion float64

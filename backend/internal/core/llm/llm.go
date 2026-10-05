@@ -11,6 +11,7 @@ import "context"
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
+	Response         string `json:"-"`
 	Entries          []UsageEntry
 }
 

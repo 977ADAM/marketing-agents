@@ -36,6 +36,11 @@ func (c *TracingClient) Complete(ctx context.Context, role, system, user string,
 	usage, err := c.inner.Complete(ctx, role, system, user, out)
 
 	payload := map[string]any{"system": system, "user": user}
+	if usage.Response != "" {
+		payload["response"] = usage.Response
+	} else if err == nil {
+		payload["response"] = out
+	}
 	if namer, ok := c.inner.(modelNamer); ok {
 		payload["model"] = namer.ModelFor(role)
 	}
@@ -57,7 +62,9 @@ func (c *TracingClient) Complete(ctx context.Context, role, system, user string,
 		ev.Summary = fmt.Sprintf("%s: %d → %d токенов за %d мс",
 			role, usage.PromptTokens, usage.CompletionTokens, ev.DurationMS)
 	}
-	c.rec.Event(ctx, ev)
+	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	c.rec.Event(final, ev)
 
 	return usage, err
 }
