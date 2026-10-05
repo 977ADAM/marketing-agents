@@ -10,9 +10,9 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/repository/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/runner"
 	"github.com/977ADAM/marketing-agents/internal/testdb"
 	"github.com/977ADAM/marketing-agents/internal/topic"

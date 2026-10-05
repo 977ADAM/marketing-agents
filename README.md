@@ -46,8 +46,9 @@ backend/            Go-сервис (отдельный модуль): API /api/
   cmd/server/       точка входа API (composition root)
   internal/         ядро (core/corellm, core/corelogger, run, score, trace),
                     домен (campaign, review, topic), сценарии (orchestrator),
-                    адаптеры (mariadb, llm, wordstat, sloglogger), транспорт (http),
-                    async-прогоны (runner)
+                    транспорт (http), async-прогоны (runner),
+                    адаптеры (llm, wordstat, sloglogger),
+                    хранилище (repository/mariadb, подключение — в pool)
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
   internal/testdb   временная база MariaDB для тестов: заводит её на каждый тест
@@ -318,7 +319,7 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 `MARIADB_*` (`127.0.0.1:3306/marketing`), целиком его задаёт `DATABASE_URL` в
 формате `mysql://user:pass@host:3306/dbname` — ту же схему понимает dbmate.
 
-Что важно в настройках соединения (см. `internal/mariadb`):
+Что важно в настройках соединения (см. `internal/repository/mariadb/pool`):
 
 - `parseTime` + `loc=UTC` и `time_zone='+00:00'`: время в БД всегда UTC, поэтому
   `CURRENT_TIMESTAMP(3)` в схеме и `time.Time` из Go означают одно и то же;

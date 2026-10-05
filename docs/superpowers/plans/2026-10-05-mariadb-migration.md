@@ -86,26 +86,28 @@ static).
 - `position INT` в `deliverables` — порядок статей в медиаплане (раньше его
   держал `rowid`).
 
-### Адаптер (`internal/sqlite` → `internal/mariadb`)
+### Репозитории (`internal/sqlite` → `internal/repository/mariadb`)
 
-Пакет переименован по зависимости и разложен так же по сущностям
-(`mariadb.go`, `campaign.go`, `review.go`, `trace.go`, `schema.go`).
+Пакет переименован по зависимости и разложен по сущностям (`campaign.go`,
+`review.go`, `trace.go`, `schema.go`, `mariadb.go`); подключение вынесено в
+отдельный подпакет `pool` (`internal/repository/mariadb/pool`).
 
-- `mariadb.DSN` переводит `DATABASE_URL` (`mysql://user:pass@host:3306/db`) в DSN
+- `pool.DSN` переводит `DATABASE_URL` (`mysql://user:pass@host:3306/db`) в DSN
   драйвера и добавляет обязательные настройки: `parseTime`, `loc=UTC`,
   `time_zone='+00:00'`, `timeTruncate=1ms` (у драйвера это неэкспортируемое поле,
   поэтому задаётся строкой DSN), `collation=utf8mb4_unicode_ci`, таймауты;
   параметры из адреса понимаются как настройки драйвера, неизвестные — как
   системные переменные соединения;
-- пул соединений вместо pragma SQLite: `MaxOpenConns` 8, `ConnMaxLifetime` 3
-  минуты; `WAL`, `busy_timeout`, `_txlock=immediate` больше не нужны — конкурентные
-  записи прогресса разводит InnoDB, внешние ключи работают всегда;
+- `pool.OpenDB` открывает соединение и настраивает пул вместо pragma SQLite:
+  `MaxOpenConns` 8, `ConnMaxLifetime` 3 минуты; `WAL`, `busy_timeout`,
+  `_txlock=immediate` больше не нужны — конкурентные записи прогресса разводит
+  InnoDB, внешние ключи работают всегда;
 - `CheckSchema` читает `information_schema` вместо `sqlite_master` и
   `PRAGMA table_info`;
 - `nowExpr` → `UTC_TIMESTAMP(3)`; время пишется как `time.Time`, а не строкой;
 - `ORDER BY ... rowid` → `ORDER BY created_at DESC, seq DESC` (списки) и
   `ORDER BY position` (статьи);
-- `TARGET`-хелпер печатает адрес БД без пароля — для логов.
+- `pool.Target` печатает адрес БД без пароля — для логов.
 
 ### Конфигурация и компоуз
 

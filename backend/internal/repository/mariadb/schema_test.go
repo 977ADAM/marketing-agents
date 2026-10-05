@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/mariadb"
+	"github.com/977ADAM/marketing-agents/internal/repository/mariadb"
 )
 
 // CheckSchema: понятные отказы на неподготовленной БД и версия на готовой.

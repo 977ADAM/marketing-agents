@@ -1,16 +1,14 @@
-// Package mariadb — адаптер хранения на MariaDB (драйвер go-sql-driver/mysql,
-// чистый Go, CGO не нужен).
+// Package pool — подключение к MariaDB: разбор адреса, DSN драйвера и пул
+// соединений.
 //
-// Здесь только SQL и перевод строк в доменные типы: порты объявлены в доменных
-// пакетах (campaign.Store, review.Store, trace.Store, trace.Sink), а имена файлов
-// — по сущности, а не по слою.
-package mariadb
+// Репозитории (internal/repository/mariadb) получают от него готовый *sql.DB и не
+// знают, как он открыт: это единственное место, где приложение касается драйвера
+// и настроек соединения.
+package pool
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -21,14 +19,6 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 )
-
-// DefaultClientID — клиент по умолчанию: кампании и проверки без явного client_id.
-const DefaultClientID = "00000000-0000-0000-0000-000000000001"
-
-// nowExpr — SQL-выражение «сейчас» в UTC с точностью колонок DATETIME(3).
-// UTC_TIMESTAMP не зависит от таймзоны сессии, поэтому значение не поедет, даже
-// если соединение почему-то окажется не в UTC.
-const nowExpr = `UTC_TIMESTAMP(3)`
 
 // DefaultAddr — адрес MariaDB, если в DATABASE_URL не указан хост.
 const DefaultAddr = "127.0.0.1:3306"
@@ -52,9 +42,7 @@ func defaultConfig() *mysql.Config {
 	cfg.WriteTimeout = 30 * time.Second
 	// Параметры соединения. time_zone — сессия в UTC. timeTruncate — у драйвера
 	// это неэкспортируемое поле, поэтому задаём его строкой DSN: драйвер заново
-	// разбирает итоговый DSN при открытии соединения. Без него time.Time уходит в
-	// DATETIME(3) с наносекундами, MariaDB округляет значение, и сравнение с
-	// индексированной колонкой теряет range-scan.
+	// разбирает итоговый DSN при открытии соединения.
 	cfg.Params = map[string]string{
 		"time_zone":    "'+00:00'",
 		"timeTruncate": "1ms",
@@ -97,6 +85,31 @@ func Target(databaseURL string) string {
 		user = "?"
 	}
 	return fmt.Sprintf("mysql://%s@%s%s", user, host, u.Path)
+}
+
+// OpenDB открывает соединение с MariaDB по DATABASE_URL. Миграции не применяет:
+// это отдельный шаг (сервис migrate в docker-compose или `make migrate`), а
+// сервер до старта проверяет готовность схемы через mariadb.CheckSchema.
+func OpenDB(ctx context.Context, databaseURL string) (*sql.DB, error) {
+	dsn, err := DSN(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("mariadb: открытие соединения: %w", err)
+	}
+	// Пул: соединения не живут вечно (сервер и посредники рвут простаивающие), но
+	// с запасом под параллельную запись прогресса по темам.
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(8)
+	db.SetConnMaxLifetime(3 * time.Minute)
+	db.SetConnMaxIdleTime(time.Minute)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("mariadb: соединение с %s: %w", Target(databaseURL), err)
+	}
+	return db, nil
 }
 
 // parseURL разбирает DATABASE_URL и требует схему mysql:// (MariaDB использует
@@ -175,74 +188,6 @@ func setDur(v string, dst *time.Duration) {
 	if d, err := time.ParseDuration(v); err == nil {
 		*dst = d
 	}
-}
-
-// OpenDB открывает соединение с MariaDB по DATABASE_URL. Миграции не применяет:
-// это отдельный шаг (сервис migrate в docker-compose или `make migrate`), а
-// сервер до старта проверяет готовность схемы через CheckSchema.
-func OpenDB(ctx context.Context, databaseURL string) (*sql.DB, error) {
-	dsn, err := DSN(databaseURL)
-	if err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("mariadb: открытие соединения: %w", err)
-	}
-	// Пул: соединения не живут вечно (сервер и посредники рвут простаивающие), но
-	// с запасом под параллельную запись прогресса по темам.
-	db.SetMaxOpenConns(8)
-	db.SetMaxIdleConns(8)
-	db.SetConnMaxLifetime(3 * time.Minute)
-	db.SetConnMaxIdleTime(time.Minute)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("mariadb: соединение с %s: %w", Target(databaseURL), err)
-	}
-	return db, nil
-}
-
-// RecoverInterrupted помечает осиротевшие после рестарта кампании и проверки
-// (pending/running) как failed. Возвращает общее число восстановленных. Идемпотентен.
-func RecoverInterrupted(ctx context.Context, db *sql.DB) (int64, error) {
-	tag, err := db.ExecContext(ctx,
-		`UPDATE campaigns SET status='failed', error='прервано рестартом сервиса', updated_at=`+nowExpr+`
-		 WHERE status IN ('pending','running')`)
-	if err != nil {
-		return 0, err
-	}
-	n, err := tag.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	tag, err = db.ExecContext(ctx,
-		`UPDATE reviews SET status='failed', error='прервано рестартом сервиса', updated_at=`+nowExpr+`
-		 WHERE status IN ('pending','running')`)
-	if err != nil {
-		return 0, err
-	}
-	m, err := tag.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	return n + m, nil
-}
-
-// newUUID генерирует UUID v4.
-func newUUID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic(err)
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%s-%s-%s-%s-%s",
-		hex.EncodeToString(b[0:4]),
-		hex.EncodeToString(b[4:6]),
-		hex.EncodeToString(b[6:8]),
-		hex.EncodeToString(b[8:10]),
-		hex.EncodeToString(b[10:16]),
-	)
 }
 
 // redactURL прячет пароль в адресе БД: сообщения об ошибках попадают в логи.

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/mariadb"
+	"github.com/977ADAM/marketing-agents/internal/repository/mariadb/pool"
 )
 
 // EnvVar — переменная окружения с адресом сервера MariaDB для тестов.
@@ -53,9 +53,9 @@ func NewEmpty(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	base := serverURL(t)
 
-	admin, err := mariadb.OpenDB(context.Background(), base)
+	admin, err := pool.OpenDB(context.Background(), base)
 	if err != nil {
-		t.Fatalf("подключение к MariaDB (%s): %v", mariadb.Target(base), err)
+		t.Fatalf("подключение к MariaDB (%s): %v", pool.Target(base), err)
 	}
 	t.Cleanup(func() { _ = admin.Close() })
 
@@ -74,9 +74,9 @@ func NewEmpty(t *testing.T) (*sql.DB, string) {
 	})
 
 	dsn := withDatabase(base, name)
-	db, err := mariadb.OpenDB(context.Background(), dsn)
+	db, err := pool.OpenDB(context.Background(), dsn)
 	if err != nil {
-		t.Fatalf("подключение к %s: %v", mariadb.Target(dsn), err)
+		t.Fatalf("подключение к %s: %v", pool.Target(dsn), err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db, dsn

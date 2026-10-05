@@ -3,16 +3,14 @@ package mariadb_test
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/mariadb"
+	"github.com/977ADAM/marketing-agents/internal/repository/mariadb"
+	"github.com/977ADAM/marketing-agents/internal/repository/mariadb/pool"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/testdb"
-	"github.com/go-sql-driver/mysql"
 )
 
 // testStores — три хранилища поверх одной БД: адаптер разделён по сущностям,
@@ -53,7 +51,7 @@ func newEmptyStore(t *testing.T) *testStores {
 // пережили перезапуск» — базу и схему готовит testdb, соединения открывает тест.
 func openStores(t *testing.T, dsn string) *testStores {
 	t.Helper()
-	db, err := mariadb.OpenDB(context.Background(), dsn)
+	db, err := pool.OpenDB(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
@@ -131,74 +129,6 @@ func TestForeignKeysEnforced(t *testing.T) {
 		`INSERT INTO deliverables (id, campaign_id, topic, title, body, cta, review)
 		 VALUES ('d-1','00000000-0000-0000-0000-00000000dead','t','a','b','c','{}')`); err == nil {
 		t.Fatal("ожидали ошибку FOREIGN KEY")
-	}
-}
-
-// DSN: обязательные настройки соединения на месте, чужая схема отвергается.
-func TestDSN(t *testing.T) {
-	dsn, err := mariadb.DSN("mysql://marketing:s%40cret@db:3307/marketing")
-	if err != nil {
-		t.Fatalf("DSN: %v", err)
-	}
-	// Разбираем итоговый DSN драйвером: так проверяются значения полей, а не
-	// строки в адресе (драйвер, например, не пишет loc=UTC — это его дефолт).
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatalf("ParseDSN(%q): %v", dsn, err)
-	}
-	if cfg.User != "marketing" || cfg.Passwd != "s@cret" {
-		t.Errorf("креды = %q/%q, want marketing/s@cret", cfg.User, cfg.Passwd)
-	}
-	if cfg.Addr != "db:3307" || cfg.DBName != "marketing" {
-		t.Errorf("адрес = %q/%q, want db:3307/marketing", cfg.Addr, cfg.DBName)
-	}
-	if !cfg.ParseTime {
-		t.Error("parseTime выключен: DATETIME(3) не прочитается в time.Time")
-	}
-	if cfg.Loc != time.UTC {
-		t.Errorf("Loc = %v, want UTC", cfg.Loc)
-	}
-	if got := cfg.Params["time_zone"]; got != "'+00:00'" {
-		t.Errorf("time_zone = %q, want сессию в UTC", got)
-	}
-	for _, want := range []string{"collation=utf8mb4_unicode_ci", "timeTruncate=1ms"} {
-		if !strings.Contains(dsn, want) {
-			t.Errorf("DSN = %q, нет %q", dsn, want)
-		}
-	}
-
-	// Порт по умолчанию и параметры драйвера из адреса.
-	dsn, err = mariadb.DSN("mysql://user:pass@db/marketing?timeout=9s")
-	if err != nil {
-		t.Fatalf("DSN: %v", err)
-	}
-	cfg, err = mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatalf("ParseDSN(%q): %v", dsn, err)
-	}
-	if cfg.Addr != "db:3306" {
-		t.Errorf("Addr = %q, want порт 3306 по умолчанию", cfg.Addr)
-	}
-	if cfg.Timeout != 9*time.Second {
-		t.Errorf("Timeout = %v, параметр из адреса потерялся", cfg.Timeout)
-	}
-
-	if _, err := mariadb.DSN("sqlite:data/marketing.db"); err == nil {
-		t.Error("sqlite-адрес должен отвергаться с понятной ошибкой")
-	}
-	if _, err := mariadb.DSN(""); err == nil {
-		t.Error("пустой адрес должен отвергаться")
-	}
-}
-
-// Target показывает адрес для логов: пароль туда попадать не должен.
-func TestTargetHidesPassword(t *testing.T) {
-	got := mariadb.Target("mysql://marketing:supersecret@db:3306/marketing")
-	if strings.Contains(got, "supersecret") {
-		t.Errorf("Target = %q: пароль утёк", got)
-	}
-	if !strings.Contains(got, "db:3306/marketing") {
-		t.Errorf("Target = %q, want адрес с хостом и базой", got)
 	}
 }
 
