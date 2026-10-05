@@ -9,7 +9,6 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // Значения по умолчанию для подбора тем (переопределяются через Options).
@@ -73,7 +72,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progres
 		if calls >= maxCalls {
 			break
 		}
-		top, err := o.opt.Wordstat.TopRequests(ctx, wordstat.TopParams{
+		top, err := o.opt.Wordstat.Demand(ctx, topic.DemandParams{
 			Phrase:     seed,
 			NumPhrases: o.numPhrases(),
 			Regions:    regions,
@@ -126,7 +125,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progres
 		queries := queriesOf(d.Queries, counts)
 		var season *topic.Seasonality
 		if head := headOf(queries); head != "" && calls < maxCalls {
-			dyn, err := o.opt.Wordstat.Dynamics(ctx, wordstat.DynamicsParams{
+			dyn, err := o.opt.Wordstat.Dynamics(ctx, topic.DynamicsParams{
 				Phrase:  head,
 				Period:  "monthly",
 				Regions: regions,
@@ -241,8 +240,8 @@ func regionList(briefRegion, defaultRegion string) []string {
 
 // collectCounts складывает фразы сеялки в общий словарь «фраза → частотность».
 // Одинаковые формулировки из разных сеялок схлопываются по максимуму.
-func collectCounts(counts map[string]int64, top *wordstat.Top) {
-	for _, q := range append(append([]wordstat.PhraseCount{}, top.Requests...), top.Associations...) {
+func collectCounts(counts map[string]int64, top topic.Demand) {
+	for _, q := range append(append([]topic.PhraseCount{}, top.Requests...), top.Associations...) {
 		if q.Count > counts[q.Phrase] {
 			counts[q.Phrase] = q.Count
 		}

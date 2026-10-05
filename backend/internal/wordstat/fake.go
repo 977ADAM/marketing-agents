@@ -4,20 +4,22 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
-// Fake — подмена Source в тестах: заранее заданные ответы по фразам плюс журнал
-// вызовов. По умолчанию (фраза не описана) возвращает «спроса нет» — это
+// Fake — подмена topic.Source в тестах: заранее заданные ответы по фразам плюс
+// журнал вызовов. По умолчанию (фраза не описана) возвращает «спроса нет» — это
 // валидный ответ, а не ошибка, поэтому тесты не обязаны описывать каждую фразу.
 type Fake struct {
 	mu sync.Mutex
 
-	// Tops — ответы top_requests по фразе.
-	Tops map[string]*Top
+	// Tops — ответы по спросу на фразу.
+	Tops map[string]topic.Demand
 	// Default — ответ для фраз, которых нет в Tops.
-	Default *Top
-	// DynamicsR и RegionsR — ответы соответствующих инструментов.
-	DynamicsR *Dynamics
+	Default *topic.Demand
+	// DynamicsR и RegionsR — ответы соответствующих запросов.
+	DynamicsR *topic.Dynamics
 	RegionsR  *Regions
 	// Err — если задан, все вызовы возвращают эту ошибку.
 	Err error
@@ -25,57 +27,58 @@ type Fake struct {
 	calls []string
 	// TopParamsLog — параметры запросов спроса: тесты проверяют, что регион и
 	// число фраз действительно уходят в источник.
-	TopParamsLog []TopParams
+	TopParamsLog []topic.DemandParams
 	// DynamicsParamsLog — параметры запросов сезонности.
-	DynamicsParamsLog []DynamicsParams
+	DynamicsParamsLog []topic.DynamicsParams
 }
 
 // NewFake создаёт подмену с пустым журналом.
 func NewFake() *Fake {
-	return &Fake{Tops: map[string]*Top{}}
+	return &Fake{Tops: map[string]topic.Demand{}}
 }
 
-// SetTop описывает ответ top_requests по конкретной фразе.
-func (f *Fake) SetTop(phrase string, top *Top) {
+// SetTop описывает ответ по спросу на конкретную фразу.
+func (f *Fake) SetTop(phrase string, demand topic.Demand) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.Tops[phrase] = top
+	f.Tops[phrase] = demand
 }
 
-// TopRequests возвращает спрос по фразе.
-func (f *Fake) TopRequests(_ context.Context, p TopParams) (*Top, error) {
+// Demand возвращает спрос по фразе (порт topic.Source).
+func (f *Fake) Demand(_ context.Context, p topic.DemandParams) (topic.Demand, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "top_requests:"+p.Phrase)
 	f.TopParamsLog = append(f.TopParamsLog, p)
 	if f.Err != nil {
-		return nil, f.Err
+		return topic.Demand{}, f.Err
 	}
 	if top, ok := f.Tops[p.Phrase]; ok {
 		return top, nil
 	}
 	if f.Default != nil {
-		return f.Default, nil
+		return *f.Default, nil
 	}
-	return &Top{Phrase: p.Phrase, HasData: false}, nil
+	return topic.Demand{Phrase: p.Phrase, HasData: false}, nil
 }
 
-// Dynamics возвращает сезонность.
-func (f *Fake) Dynamics(_ context.Context, p DynamicsParams) (*Dynamics, error) {
+// Dynamics возвращает сезонность (порт topic.Source).
+func (f *Fake) Dynamics(_ context.Context, p topic.DynamicsParams) (topic.Dynamics, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "dynamics:"+p.Phrase)
 	f.DynamicsParamsLog = append(f.DynamicsParamsLog, p)
 	if f.Err != nil {
-		return nil, f.Err
+		return topic.Dynamics{}, f.Err
 	}
 	if f.DynamicsR != nil {
-		return f.DynamicsR, nil
+		return *f.DynamicsR, nil
 	}
-	return &Dynamics{Phrase: p.Phrase, Period: p.Period}, nil
+	return topic.Dynamics{Phrase: p.Phrase, Period: p.Period}, nil
 }
 
-// Regions возвращает географию.
+// Regions возвращает географию: в порт topic.Source не входит, но клиент и
+// подмена её умеют — этим пользуются тесты декоратора и дымовой тест.
 func (f *Fake) Regions(_ context.Context, p RegionsParams) (*Regions, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -104,15 +107,15 @@ func (f *Fake) CallCount() int {
 }
 
 // Seed — описание спроса для тестов: объём, формулировки и ассоциации.
-func Seed(phrase string, total int64, requests map[string]int64) *Top {
-	top := &Top{Phrase: phrase, TotalCount: total, HasData: total > 0}
+func Seed(phrase string, total int64, requests map[string]int64) topic.Demand {
+	demand := topic.Demand{Phrase: phrase, TotalCount: total, HasData: total > 0}
 	for text, count := range requests {
-		top.Requests = append(top.Requests, PhraseCount{Phrase: text, Count: count})
+		demand.Requests = append(demand.Requests, topic.PhraseCount{Phrase: text, Count: count})
 	}
-	return top
+	return demand
 }
 
-// String — для читаемых сообщений об ошибках в тестах.
+// String — для читаемых сообщениях об ошибках в тестах.
 func (f *Fake) String() string {
 	return fmt.Sprintf("wordstat.Fake(%d вызовов)", f.CallCount())
 }

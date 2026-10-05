@@ -7,28 +7,32 @@ import (
 	"strings"
 	"time"
 
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
-// TracingSource оборачивает источник спроса и пишет обращения в трассу прогона:
-// инструмент, параметры запроса, что вернулось и сколько заняло.
+// TracingSource оборачивает источник спроса (topic.Source) и пишет обращения в
+// трассу прогона: что спрашивали, что вернулось и сколько заняло.
 //
 // В режиме full в payload попадают параметры и результат целиком (они небольшие),
 // но заголовки авторизации не пишутся никогда — их тут и нет.
+//
+// География (Regions) в порт не входит: её запрашивает только дымовой тест, и он
+// работает с конкретным клиентом напрямую, без декоратора.
 type TracingSource struct {
-	inner Source
+	inner topic.Source
 	rec   trace.Recorder
 }
 
 // NewTracing оборачивает источник. Рекордер nil-безопасен.
-func NewTracing(inner Source, rec trace.Recorder) *TracingSource {
+func NewTracing(inner topic.Source, rec trace.Recorder) *TracingSource {
 	return &TracingSource{inner: inner, rec: trace.OrNop(rec)}
 }
 
-// TopRequests записывает спрос по фразе.
-func (s *TracingSource) TopRequests(ctx context.Context, p TopParams) (*Top, error) {
+// Demand записывает спрос по фразе.
+func (s *TracingSource) Demand(ctx context.Context, p topic.DemandParams) (topic.Demand, error) {
 	start := time.Now()
-	top, err := s.inner.TopRequests(ctx, p)
+	demand, err := s.inner.Demand(ctx, p)
 
 	payload := map[string]any{
 		"phrase":     p.Phrase,
@@ -48,23 +52,23 @@ func (s *TracingSource) TopRequests(ctx context.Context, p TopParams) (*Top, err
 		ev.Error = err.Error()
 		ev.Summary = fmt.Sprintf("top_requests «%s»: ошибка", p.Phrase)
 	} else {
-		payload["totalCount"] = top.TotalCount
-		payload["hasData"] = top.HasData
-		payload["cacheHit"] = top.CacheHit
-		payload["requests"] = len(top.Requests)
-		payload["associations"] = len(top.Associations)
+		payload["totalCount"] = demand.TotalCount
+		payload["hasData"] = demand.HasData
+		payload["cacheHit"] = demand.CacheHit
+		payload["requests"] = len(demand.Requests)
+		payload["associations"] = len(demand.Associations)
 		ev.Summary = fmt.Sprintf("top_requests «%s»%s: %s показов, %d фраз",
-			p.Phrase, regionNote(p.Regions), humanCount(top.TotalCount), len(top.Requests))
-		if !top.HasData {
+			p.Phrase, regionNote(p.Regions), humanCount(demand.TotalCount), len(demand.Requests))
+		if !demand.HasData {
 			ev.Summary = fmt.Sprintf("top_requests «%s»%s: спроса нет", p.Phrase, regionNote(p.Regions))
 		}
 	}
 	s.rec.Event(ctx, ev)
-	return top, err
+	return demand, err
 }
 
 // Dynamics записывает сезонность.
-func (s *TracingSource) Dynamics(ctx context.Context, p DynamicsParams) (*Dynamics, error) {
+func (s *TracingSource) Dynamics(ctx context.Context, p topic.DynamicsParams) (topic.Dynamics, error) {
 	start := time.Now()
 	dyn, err := s.inner.Dynamics(ctx, p)
 
@@ -92,10 +96,17 @@ func (s *TracingSource) Dynamics(ctx context.Context, p DynamicsParams) (*Dynami
 	return dyn, err
 }
 
-// Regions записывает географию спроса.
+// Regions записывает географию спроса: в порт topic.Source она не входит, поэтому
+// декоратор поддерживает её, только если внутренний источник умеет.
 func (s *TracingSource) Regions(ctx context.Context, p RegionsParams) (*Regions, error) {
+	inner, ok := s.inner.(interface {
+		Regions(context.Context, RegionsParams) (*Regions, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("wordstat: источник не умеет Regions")
+	}
 	start := time.Now()
-	regions, err := s.inner.Regions(ctx, p)
+	regions, err := inner.Regions(ctx, p)
 
 	payload := map[string]any{
 		"phrase": p.Phrase, "regionMode": p.RegionMode, "includeNames": p.IncludeNames,

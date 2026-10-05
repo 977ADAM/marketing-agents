@@ -9,7 +9,6 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // SelectOptions — правила отбора тем из настроек (config).
@@ -76,7 +75,7 @@ func isTechnical(phrase string) bool {
 
 // SeasonalityOf считает сезонную поправку по ряду dynamics: пик, дно, размах.
 // Seasonal = размах не меньше factor — тогда тему не отсекаем по «летнему» спросу.
-func SeasonalityOf(points []wordstat.DynamicsPoint, factor float64) *topic.Seasonality {
+func SeasonalityOf(points []topic.DynamicsPoint, factor float64) *topic.Seasonality {
 	if len(points) == 0 {
 		return nil
 	}

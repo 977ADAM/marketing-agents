@@ -6,8 +6,6 @@
 // разбирается намеренно: парсить человекочитаемый отчёт хрупко.
 package wordstat
 
-import "context"
-
 // PhraseCount — фраза и её частотность за последние 30 дней.
 type PhraseCount struct {
 	Phrase string `json:"phrase"`
@@ -96,12 +94,4 @@ type RegionsParams struct {
 	Phrase       string
 	RegionMode   string // all | cities | regions
 	IncludeNames bool
-}
-
-// Source — то, что нужно оркестратору от Wordstat. Интерфейс, а не конкретный
-// тип: в тестах подменяется Fake, в проде — клиент MCP.
-type Source interface {
-	TopRequests(ctx context.Context, p TopParams) (*Top, error)
-	Dynamics(ctx context.Context, p DynamicsParams) (*Dynamics, error)
-	Regions(ctx context.Context, p RegionsParams) (*Regions, error)
 }

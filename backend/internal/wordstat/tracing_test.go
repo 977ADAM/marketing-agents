@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -24,7 +25,7 @@ func TestTracingSourceRecordsTopRequests(t *testing.T) {
 	rec := &captureRecorder{}
 	src := wordstat.NewTracing(winterSourceForTrace(), rec)
 
-	top, err := src.TopRequests(ctxWithRun(), wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 50, Regions: []string{"213"}})
+	top, err := src.Demand(ctxWithRun(), topic.DemandParams{Phrase: "зимняя резина", NumPhrases: 50, Regions: []string{"213"}})
 	if err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestTracingSourceRecordsNoDemand(t *testing.T) {
 	rec := &captureRecorder{}
 	src := wordstat.NewTracing(wordstat.NewFake(), rec) // Fake по умолчанию отдаёт «спроса нет»
 
-	if _, err := src.TopRequests(ctxWithRun(), wordstat.TopParams{Phrase: "ыфвыфв ыфва"}); err != nil {
+	if _, err := src.Demand(ctxWithRun(), topic.DemandParams{Phrase: "ыфвыфв ыфва"}); err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
 	ev := rec.events[0]
@@ -80,11 +81,11 @@ func TestTracingSourceRecordsNoDemand(t *testing.T) {
 func TestTracingSourceRecordsDynamicsAndRegions(t *testing.T) {
 	rec := &captureRecorder{}
 	fake := wordstat.NewFake()
-	fake.DynamicsR = &wordstat.Dynamics{Phrase: "зимняя резина", Points: []wordstat.DynamicsPoint{{Date: "2026-09-01T00:00:00Z", Count: 10}}}
+	fake.DynamicsR = &topic.Dynamics{Phrase: "зимняя резина", Points: []topic.DynamicsPoint{{Date: "2026-09-01T00:00:00Z", Count: 10}}}
 	fake.RegionsR = &wordstat.Regions{Phrase: "аренда офиса", Items: []wordstat.RegionItem{{RegionID: "225", Name: "Россия", Count: 45299}}}
 	src := wordstat.NewTracing(fake, rec)
 
-	if _, err := src.Dynamics(ctxWithRun(), wordstat.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"}); err != nil {
+	if _, err := src.Dynamics(ctxWithRun(), topic.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"}); err != nil {
 		t.Fatalf("Dynamics: %v", err)
 	}
 	if _, err := src.Regions(ctxWithRun(), wordstat.RegionsParams{Phrase: "аренда офиса", IncludeNames: true}); err != nil {
@@ -108,7 +109,7 @@ func TestTracingSourceRecordsError(t *testing.T) {
 	fake.Err = errors.New("MCP недоступен")
 	src := wordstat.NewTracing(fake, rec)
 
-	if _, err := src.TopRequests(ctxWithRun(), wordstat.TopParams{Phrase: "зимняя резина"}); err == nil {
+	if _, err := src.Demand(ctxWithRun(), topic.DemandParams{Phrase: "зимняя резина"}); err == nil {
 		t.Fatal("ожидалась ошибка")
 	}
 	ev := rec.events[0]
@@ -121,7 +122,7 @@ func TestTracingSourceRecordsError(t *testing.T) {
 func TestTracingSourceWithoutRunID(t *testing.T) {
 	rec := &captureRecorder{}
 	src := wordstat.NewTracing(winterSourceForTrace(), rec)
-	if _, err := src.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина"}); err != nil {
+	if _, err := src.Demand(context.Background(), topic.DemandParams{Phrase: "зимняя резина"}); err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
 	if len(rec.events) != 1 {

@@ -347,7 +347,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // --- инструменты ---
 
 // TopRequests возвращает спрос по фразе (инструмент top_requests).
-func (c *Client) TopRequests(ctx context.Context, p TopParams) (*Top, error) {
+func (c *Client) topRequests(ctx context.Context, p TopParams) (*Top, error) {
 	if strings.TrimSpace(p.Phrase) == "" {
 		return nil, fmt.Errorf("%w: пустая фраза", ErrInvalidArgument)
 	}
@@ -365,7 +365,7 @@ func (c *Client) TopRequests(ctx context.Context, p TopParams) (*Top, error) {
 }
 
 // Dynamics возвращает сезонность фразы (инструмент dynamics).
-func (c *Client) Dynamics(ctx context.Context, p DynamicsParams) (*Dynamics, error) {
+func (c *Client) fetchDynamics(ctx context.Context, p DynamicsParams) (*Dynamics, error) {
 	if strings.TrimSpace(p.Phrase) == "" {
 		return nil, fmt.Errorf("%w: пустая фраза", ErrInvalidArgument)
 	}

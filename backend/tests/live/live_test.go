@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -31,7 +32,7 @@ func TestLiveMCP(t *testing.T) {
 	})
 
 	// Спрос по стране и по Москве: регион должен реально сужать выборку.
-	all, err := c.TopRequests(ctx, wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 5})
+	all, err := c.Demand(ctx, topic.DemandParams{Phrase: "зимняя резина", NumPhrases: 5})
 	if err != nil {
 		t.Fatalf("TopRequests (вся Россия): %v", err)
 	}
@@ -42,7 +43,7 @@ func TestLiveMCP(t *testing.T) {
 		t.Error("нет популярных запросов")
 	}
 
-	moscow, err := c.TopRequests(ctx, wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 5, Regions: []string{"213"}})
+	moscow, err := c.Demand(ctx, topic.DemandParams{Phrase: "зимняя резина", NumPhrases: 5, Regions: []string{"213"}})
 	if err != nil {
 		t.Fatalf("TopRequests (Москва): %v", err)
 	}
@@ -50,7 +51,7 @@ func TestLiveMCP(t *testing.T) {
 		t.Errorf("спрос по Москве (%d) должен быть меньше общероссийского (%d)", moscow.TotalCount, all.TotalCount)
 	}
 
-	dyn, err := c.Dynamics(ctx, wordstat.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
+	dyn, err := c.Dynamics(ctx, topic.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
 	if err != nil {
 		t.Fatalf("Dynamics: %v", err)
 	}

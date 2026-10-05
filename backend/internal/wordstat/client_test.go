@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -151,7 +152,7 @@ func TestTopRequestsParsesStructuredContent(t *testing.T) {
 	f := newFakeMCP(t, standardFixtures(t))
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 50})
+	top, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "зимняя резина", NumPhrases: 50})
 	if err != nil {
 		t.Fatalf("TopRequests: %v", err)
 	}
@@ -199,7 +200,7 @@ func TestTopRequestsRegionFilter(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "top_requests_region.sse" }
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), wordstat.TopParams{
+	top, err := c.Demand(context.Background(), topic.DemandParams{
 		Phrase: "зимняя резина", NumPhrases: 50, Regions: []string{"213"},
 	})
 	if err != nil {
@@ -208,9 +209,8 @@ func TestTopRequestsRegionFilter(t *testing.T) {
 	if top.TotalCount != 86563 {
 		t.Errorf("TotalCount = %d, want 86563 (только Москва)", top.TotalCount)
 	}
-	if len(top.Regions) != 1 || top.Regions[0] != "213" {
-		t.Errorf("эхо regions = %v, want [213]", top.Regions)
-	}
+	// Эхо-фильтр в доменный тип не выносим: что регион ушёл в аргументах,
+	// проверяем ниже по журналу вызовов.
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -225,7 +225,7 @@ func TestTopRequestsNoDataIsNotAnError(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "top_requests_nodata.sse" }
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "ыфвыфв ыфва", NumPhrases: 5})
+	top, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "ыфвыфв ыфва", NumPhrases: 5})
 	if err != nil {
 		t.Fatalf("отсутствие спроса не должно быть ошибкой: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestDynamicsMonthly(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "dynamics_monthly.sse" }
 	c := newTestClient(f)
 
-	res, err := c.Dynamics(context.Background(), wordstat.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
+	res, err := c.Dynamics(context.Background(), topic.DynamicsParams{Phrase: "зимняя резина", Period: "monthly"})
 	if err != nil {
 		t.Fatalf("Dynamics: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestToolErrorInvalidArgument(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "error_invalid_argument.sse" }
 	c := newTestClient(f)
 
-	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина", Regions: []string{"abc"}})
+	_, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "зимняя резина", Regions: []string{"abc"}})
 	if err == nil {
 		t.Fatal("ожидалась ошибка")
 	}
@@ -313,7 +313,7 @@ func TestUnknownToolIsInternal(t *testing.T) {
 	f.respond = func(string, map[string]any) string { return "error_unknown_tool.sse" }
 	c := newTestClient(f)
 
-	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина"})
+	_, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "зимняя резина"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка")
 	}
@@ -330,7 +330,7 @@ func TestSessionReconnectOnLostSession(t *testing.T) {
 	f.failFirstToolCall = true
 	c := newTestClient(f)
 
-	top, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина", NumPhrases: 50})
+	top, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "зимняя резина", NumPhrases: 50})
 	if err != nil {
 		t.Fatalf("после переподключения ожидался успех: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestUnauthorizedIsInternal(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c := wordstat.New(wordstat.Options{URL: srv.URL, User: "admin", Pass: "wrong", HTTP: srv.Client()})
-	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "зимняя резина"})
+	_, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "зимняя резина"})
 	if err == nil {
 		t.Fatal("ожидалась ошибка авторизации")
 	}
@@ -372,7 +372,7 @@ func TestEmptyPhraseFailsFast(t *testing.T) {
 	f := newFakeMCP(t, standardFixtures(t))
 	c := newTestClient(f)
 
-	_, err := c.TopRequests(context.Background(), wordstat.TopParams{Phrase: "   "})
+	_, err := c.Demand(context.Background(), topic.DemandParams{Phrase: "   "})
 	if !errors.Is(err, wordstat.ErrInvalidArgument) {
 		t.Fatalf("err = %v, want ErrInvalidArgument", err)
 	}

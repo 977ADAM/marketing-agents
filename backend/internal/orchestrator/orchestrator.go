@@ -4,6 +4,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -12,7 +13,6 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/trace"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 type Options struct {
@@ -24,7 +24,7 @@ type Options struct {
 
 	// Wordstat — источник спроса на темы. nil (или nil Semanticist) означает,
 	// что подбор тем выключен: темы даёт стратег, как до появления Wordstat.
-	Wordstat wordstat.Source
+	Wordstat topic.Source
 	// Semanticist — агент подбора тем: сеялки, кластеризация, fallback.
 	Semanticist *agents.Semanticist
 	// Select — правила отбора тем (порог объёма, множитель сезонности).

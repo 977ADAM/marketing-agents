@@ -61,7 +61,7 @@ func winterSource() *wordstat.Fake {
 		"какую зимнюю резину":       92398,
 		"какая зимняя резина лучше": 34038,
 	}))
-	src.DynamicsR = &wordstat.Dynamics{Phrase: "зимняя резина", Period: "PERIOD_MONTHLY", Points: winterDynamics()}
+	src.DynamicsR = &topic.Dynamics{Phrase: "зимняя резина", Period: "PERIOD_MONTHLY", Points: winterDynamics()}
 	return src
 }
 
@@ -73,7 +73,7 @@ func researchBrief() campaign.Brief {
 	return b
 }
 
-func researchOptions(src wordstat.Source, opt orchestrator.Options) orchestrator.Options {
+func researchOptions(src topic.Source, opt orchestrator.Options) orchestrator.Options {
 	opt.CriticMaxIter = 3
 	opt.ScoreThreshold = 80
 	opt.CostPer1KPrompt = 1

@@ -16,6 +16,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
@@ -86,7 +87,7 @@ func main() {
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
 	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
-	var source wordstat.Source
+	var source topic.Source
 	if cfg.WordstatMCPURL != "" {
 		source = wordstat.NewTracing(wordstat.New(wordstat.Options{
 			URL:  cfg.WordstatMCPURL,

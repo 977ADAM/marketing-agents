@@ -5,7 +5,6 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // Числа в тестах — из живых фикстур Wordstat (backend/internal/wordstat/testdata):
@@ -17,9 +16,9 @@ func draft(title, goal string) topic.TopicDraft {
 	return topic.TopicDraft{Title: title, Goal: goal, Task: "задача"}
 }
 
-func winterDynamics() []wordstat.DynamicsPoint {
+func winterDynamics() []topic.DynamicsPoint {
 	// Реальные точки dynamics за 12 месяцев: пик в октябре, дно в июне.
-	return []wordstat.DynamicsPoint{
+	return []topic.DynamicsPoint{
 		{Date: "2025-10-01T00:00:00Z", Count: 1700930},
 		{Date: "2025-11-01T00:00:00Z", Count: 1228062},
 		{Date: "2026-02-01T00:00:00Z", Count: 212236},
@@ -148,7 +147,7 @@ func TestSelectTopicsSeasonalRescue(t *testing.T) {
 
 // Сезонность без большого размаха — не спасение: тема остаётся ниже порога.
 func TestSelectTopicsFlatSeasonalityDoesNotRescue(t *testing.T) {
-	flat := orchestrator.SeasonalityOf([]wordstat.DynamicsPoint{
+	flat := orchestrator.SeasonalityOf([]topic.DynamicsPoint{
 		{Date: "2026-01-01T00:00:00Z", Count: 500},
 		{Date: "2026-02-01T00:00:00Z", Count: 450},
 	}, selectOpts.SeasonalityFactor)
