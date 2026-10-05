@@ -12,9 +12,10 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/config"
-	"github.com/977ADAM/marketing-agents/internal/httpapi"
+	apihttp "github.com/977ADAM/marketing-agents/internal/http"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/runner"
 	"github.com/977ADAM/marketing-agents/internal/sqlite"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -117,9 +118,9 @@ func main() {
 
 		Recorder: recorder,
 	})
-	hub := httpapi.NewHub(baseCtx, campaigns, reviews)
-	runner := httpapi.NewRunner(baseCtx, campaigns, reviews, orch, cfg.RunTimeout, logger, hub)
-	api := httpapi.New(campaigns, reviews, events, runner, hub, cfg.RateLimitPerMin)
+	hub := runner.NewHub(baseCtx, campaigns, reviews)
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, cfg.RunTimeout, logger, hub)
+	api := apihttp.New(campaigns, reviews, events, runner, hub, cfg.RateLimitPerMin)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
 	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и
@@ -137,7 +138,7 @@ func main() {
 		_, _ = w.Write([]byte("marketing-agents API: /api/*, /healthz. Веб-интерфейс отдаёт фронтенд (frontend/).\n"))
 	})
 
-	handler := httpapi.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
+	handler := apihttp.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler}
 
 	go func() {

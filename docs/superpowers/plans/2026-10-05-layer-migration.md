@@ -95,6 +95,13 @@ root остаётся `OpenDB` + `*sql.DB`), в порту проверок су
 (`Phase`, `Snapshot`, `TopicProgress`, `Progress`) переезжают туда же, `httpapi`
 перестаёт владеть жизненным циклом прогонов.
 
+**Статус: сделано, с уточнением.** Типы прогресса — в `internal/run` (`e2073de`,
+лист без зависимостей). Раннер и hub — в `internal/runner`, а не в `run`: доменные
+записи (`campaign.Record.Progress`, `review.Record.Progress`) ссылаются на
+`run.Snapshot`, поэтому `run → campaign/review` дало бы цикл. `runner` же зависит от
+`campaign`, `review`, `run`, `orchestrator` и `trace`, и его никто, кроме
+composition root, не импортирует.
+
 ### Шаг 5. agents → topic/campaign/review/llm
 
 Промпты и вызовы модели разъезжаются по доменам, `llm` остаётся адаптером
@@ -104,6 +111,10 @@ root остаётся `OpenDB` + `*sql.DB`), в порту проверок су
 
 `internal/httpapi` → `internal/http`: `server.go` (роуты, middleware, auth),
 `campaign.go`, `review.go`, `trajectory.go` — тонкий транспорт поверх портов.
+
+**Статус: сделано.** Имя `http` конфликтует с `net/http` в файлах, которым нужны
+оба, поэтому в `main` и тестах пакет подключён как `apihttp` (это осознанная плата
+за имя по §5).
 
 ### Шаг 7. Моки и config
 

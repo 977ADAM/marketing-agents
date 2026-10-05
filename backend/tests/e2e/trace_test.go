@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/runner"
 	"io"
 	"log/slog"
 	"testing"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/sqlite"
@@ -59,9 +59,9 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		MaxWordstatCalls: 5,
 		DefaultRegion:    "225",
 	})
-	hub := httpapi.NewHub(ctx, campaigns, reviews)
+	hub := runner.NewHub(ctx, campaigns, reviews)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner := httpapi.NewRunner(ctx, campaigns, reviews, orch, 30*time.Second, logger, hub)
+	runner := runner.NewRunner(ctx, campaigns, reviews, orch, 30*time.Second, logger, hub)
 
 	brief := campaign.Brief{
 		Product: "Зимняя резина", Goal: "рост продаж", Audience: "автовладельцы",
