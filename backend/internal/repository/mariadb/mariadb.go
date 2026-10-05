@@ -1,51 +1,47 @@
-// Package mariadb — репозитории поверх MariaDB: SQL по сущностям и перевод строк
-// в доменные типы.
+// Package mariadb — репозитории поверх MariaDB на GORM: модели таблиц, запросы и
+// перевод строк в доменные типы.
 //
-// Соединение открывает internal/repository/mariadb/pool — здесь его только
+// Соединение открывает internal/core/repository/mariadb/pool — здесь его только
 // используют. Порты объявлены в доменных пакетах (campaign.Store, review.Store,
 // trace.Store, trace.Sink), а имена файлов — по сущности, а не по слою.
+//
+// Модели (campaignRow, reviewRow, runEventRow) — внутренние: домен про GORM не
+// знает, JSON-поля лежат текстом, а время — DATETIME(3) в UTC.
 package mariadb
 
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"time"
+
+	"gorm.io/gorm"
 )
 
 // DefaultClientID — клиент по умолчанию: кампании и проверки без явного client_id.
 const DefaultClientID = "00000000-0000-0000-0000-000000000001"
 
-// nowExpr — SQL-выражение «сейчас» в UTC с точностью колонок DATETIME(3).
-// UTC_TIMESTAMP не зависит от таймзоны сессии, поэтому значение не поедет, даже
-// если соединение почему-то окажется не в UTC.
-const nowExpr = `UTC_TIMESTAMP(3)`
+// interruptedMsg — чем помечается прогон, переживший рестарт сервиса.
+const interruptedMsg = "прервано рестартом сервиса"
+
+// nowUTC — момент записи в UTC: колонки DATETIME(3) хранят время без таймзоны.
+func nowUTC() time.Time { return time.Now().UTC() }
 
 // RecoverInterrupted помечает осиротевшие после рестарта кампании и проверки
 // (pending/running) как failed. Возвращает общее число восстановленных. Идемпотентен.
-func RecoverInterrupted(ctx context.Context, db *sql.DB) (int64, error) {
-	tag, err := db.ExecContext(ctx,
-		`UPDATE campaigns SET status='failed', error='прервано рестартом сервиса', updated_at=`+nowExpr+`
-		 WHERE status IN ('pending','running')`)
-	if err != nil {
-		return 0, err
+func RecoverInterrupted(ctx context.Context, db *gorm.DB) (int64, error) {
+	var total int64
+	for _, model := range []any{&campaignRow{}, &reviewRow{}} {
+		res := db.WithContext(ctx).Model(model).
+			Where("status IN ?", []string{"pending", "running"}).
+			Updates(map[string]any{"status": "failed", "error": interruptedMsg, "updated_at": nowUTC()})
+		if res.Error != nil {
+			return 0, res.Error
+		}
+		total += res.RowsAffected
 	}
-	n, err := tag.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	tag, err = db.ExecContext(ctx,
-		`UPDATE reviews SET status='failed', error='прервано рестартом сервиса', updated_at=`+nowExpr+`
-		 WHERE status IN ('pending','running')`)
-	if err != nil {
-		return 0, err
-	}
-	m, err := tag.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	return n + m, nil
+	return total, nil
 }
 
 // newUUID генерирует UUID v4.

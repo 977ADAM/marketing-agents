@@ -2,13 +2,14 @@ package mariadb_test
 
 import (
 	"context"
-	"database/sql"
 	"sync"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 	"github.com/977ADAM/marketing-agents/internal/repository/mariadb"
-	"github.com/977ADAM/marketing-agents/internal/repository/mariadb/pool"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/testdb"
 )
@@ -19,11 +20,11 @@ type testStores struct {
 	campaigns *mariadb.Campaigns
 	reviews   *mariadb.Reviews
 	events    *mariadb.Events
-	db        *sql.DB
+	db        *gorm.DB
 }
 
 // newStores оборачивает соединение тремя хранилищами.
-func newStores(db *sql.DB) *testStores {
+func newStores(db *gorm.DB) *testStores {
 	return &testStores{
 		campaigns: mariadb.NewCampaigns(db),
 		reviews:   mariadb.NewReviews(db),
@@ -51,11 +52,11 @@ func newEmptyStore(t *testing.T) *testStores {
 // пережили перезапуск» — базу и схему готовит testdb, соединения открывает тест.
 func openStores(t *testing.T, dsn string) *testStores {
 	t.Helper()
-	db, err := pool.OpenDB(context.Background(), dsn)
+	db, err := pool.Open(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("OpenDB: %v", err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { _ = pool.Close(db) })
 	return newStores(db)
 }
 
@@ -125,9 +126,9 @@ func TestRecoverInterrupted(t *testing.T) {
 func TestForeignKeysEnforced(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	if _, err := st.db.ExecContext(ctx,
-		`INSERT INTO deliverables (id, campaign_id, topic, title, body, cta, review)
-		 VALUES ('d-1','00000000-0000-0000-0000-00000000dead','t','a','b','c','{}')`); err == nil {
+	if err := st.db.WithContext(ctx).
+		Exec(`INSERT INTO deliverables (id, campaign_id, topic, title, body, cta, review)
+		 VALUES ('d-1','00000000-0000-0000-0000-00000000dead','t','a','b','c','{}')`).Error; err == nil {
 		t.Fatal("ожидали ошибку FOREIGN KEY")
 	}
 }

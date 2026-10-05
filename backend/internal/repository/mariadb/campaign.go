@@ -2,19 +2,55 @@ package mariadb
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
-// Campaigns — хранилище campaigns поверх общего соединения.
-type Campaigns struct{ db *sql.DB }
+// campaignRow — таблица campaigns. JSON (бриф, стратегия, прогресс) лежит текстом:
+// разбирает и собирает его Go. created_at/updated_at только читаются (->):
+// created_at ставит БД при вставке, updated_at обновляем явно вместе с данными.
+type campaignRow struct {
+	ID        string    `gorm:"column:id;type:varchar(36);primaryKey"`
+	ClientID  string    `gorm:"column:client_id;type:varchar(36);not null"`
+	Status    string    `gorm:"column:status;type:varchar(32);not null"`
+	Brief     string    `gorm:"column:brief;type:mediumtext;not null"`
+	Strategy  *string   `gorm:"column:strategy;type:mediumtext"`
+	Progress  *string   `gorm:"column:progress;type:mediumtext"`
+	CostUSD   *float64  `gorm:"column:cost_usd"`
+	Error     *string   `gorm:"column:error;type:mediumtext"`
+	CreatedAt time.Time `gorm:"column:created_at;->"`
+	UpdatedAt time.Time `gorm:"column:updated_at;->"`
+}
 
-// NewCampaigns оборачивает соединение: сам SQL живёт в этом файле.
-func NewCampaigns(db *sql.DB) *Campaigns { return &Campaigns{db: db} }
+func (campaignRow) TableName() string { return "campaigns" }
+
+// deliverableRow — таблица deliverables: статья с ревью. position задаёт порядок
+// статей в медиаплане (created_at у них общий — вставка одной транзакцией).
+type deliverableRow struct {
+	ID         string    `gorm:"column:id;type:varchar(36);primaryKey"`
+	CampaignID string    `gorm:"column:campaign_id;type:varchar(36);not null"`
+	Position   int       `gorm:"column:position;not null"`
+	Topic      string    `gorm:"column:topic;type:text;not null"`
+	Title      string    `gorm:"column:title;type:text;not null"`
+	Body       string    `gorm:"column:body;type:mediumtext;not null"`
+	CTA        string    `gorm:"column:cta;type:text;not null"`
+	Review     string    `gorm:"column:review;type:mediumtext;not null"`
+	CreatedAt  time.Time `gorm:"column:created_at;->"`
+}
+
+func (deliverableRow) TableName() string { return "deliverables" }
+
+// Campaigns — хранилище campaigns поверх общего соединения.
+type Campaigns struct{ db *gorm.DB }
+
+// NewCampaigns оборачивает соединение: сами запросы живут в этом файле.
+func NewCampaigns(db *gorm.DB) *Campaigns { return &Campaigns{db: db} }
 
 // Create вставляет кампанию в статусе pending и возвращает её id.
 func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
@@ -23,138 +59,131 @@ func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Bri
 	}
 	id := newUUID()
 	briefJSON, _ := json.Marshal(b)
-	_, err := cs.db.ExecContext(ctx,
-		`INSERT INTO campaigns (id, client_id, status, brief) VALUES (?, ?, 'pending', ?)`,
-		id, clientID, string(briefJSON))
-	return id, err
+	row := campaignRow{ID: id, ClientID: clientID, Status: "pending", Brief: string(briefJSON)}
+	if err := cs.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // MarkRunning переводит кампанию в running.
 func (cs *Campaigns) MarkRunning(ctx context.Context, id string) error {
-	_, err := cs.db.ExecContext(ctx,
-		`UPDATE campaigns SET status='running', updated_at=`+nowExpr+` WHERE id=?`, id)
-	return err
+	return cs.update(ctx, id, map[string]any{"status": "running"})
 }
 
 // SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
 func (cs *Campaigns) SaveProgress(ctx context.Context, id string, snap run.Snapshot) error {
 	b, _ := json.Marshal(snap)
-	_, err := cs.db.ExecContext(ctx,
-		`UPDATE campaigns SET progress=?, updated_at=`+nowExpr+` WHERE id=?`, string(b), id)
-	return err
-}
-
-// Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
-func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outcome) error {
-	stratJSON, _ := json.Marshal(res.Strategy)
-	tx, err := cs.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE campaigns SET status='done', strategy=?, cost_usd=?, updated_at=`+nowExpr+` WHERE id=?`,
-		string(stratJSON), res.CostUSD, id); err != nil {
-		return err
-	}
-	for i, d := range res.Deliverables {
-		reviewJSON, _ := json.Marshal(d.Review)
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO deliverables (id, campaign_id, position, topic, title, body, cta, review)
-			 VALUES (?,?,?,?,?,?,?,?)`,
-			newUUID(), id, i, d.Topic, d.Title, d.Body, d.CTA, string(reviewJSON)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	return cs.update(ctx, id, map[string]any{"progress": string(b)})
 }
 
 // Fail переводит кампанию в failed с текстом ошибки.
 func (cs *Campaigns) Fail(ctx context.Context, id, msg string) error {
-	_, err := cs.db.ExecContext(ctx,
-		`UPDATE campaigns SET status='failed', error=?, updated_at=`+nowExpr+` WHERE id=?`, msg, id)
-	return err
+	return cs.update(ctx, id, map[string]any{"status": "failed", "error": msg})
+}
+
+// Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
+// Транзакция своя: либо результат со статьями целиком, либо ничего.
+func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outcome) error {
+	stratJSON, _ := json.Marshal(res.Strategy)
+	return cs.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		values := map[string]any{
+			"status":     "done",
+			"strategy":   string(stratJSON),
+			"cost_usd":   res.CostUSD,
+			"updated_at": nowUTC(),
+		}
+		if err := tx.Model(&campaignRow{}).Where("id = ?", id).Updates(values).Error; err != nil {
+			return err
+		}
+		if len(res.Deliverables) == 0 {
+			return nil
+		}
+		rows := make([]deliverableRow, 0, len(res.Deliverables))
+		for i, d := range res.Deliverables {
+			reviewJSON, _ := json.Marshal(d.Review)
+			rows = append(rows, deliverableRow{
+				ID:         newUUID(),
+				CampaignID: id,
+				Position:   i,
+				Topic:      d.Topic,
+				Title:      d.Title,
+				Body:       d.Body,
+				CTA:        d.CTA,
+				Review:     string(reviewJSON),
+			})
+		}
+		return tx.Create(&rows).Error
+	})
 }
 
 // ListRecent возвращает до limit последних кампаний, новые сверху.
 // seq — порядок вставки: тайбрейкер для записей с одинаковым created_at
 // (точность — миллисекунды).
 func (cs *Campaigns) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
-	rows, err := cs.db.QueryContext(ctx,
-		`SELECT id, status, brief, cost_usd, created_at
-		 FROM campaigns ORDER BY created_at DESC, seq DESC LIMIT ?`, limit)
-	if err != nil {
+	var rows []campaignRow
+	if err := cs.db.WithContext(ctx).Order("created_at DESC, seq DESC").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	out := make([]campaign.Summary, 0, limit)
-	for rows.Next() {
-		var c campaign.Summary
-		var briefJSON []byte
-		var cost *float64
-		if err := rows.Scan(&c.ID, &c.Status, &briefJSON, &cost, &c.CreatedAt); err != nil {
-			return nil, err
-		}
-		_ = json.Unmarshal(briefJSON, &c.Brief)
-		c.CostUSD = cost
-		out = append(out, c)
+	out := make([]campaign.Summary, 0, len(rows))
+	for _, r := range rows {
+		s := campaign.Summary{ID: r.ID, Status: r.Status, CostUSD: r.CostUSD, CreatedAt: r.CreatedAt}
+		_ = json.Unmarshal([]byte(r.Brief), &s.Brief)
+		out = append(out, s)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // Get читает кампанию вместе с deliverables.
 func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, error) {
-	var c campaign.Record
-	var briefJSON, stratJSON, progressJSON []byte
-	var cost *float64
-	var errText *string
-	err := cs.db.QueryRowContext(ctx,
-		`SELECT id, client_id, status, brief, strategy, cost_usd, error, progress, created_at, updated_at
-		 FROM campaigns WHERE id=?`, id).
-		Scan(&c.ID, &c.ClientID, &c.Status, &briefJSON, &stratJSON, &cost, &errText, &progressJSON, &c.CreatedAt, &c.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	var row campaignRow
+	err := cs.db.WithContext(ctx).First(&row, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, campaign.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	_ = json.Unmarshal(briefJSON, &c.Brief)
-	if len(stratJSON) > 0 {
+	c := campaign.Record{
+		ID: row.ID, ClientID: row.ClientID, Status: row.Status,
+		CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+	_ = json.Unmarshal([]byte(row.Brief), &c.Brief)
+	if row.Strategy != nil && *row.Strategy != "" {
 		var st campaign.Strategy
-		if json.Unmarshal(stratJSON, &st) == nil {
+		if json.Unmarshal([]byte(*row.Strategy), &st) == nil {
 			c.Strategy = &st
 		}
 	}
-	c.CostUSD = cost
-	if errText != nil {
-		c.Error = *errText
+	if row.Error != nil {
+		c.Error = *row.Error
 	}
-	if len(progressJSON) > 0 {
+	if row.Progress != nil && *row.Progress != "" {
 		var snap run.Snapshot
-		if json.Unmarshal(progressJSON, &snap) == nil {
+		if json.Unmarshal([]byte(*row.Progress), &snap) == nil {
 			c.Progress = &snap
 		}
 	}
 
-	// Порядок статей — как в медиаплане (position), а не по времени: created_at
-	// у них общий, вставка идёт одной транзакцией.
-	rows, err := cs.db.QueryContext(ctx,
-		`SELECT topic, title, body, cta, review FROM deliverables
-		 WHERE campaign_id=? ORDER BY position, created_at`, id)
-	if err != nil {
+	// Порядок статей — как в медиаплане (position), а не по времени.
+	var drows []deliverableRow
+	if err := cs.db.WithContext(ctx).Where("campaign_id = ?", id).
+		Order("position, created_at").Find(&drows).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var d campaign.Deliverable
-		var reviewJSON []byte
-		if err := rows.Scan(&d.Topic, &d.Title, &d.Body, &d.CTA, &reviewJSON); err != nil {
-			return nil, err
-		}
-		_ = json.Unmarshal(reviewJSON, &d.Review)
-		c.Deliverables = append(c.Deliverables, d)
+	for _, d := range drows {
+		del := campaign.Deliverable{Article: campaign.Article{
+			Topic: d.Topic, Title: d.Title, Body: d.Body, CTA: d.CTA,
+		}}
+		_ = json.Unmarshal([]byte(d.Review), &del.Review)
+		c.Deliverables = append(c.Deliverables, del)
 	}
-	return &c, rows.Err()
+	return &c, nil
+}
+
+// update — общий путь записи: updated_at ставим сами (в модели колонка только для
+// чтения), в UTC.
+func (cs *Campaigns) update(ctx context.Context, id string, values map[string]any) error {
+	values["updated_at"] = nowUTC()
+	return cs.db.WithContext(ctx).Model(&campaignRow{}).Where("id = ?", id).Updates(values).Error
 }

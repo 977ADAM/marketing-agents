@@ -43,7 +43,7 @@ type Outcome struct {
 }
 
 // Store — хранение кампаний: порт объявлен у потребителя (транспорт, сервис),
-// реализация живёт в адаптере (internal/store).
+// реализация живёт в адаптере (internal/repository/mariadb).
 type Store interface {
 	Create(ctx context.Context, clientID string, b Brief) (string, error)
 	MarkRunning(ctx context.Context, id string) error

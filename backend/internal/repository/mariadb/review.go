@@ -2,19 +2,38 @@ package mariadb
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
-// Reviews — хранилище reviews поверх общего соединения.
-type Reviews struct{ db *sql.DB }
+// reviewRow — таблица reviews. Результат и прогресс — JSON текстом;
+// created_at/updated_at только читаются (см. campaignRow).
+type reviewRow struct {
+	ID        string    `gorm:"column:id;type:varchar(36);primaryKey"`
+	ClientID  string    `gorm:"column:client_id;type:varchar(36);not null"`
+	Status    string    `gorm:"column:status;type:varchar(32);not null"`
+	BriefText string    `gorm:"column:brief_text;type:mediumtext;not null"`
+	Result    *string   `gorm:"column:result;type:mediumtext"`
+	Progress  *string   `gorm:"column:progress;type:mediumtext"`
+	CostUSD   *float64  `gorm:"column:cost_usd"`
+	Error     *string   `gorm:"column:error;type:mediumtext"`
+	CreatedAt time.Time `gorm:"column:created_at;->"`
+	UpdatedAt time.Time `gorm:"column:updated_at;->"`
+}
 
-// NewReviews оборачивает соединение: сам SQL живёт в этом файле.
-func NewReviews(db *sql.DB) *Reviews { return &Reviews{db: db} }
+func (reviewRow) TableName() string { return "reviews" }
+
+// Reviews — хранилище reviews поверх общего соединения.
+type Reviews struct{ db *gorm.DB }
+
+// NewReviews оборачивает соединение: сами запросы живут в этом файле.
+func NewReviews(db *gorm.DB) *Reviews { return &Reviews{db: db} }
 
 // CreateCheck вставляет проверку в статусе pending и возвращает её id.
 func (rs *Reviews) CreateCheck(ctx context.Context, clientID, briefText string) (string, error) {
@@ -22,72 +41,65 @@ func (rs *Reviews) CreateCheck(ctx context.Context, clientID, briefText string) 
 		clientID = DefaultClientID
 	}
 	id := newUUID()
-	_, err := rs.db.ExecContext(ctx,
-		`INSERT INTO reviews (id, client_id, status, brief_text) VALUES (?, ?, 'pending', ?)`,
-		id, clientID, briefText)
-	return id, err
+	row := reviewRow{ID: id, ClientID: clientID, Status: "pending", BriefText: briefText}
+	if err := rs.db.WithContext(ctx).Create(&row).Error; err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 // MarkCheckRunning переводит проверку в running.
 func (rs *Reviews) MarkCheckRunning(ctx context.Context, id string) error {
-	_, err := rs.db.ExecContext(ctx,
-		`UPDATE reviews SET status='running', updated_at=`+nowExpr+` WHERE id=?`, id)
-	return err
+	return rs.update(ctx, id, map[string]any{"status": "running"})
 }
 
 // SaveCheckProgress сохраняет снимок прогресса проверки (перезаписывает прошлый).
 func (rs *Reviews) SaveCheckProgress(ctx context.Context, id string, snap run.Snapshot) error {
 	b, _ := json.Marshal(snap)
-	_, err := rs.db.ExecContext(ctx,
-		`UPDATE reviews SET progress=?, updated_at=`+nowExpr+` WHERE id=?`, string(b), id)
-	return err
+	return rs.update(ctx, id, map[string]any{"progress": string(b)})
 }
 
 // CompleteCheck сохраняет результат и переводит проверку в done.
 func (rs *Reviews) CompleteCheck(ctx context.Context, id string, res review.Result) error {
 	resultJSON, _ := json.Marshal(res)
-	_, err := rs.db.ExecContext(ctx,
-		`UPDATE reviews SET status='done', result=?, cost_usd=?, updated_at=`+nowExpr+` WHERE id=?`,
-		string(resultJSON), res.CostUSD, id)
-	return err
+	return rs.update(ctx, id, map[string]any{
+		"status":   "done",
+		"result":   string(resultJSON),
+		"cost_usd": res.CostUSD,
+	})
 }
 
 // FailCheck переводит проверку в failed с текстом ошибки.
 func (rs *Reviews) FailCheck(ctx context.Context, id, msg string) error {
-	_, err := rs.db.ExecContext(ctx,
-		`UPDATE reviews SET status='failed', error=?, updated_at=`+nowExpr+` WHERE id=?`, msg, id)
-	return err
+	return rs.update(ctx, id, map[string]any{"status": "failed", "error": msg})
 }
 
 // GetCheck читает проверку вместе с результатом.
 func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, error) {
-	var r review.Record
-	var resultJSON, progressJSON []byte
-	var cost *float64
-	var errText *string
-	err := rs.db.QueryRowContext(ctx,
-		`SELECT id, client_id, status, brief_text, result, cost_usd, error, progress, created_at, updated_at
-		 FROM reviews WHERE id=?`, id).
-		Scan(&r.ID, &r.ClientID, &r.Status, &r.BriefText, &resultJSON, &cost, &errText, &progressJSON, &r.CreatedAt, &r.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	var row reviewRow
+	err := rs.db.WithContext(ctx).First(&row, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, review.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if len(resultJSON) > 0 {
+	r := review.Record{
+		ID: row.ID, ClientID: row.ClientID, Status: row.Status, BriefText: row.BriefText,
+		CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+	if row.Result != nil && *row.Result != "" {
 		var res review.Result
-		if json.Unmarshal(resultJSON, &res) == nil {
+		if json.Unmarshal([]byte(*row.Result), &res) == nil {
 			r.Result = &res
 		}
 	}
-	r.CostUSD = cost
-	if errText != nil {
-		r.Error = *errText
+	if row.Error != nil {
+		r.Error = *row.Error
 	}
-	if len(progressJSON) > 0 {
+	if row.Progress != nil && *row.Progress != "" {
 		var snap run.Snapshot
-		if json.Unmarshal(progressJSON, &snap) == nil {
+		if json.Unmarshal([]byte(*row.Progress), &snap) == nil {
 			r.Progress = &snap
 		}
 	}
@@ -97,23 +109,23 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 // ListChecks возвращает до limit последних проверок, новые сверху.
 // seq — порядок вставки: тайбрейкер для записей с одинаковым created_at.
 func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary, error) {
-	rows, err := rs.db.QueryContext(ctx,
-		`SELECT id, status, brief_text, cost_usd, created_at
-		 FROM reviews ORDER BY created_at DESC, seq DESC LIMIT ?`, limit)
-	if err != nil {
+	var rows []reviewRow
+	if err := rs.db.WithContext(ctx).Order("created_at DESC, seq DESC").Limit(limit).Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	out := make([]review.Summary, 0, limit)
-	for rows.Next() {
-		var r review.Summary
-		var cost *float64
-		if err := rows.Scan(&r.ID, &r.Status, &r.BriefText, &cost, &r.CreatedAt); err != nil {
-			return nil, err
-		}
-		r.CostUSD = cost
-		out = append(out, r)
+	out := make([]review.Summary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, review.Summary{
+			ID: r.ID, Status: r.Status, BriefText: r.BriefText,
+			CostUSD: r.CostUSD, CreatedAt: r.CreatedAt,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
+}
+
+// update — общий путь записи: updated_at ставим сами (в модели колонка только для
+// чтения), в UTC.
+func (rs *Reviews) update(ctx context.Context, id string, values map[string]any) error {
+	values["updated_at"] = nowUTC()
+	return rs.db.WithContext(ctx).Model(&reviewRow{}).Where("id = ?", id).Updates(values).Error
 }

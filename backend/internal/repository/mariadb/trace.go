@@ -2,34 +2,50 @@ package mariadb
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
-// Events — хранилище events поверх общего соединения.
-type Events struct{ db *sql.DB }
+// runEventRow — таблица run_events (трасса прогона). payload заполняется только в
+// режиме full, поэтому колонка nullable; summary есть всегда.
+type runEventRow struct {
+	ID               string    `gorm:"column:id;type:varchar(36);primaryKey"`
+	RunID            string    `gorm:"column:run_id;type:varchar(64);not null"`
+	Seq              int64     `gorm:"column:seq;not null"`
+	At               time.Time `gorm:"column:at;not null"`
+	Kind             string    `gorm:"column:kind;type:varchar(32);not null"`
+	Name             string    `gorm:"column:name;type:varchar(64);not null"`
+	Status           string    `gorm:"column:status;type:varchar(32);not null"`
+	DurationMS       int64     `gorm:"column:duration_ms;not null"`
+	PromptTokens     int       `gorm:"column:prompt_tokens;not null"`
+	CompletionTokens int       `gorm:"column:completion_tokens;not null"`
+	Summary          string    `gorm:"column:summary;type:mediumtext;not null"`
+	Payload          *string   `gorm:"column:payload;type:mediumtext"`
+	Error            *string   `gorm:"column:error;type:mediumtext"`
+}
 
-// NewEvents оборачивает соединение: сам SQL живёт в этом файле.
-func NewEvents(db *sql.DB) *Events { return &Events{db: db} }
+func (runEventRow) TableName() string { return "run_events" }
+
+// Events — хранилище events поверх общего соединения.
+type Events struct{ db *gorm.DB }
+
+// NewEvents оборачивает соединение: сами запросы живут в этом файле.
+func NewEvents(db *gorm.DB) *Events { return &Events{db: db} }
 
 // SaveRunEvent сохраняет событие трассы (реализует trace.Sink).
-//
-// Время уходит как time.Time в UTC: колонка DATETIME(3), драйвер настроен на
-// parseTime + loc=UTC и сам обрезает значение до миллисекунд (timeTruncate).
 func (es *Events) SaveRunEvent(ctx context.Context, rec trace.Record) error {
-	_, err := es.db.ExecContext(ctx,
-		`INSERT INTO run_events
-			(id, run_id, seq, at, kind, name, status, duration_ms,
-			 prompt_tokens, completion_tokens, summary, payload, error)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		newUUID(), rec.RunID, rec.Seq, rec.At.UTC(),
-		string(rec.Kind), rec.Name, string(rec.Status), rec.DurationMS,
-		rec.PromptTokens, rec.CompletionTokens, rec.Summary,
-		nullable(rec.PayloadJSON), nullable(rec.Error))
-	return err
+	row := runEventRow{
+		ID: newUUID(), RunID: rec.RunID, Seq: rec.Seq, At: rec.At.UTC(),
+		Kind: string(rec.Kind), Name: rec.Name, Status: string(rec.Status),
+		DurationMS: rec.DurationMS, PromptTokens: rec.PromptTokens,
+		CompletionTokens: rec.CompletionTokens, Summary: rec.Summary,
+		Payload: nullable(rec.PayloadJSON), Error: nullable(rec.Error),
+	}
+	return es.db.WithContext(ctx).Create(&row).Error
 }
 
 // RunEvents возвращает ленту событий прогона без тел payload: их отдают отдельным
@@ -38,69 +54,83 @@ func (es *Events) RunEvents(ctx context.Context, runID string, limit int) ([]tra
 	if limit <= 0 {
 		limit = 500
 	}
-	rows, err := es.db.QueryContext(ctx,
-		`SELECT seq, at, kind, name, status, duration_ms, prompt_tokens, completion_tokens,
-		        summary, (payload IS NOT NULL AND payload <> ''), IFNULL(error,'')
-		 FROM run_events WHERE run_id=? ORDER BY seq LIMIT ?`, runID, limit)
+	// has_payload считает БД: в ленте тело не нужно, но признак «тело есть» нужен
+	// интерфейсу (у самого события поле nullable).
+	var rows []struct {
+		Seq              int64
+		At               time.Time
+		Kind             string
+		Name             string
+		Status           string
+		DurationMS       int64
+		PromptTokens     int
+		CompletionTokens int
+		Summary          string
+		HasPayload       int
+		Error            string
+	}
+	err := es.db.WithContext(ctx).Model(&runEventRow{}).
+		Select(`seq, at, kind, name, status, duration_ms, prompt_tokens,
+		        completion_tokens, summary,
+		        (payload IS NOT NULL AND payload <> '') AS has_payload,
+		        IFNULL(error, '') AS error`).
+		Where("run_id = ?", runID).Order("seq").Limit(limit).Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	out := make([]trace.Row, 0, limit)
-	for rows.Next() {
-		var ev trace.Row
-		// Признак «тело есть» приходит числом (в MariaDB это выражение, а не
-		// колонка BOOLEAN), поэтому читаем в int и сравниваем сами.
-		var hasPayload int
-		if err := rows.Scan(&ev.Seq, &ev.At, &ev.Kind, &ev.Name, &ev.Status, &ev.DurationMS,
-			&ev.PromptTokens, &ev.CompletionTokens, &ev.Summary, &hasPayload, &ev.Error); err != nil {
-			return nil, err
-		}
-		ev.HasPayload = hasPayload == 1
-		out = append(out, ev)
+	out := make([]trace.Row, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, trace.Row{
+			Seq: r.Seq, At: r.At, Kind: r.Kind, Name: r.Name, Status: r.Status,
+			DurationMS: r.DurationMS, PromptTokens: r.PromptTokens,
+			CompletionTokens: r.CompletionTokens, Summary: r.Summary,
+			HasPayload: r.HasPayload == 1, Error: r.Error,
+		})
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // RunEvent возвращает одно событие прогона вместе с payload.
 func (es *Events) RunEvent(ctx context.Context, runID string, seq int64) (*trace.Row, error) {
-	var ev trace.Row
-	var payload, errText sql.NullString
-	err := es.db.QueryRowContext(ctx,
-		`SELECT seq, at, kind, name, status, duration_ms, prompt_tokens, completion_tokens,
-		        summary, payload, error
-		 FROM run_events WHERE run_id=? AND seq=?`, runID, seq).
-		Scan(&ev.Seq, &ev.At, &ev.Kind, &ev.Name, &ev.Status, &ev.DurationMS,
-			&ev.PromptTokens, &ev.CompletionTokens, &ev.Summary, &payload, &errText)
-	if errors.Is(err, sql.ErrNoRows) {
+	var row runEventRow
+	err := es.db.WithContext(ctx).Where("run_id = ? AND seq = ?", runID, seq).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, trace.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	ev.Payload = payload.String
-	ev.HasPayload = payload.Valid && payload.String != ""
-	ev.Error = errText.String
+	ev := trace.Row{
+		Seq: row.Seq, At: row.At, Kind: row.Kind, Name: row.Name, Status: row.Status,
+		DurationMS: row.DurationMS, PromptTokens: row.PromptTokens,
+		CompletionTokens: row.CompletionTokens, Summary: row.Summary,
+	}
+	if row.Payload != nil {
+		ev.Payload = *row.Payload
+		ev.HasPayload = *row.Payload != ""
+	}
+	if row.Error != nil {
+		ev.Error = *row.Error
+	}
 	return &ev, nil
 }
 
 // DeleteRunEventsBefore удаляет события старше cutoff (ретенция). Возвращает
 // число удалённых строк; сами прогоны не трогает.
 func (es *Events) DeleteRunEventsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	tag, err := es.db.ExecContext(ctx,
-		`DELETE FROM run_events WHERE at < ?`, cutoff.UTC())
-	if err != nil {
-		return 0, err
+	res := es.db.WithContext(ctx).Where("at < ?", cutoff.UTC()).Delete(&runEventRow{})
+	if res.Error != nil {
+		return 0, res.Error
 	}
-	return tag.RowsAffected()
+	return res.RowsAffected, nil
 }
 
 // nullable превращает пустую строку в NULL: так в БД видно «поля нет», а не
 // «поле пустое».
-func nullable(s string) any {
+func nullable(s string) *string {
 	if s == "" {
 		return nil
 	}
-	return s
+	return &s
 }

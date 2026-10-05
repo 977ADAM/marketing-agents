@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/testdb"
 	"github.com/977ADAM/marketing-agents/internal/topic"
@@ -228,7 +229,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	if err := first.db.Close(); err != nil {
+	if err := pool.Close(first.db); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 

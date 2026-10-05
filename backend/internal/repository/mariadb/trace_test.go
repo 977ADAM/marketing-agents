@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 	"github.com/977ADAM/marketing-agents/internal/testdb"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
@@ -140,7 +141,7 @@ func TestRunEventsSurviveReopen(t *testing.T) {
 		if err := s.events.SaveRunEvent(ctx, event("run-1", int64(i+1), time.Now().UTC(), "")); err != nil {
 			t.Fatalf("SaveRunEvent #%d: %v", i+1, err)
 		}
-		if err := s.db.Close(); err != nil {
+		if err := pool.Close(s.db); err != nil {
 			t.Fatalf("Close: %v", err)
 		}
 	}

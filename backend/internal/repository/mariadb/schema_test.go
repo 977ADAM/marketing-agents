@@ -23,8 +23,8 @@ func TestCheckSchema(t *testing.T) {
 
 	t.Run("таблица учёта старого формата", func(t *testing.T) {
 		st := newEmptyStore(t)
-		if _, err := st.db.ExecContext(ctx,
-			`CREATE TABLE schema_migrations (name VARCHAR(128) PRIMARY KEY, applied_at DATETIME(3))`); err != nil {
+		if err := st.db.WithContext(ctx).
+			Exec(`CREATE TABLE schema_migrations (name VARCHAR(128) PRIMARY KEY, applied_at DATETIME(3))`).Error; err != nil {
 			t.Fatalf("старая таблица учёта: %v", err)
 		}
 		if _, err := mariadb.CheckSchema(ctx, st.db); err == nil {
@@ -36,8 +36,8 @@ func TestCheckSchema(t *testing.T) {
 
 	t.Run("таблица учёта пуста", func(t *testing.T) {
 		st := newEmptyStore(t)
-		if _, err := st.db.ExecContext(ctx,
-			`CREATE TABLE schema_migrations (version varchar(128) PRIMARY KEY)`); err != nil {
+		if err := st.db.WithContext(ctx).
+			Exec(`CREATE TABLE schema_migrations (version varchar(128) PRIMARY KEY)`).Error; err != nil {
 			t.Fatalf("таблица учёта: %v", err)
 		}
 		if _, err := mariadb.CheckSchema(ctx, st.db); err == nil {

@@ -6,9 +6,9 @@
 меняется, меняется только раскладка и направление зависимостей.
 
 > **Обновление от 2026-10-05:** упомянутый ниже пакет `internal/sqlite`
-> переименован в `internal/repository/mariadb` (подключение — в
-> `internal/repository/mariadb/pool`) — хранилище переехало с SQLite на MariaDB,
-> см. [2026-10-05-mariadb-migration.md](2026-10-05-mariadb-migration.md).
+> переименован в `internal/repository/mariadb`, общее подключение вынесено в
+> `internal/core/repository/mariadb/pool` (GORM) — хранилище переехало с SQLite на
+> MariaDB, см. [2026-10-05-mariadb-migration.md](2026-10-05-mariadb-migration.md).
 
 ## Цель
 

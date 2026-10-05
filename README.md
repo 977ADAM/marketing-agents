@@ -44,11 +44,12 @@
 ```
 backend/            Go-сервис (отдельный модуль): API /api/*, /healthz; данные — MariaDB
   cmd/server/       точка входа API (composition root)
-  internal/         ядро (core/corellm, core/corelogger, run, score, trace),
+  internal/         ядро (core/corellm, core/corelogger, run, score, trace,
+                    core/repository/mariadb/pool — общее подключение),
                     домен (campaign, review, topic), сценарии (orchestrator),
                     транспорт (http), async-прогоны (runner),
                     адаптеры (llm, wordstat, sloglogger),
-                    хранилище (repository/mariadb, подключение — в pool)
+                    хранилище (repository/mariadb на GORM)
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
   internal/testdb   временная база MariaDB для тестов: заводит её на каждый тест
@@ -313,21 +314,35 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 
 ## Хранилище данных
 
-БД — MariaDB 11.4 (InnoDB, `utf8mb4`), драйвер `github.com/go-sql-driver/mysql`
-(чистый Go: CGO не нужен, бинарь остаётся статическим, рантайм-образ — distroless;
-драйвер официально поддерживает MariaDB 10.11+). Адрес по умолчанию собирается из
-`MARIADB_*` (`127.0.0.1:3306/marketing`), целиком его задаёт `DATABASE_URL` в
-формате `mysql://user:pass@host:3306/dbname` — ту же схему понимает dbmate.
+БД — MariaDB 11.4 (InnoDB, `utf8mb4`), доступ к ней — через **GORM**
+(`gorm.io/gorm` + `gorm.io/driver/mysql`), который работает поверх драйвера
+`github.com/go-sql-driver/mysql` (чистый Go: CGO не нужен, бинарь остаётся
+статическим, рантайм-образ — distroless; драйвер официально поддерживает MariaDB
+10.11+). Адрес по умолчанию собирается из `MARIADB_*` (`127.0.0.1:3306/marketing`),
+целиком его задаёт `DATABASE_URL` в формате `mysql://user:pass@host:3306/dbname` —
+ту же схему понимает dbmate.
 
-Что важно в настройках соединения (см. `internal/repository/mariadb/pool`):
+Общее подключение живёт в ядре — `internal/core/repository/mariadb/pool`
+(`gorm.Open` + настройки из DSN + пул); репозитории
+(`internal/repository/mariadb`: `campaign.go`, `review.go`, `trace.go`,
+`schema.go`) получают готовый `*gorm.DB` и работают через модели
+(`campaignRow`, `reviewRow`, `runEventRow`): `Create`, `First`, `Updates`,
+`Find`, `Transaction`, а проверка схемы — через `Migrator()`.
+
+Что важно в настройках соединения:
 
 - `parseTime` + `loc=UTC` и `time_zone='+00:00'`: время в БД всегда UTC, поэтому
-  `CURRENT_TIMESTAMP(3)` в схеме и `time.Time` из Go означают одно и то же;
+  `CURRENT_TIMESTAMP(3)` в схеме и `time.Time` из Go означают одно и то же (GORM
+  требует `parseTime` — иначе время приходит строками);
 - `timeTruncate=1ms`: время обрезается до точности колонок `DATETIME(3)`. Без
   этого MariaDB округляет значение, и сравнение с индексированной колонкой теряет
   range-scan (предупреждение из README драйвера);
 - пул соединений живёт ограниченно (`ConnMaxLifetime` 3 минуты): сервер и
   посредники рвут простаивающие соединения;
+- GORM не логирует сам (`logger.Discard`): структурированные логи ведёт приложение
+  через `slog`, а ошибки возвращаются значениями. `SkipDefaultTransaction` —
+  транзакции открываются только там, где нужна атомарность (результат кампании
+  вместе со статьями); `NowFunc` — UTC, как и время в схеме;
 - внешние ключи работают всегда (InnoDB), а параллельные записи прогресса по темам
   разводит сам сервер — прежние настройки SQLite (`WAL`, `busy_timeout`,
   `_txlock=immediate`) больше не нужны.
@@ -430,6 +445,11 @@ MCP-сервер Wordstat (`yandex-wordstat-mcp`, Streamable HTTP + basic-auth),
 - **MariaDB — самый крупный образ стека.** ~101 МБ сжатым / ~490 МБ на диске
   против нуля у прежнего SQLite-файла. Меньше можно только своим alpine-образом
   (~316 МБ) или внешним сервером БД; оба варианта требуют своей поддержки.
+- **GORM стоит места в бинаре.** Статический бинарь сервиса — 16.5 МБ против
+  11.7 МБ на голом `database/sql` (+4.8 МБ; изолированный замер давал ~+8 МБ).
+  Взамен — модели, `Transaction` и типизированные запросы вместо ручного SQL;
+  при этом ядро (`core/repository/mariadb/pool`) зависит от драйвера и GORM —
+  осознанное исключение из правила «core без внешних зависимостей».
 - **Переноса данных из SQLite нет.** Прежняя база не мигрируется автоматически:
   переезд делался на пустой базе. Нужен перенос — `.dump` из SQLite и вставка в
   MariaDB с преобразованием типов.

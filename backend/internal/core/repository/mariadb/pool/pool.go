@@ -1,14 +1,15 @@
-// Package pool — подключение к MariaDB: разбор адреса, DSN драйвера и пул
-// соединений.
+// Package pool — общее подключение к MariaDB на GORM: разбор адреса, DSN
+// драйвера и пул соединений.
 //
-// Репозитории (internal/repository/mariadb) получают от него готовый *sql.DB и не
-// знают, как он открыт: это единственное место, где приложение касается драйвера
-// и настроек соединения.
+// Живёт в ядре (core) как общий ресурс: репозитории
+// (internal/repository/mariadb) получают отсюда готовый *gorm.DB и не знают, как
+// он открыт — это единственное место, где приложение касается драйвера и
+// настроек соединения. Ядро из-за этого зависит от драйвера MySQL и GORM: это
+// осознанное исключение из правила «core без внешних зависимостей» (см. README).
 package pool
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -17,7 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
+	gosqlmysql "github.com/go-sql-driver/mysql"
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // DefaultAddr — адрес MariaDB, если в DATABASE_URL не указан хост.
@@ -25,13 +29,14 @@ const DefaultAddr = "127.0.0.1:3306"
 
 // defaultConfig — настройки соединения, обязательные для приложения.
 //
-// parseTime + loc=UTC: DATETIME(3) читается и пишется как time.Time в UTC.
-// time_zone='+00:00': CURRENT_TIMESTAMP(3) в схеме и время из Go означают одно и
-// то же независимо от таймзоны сервера. timeTruncate=1ms: драйвер обрезает
-// time.Time до точности колонки — иначе сравнение с индексированной DATETIME(3)
-// теряет range-scan (см. README драйвера).
-func defaultConfig() *mysql.Config {
-	cfg := mysql.NewConfig()
+// parseTime + loc=UTC: DATETIME(3) читается и пишется как time.Time в UTC (GORM
+// требует parseTime — иначе время приходит строками). time_zone='+00:00':
+// CURRENT_TIMESTAMP(3) в схеме и время из Go означают одно и то же независимо от
+// таймзоны сервера. timeTruncate=1ms: драйвер обрезает time.Time до точности
+// колонки — иначе сравнение с индексированной DATETIME(3) теряет range-scan
+// (см. README драйвера).
+func defaultConfig() *gosqlmysql.Config {
+	cfg := gosqlmysql.NewConfig()
 	cfg.Net = "tcp"
 	cfg.Addr = DefaultAddr
 	cfg.ParseTime = true
@@ -87,29 +92,51 @@ func Target(databaseURL string) string {
 	return fmt.Sprintf("mysql://%s@%s%s", user, host, u.Path)
 }
 
-// OpenDB открывает соединение с MariaDB по DATABASE_URL. Миграции не применяет:
-// это отдельный шаг (сервис migrate в docker-compose или `make migrate`), а
-// сервер до старта проверяет готовность схемы через mariadb.CheckSchema.
-func OpenDB(ctx context.Context, databaseURL string) (*sql.DB, error) {
+// Open открывает соединение с MariaDB через GORM. Миграции не применяет: это
+// отдельный шаг (сервис migrate в docker-compose или `make migrate`), а сервер до
+// старта проверяет готовность схемы через mariadb.CheckSchema.
+//
+// Настройки: DSN из defaultConfig (parseTime, UTC, timeTruncate), пул на 8
+// соединений с ограниченным временем жизни (сервер и посредники рвут
+// простаивающие). GORM не логирует сам — структурированные логи ведёт приложение
+// (slog), а ошибки возвращаются значениями. SkipDefaultTransaction: транзакции
+// открываем только там, где нужна атомарность (результат кампании вместе со
+// статьями). NowFunc — UTC, чтобы значения совпадали со схемой.
+func Open(ctx context.Context, databaseURL string) (*gorm.DB, error) {
 	dsn, err := DSN(databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("mysql", dsn)
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		Logger:                 logger.Discard,
+		SkipDefaultTransaction: true,
+		NowFunc:                func() time.Time { return time.Now().UTC() },
+	})
 	if err != nil {
-		return nil, fmt.Errorf("mariadb: открытие соединения: %w", err)
+		return nil, fmt.Errorf("mariadb: соединение с %s: %w", Target(databaseURL), err)
 	}
-	// Пул: соединения не живут вечно (сервер и посредники рвут простаивающие), но
-	// с запасом под параллельную запись прогресса по темам.
-	db.SetMaxOpenConns(8)
-	db.SetMaxIdleConns(8)
-	db.SetConnMaxLifetime(3 * time.Minute)
-	db.SetConnMaxIdleTime(time.Minute)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("mariadb: соединение с %s: %w", Target(databaseURL), err)
+	}
+	sqlDB.SetMaxOpenConns(8)
+	sqlDB.SetMaxIdleConns(8)
+	sqlDB.SetConnMaxLifetime(3 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(time.Minute)
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("mariadb: соединение с %s: %w", Target(databaseURL), err)
 	}
 	return db, nil
+}
+
+// Close закрывает пул соединений под GORM.
+func Close(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 // parseURL разбирает DATABASE_URL и требует схему mysql:// (MariaDB использует
@@ -147,7 +174,7 @@ func addrWithPort(host string) string {
 
 // applyQuery переносит параметры URL: известные настройки драйвера — в поля
 // Config, остальные — в системные переменные соединения.
-func applyQuery(cfg *mysql.Config, q url.Values) {
+func applyQuery(cfg *gosqlmysql.Config, q url.Values) {
 	for k, vs := range q {
 		if len(vs) == 0 {
 			continue

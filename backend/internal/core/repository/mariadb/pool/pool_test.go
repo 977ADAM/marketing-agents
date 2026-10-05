@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/repository/mariadb/pool"
+	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -71,13 +71,13 @@ func TestTargetHidesPassword(t *testing.T) {
 	}
 }
 
-// OpenDB отвергает неподходящий адрес до похода в сеть: ошибка про схему, а не
+// Open отвергает неподходящий адрес до похода в сеть: ошибка про схему, а не
 // таймаут подключения.
-func TestOpenDBRejectsBadURL(t *testing.T) {
+func TestOpenRejectsBadURL(t *testing.T) {
 	for _, raw := range []string{"", "sqlite:data/marketing.db", "/var/lib/marketing/marketing.db"} {
 		t.Run(raw, func(t *testing.T) {
-			if _, err := pool.OpenDB(context.Background(), raw); err == nil {
-				t.Errorf("OpenDB(%q): ожидали ошибку про адрес", raw)
+			if _, err := pool.Open(context.Background(), raw); err == nil {
+				t.Errorf("Open(%q): ожидали ошибку про адрес", raw)
 			}
 		})
 	}

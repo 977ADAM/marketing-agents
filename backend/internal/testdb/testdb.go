@@ -13,7 +13,6 @@ package testdb
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"net/url"
 	"os"
@@ -22,7 +21,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/repository/mariadb/pool"
+	"gorm.io/gorm"
+
+	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 )
 
 // EnvVar — переменная окружения с адресом сервера MariaDB для тестов.
@@ -30,7 +31,7 @@ const EnvVar = "TEST_DATABASE_URL"
 
 // New заводит временную базу и применяет к ней миграции — это то, что делает
 // сервис migrate в проде.
-func New(t *testing.T) (*sql.DB, string) {
+func New(t *testing.T) (*gorm.DB, string) {
 	t.Helper()
 	db, dsn := NewEmpty(t)
 	applyMigrations(t, db)
@@ -43,42 +44,42 @@ func New(t *testing.T) (*sql.DB, string) {
 func NewDSN(t *testing.T) string {
 	t.Helper()
 	db, dsn := New(t)
-	_ = db.Close()
+	_ = pool.Close(db)
 	return dsn
 }
 
 // NewEmpty заводит временную базу без схемы: нужна негативным проверкам
 // (например «миграции не применены»).
-func NewEmpty(t *testing.T) (*sql.DB, string) {
+func NewEmpty(t *testing.T) (*gorm.DB, string) {
 	t.Helper()
 	base := serverURL(t)
 
-	admin, err := pool.OpenDB(context.Background(), base)
+	admin, err := pool.Open(context.Background(), base)
 	if err != nil {
 		t.Fatalf("подключение к MariaDB (%s): %v", pool.Target(base), err)
 	}
-	t.Cleanup(func() { _ = admin.Close() })
+	t.Cleanup(func() { _ = pool.Close(admin) })
 
 	name := "ma_test_" + randomSuffix()
 	// База из прошлого прогона с тем же именем (теоретически) не должна помешать.
-	if _, err := admin.Exec("DROP DATABASE IF EXISTS `" + name + "`"); err != nil {
+	if err := admin.Exec("DROP DATABASE IF EXISTS `" + name + "`").Error; err != nil {
 		t.Fatalf("drop database %s: %v", name, err)
 	}
-	if _, err := admin.Exec("CREATE DATABASE `" + name + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); err != nil {
+	if err := admin.Exec("CREATE DATABASE `" + name + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci").Error; err != nil {
 		t.Fatalf("create database %s: %v", name, err)
 	}
 	t.Cleanup(func() {
-		if _, err := admin.Exec("DROP DATABASE IF EXISTS `" + name + "`"); err != nil {
+		if err := admin.Exec("DROP DATABASE IF EXISTS `" + name + "`").Error; err != nil {
 			t.Errorf("drop database %s: %v", name, err)
 		}
 	})
 
 	dsn := withDatabase(base, name)
-	db, err := pool.OpenDB(context.Background(), dsn)
+	db, err := pool.Open(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("подключение к %s: %v", pool.Target(dsn), err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() { _ = pool.Close(db) })
 	return db, dsn
 }
 
@@ -119,7 +120,7 @@ func randomSuffix() string {
 
 // applyMigrations применяет секции `-- migrate:up` из backend/migrations/*.sql по
 // порядку и заводит таблицу учёта версий — ту же, что создаёт dbmate.
-func applyMigrations(t *testing.T, db *sql.DB) {
+func applyMigrations(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	versions := make([]string, 0, 4)
 	for _, file := range migrationFiles(t) {
@@ -132,20 +133,20 @@ func applyMigrations(t *testing.T, db *sql.DB) {
 			t.Fatalf("%s: нет секции -- migrate:up", file)
 		}
 		for _, stmt := range splitStatements(up) {
-			if _, err := db.Exec(stmt); err != nil {
+			if err := db.Exec(stmt).Error; err != nil {
 				t.Fatalf("применение %s: %v\n%s", file, err, stmt)
 			}
 		}
 		versions = append(versions, versionOf(file))
 	}
 
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version varchar(128) PRIMARY KEY
-	)`); err != nil {
+	)`).Error; err != nil {
 		t.Fatalf("таблица учёта миграций: %v", err)
 	}
 	for _, v := range versions {
-		if _, err := db.Exec(`INSERT IGNORE INTO schema_migrations (version) VALUES (?)`, v); err != nil {
+		if err := db.Exec(`INSERT IGNORE INTO schema_migrations (version) VALUES (?)`, v).Error; err != nil {
 			t.Fatalf("версия схемы %s: %v", v, err)
 		}
 	}
