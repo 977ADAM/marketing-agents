@@ -73,7 +73,7 @@ func Load() (*Config, error) {
 	// .env опционален: если файла нет — читаем только реальное окружение.
 	_ = godotenv.Load()
 
-	dbPath, err := sqlitePath()
+	dbPath, err := SQLitePath()
 	if err != nil {
 		return nil, err
 	}
@@ -215,10 +215,11 @@ func isGeoID(v string) bool {
 	return true
 }
 
-// sqlitePath выбирает файл БД: SQLITE_PATH, иначе DATABASE_URL (совместимость
+// SQLitePath выбирает файл БД: SQLITE_PATH, иначе DATABASE_URL (совместимость
 // с прежней конфигурацией, если там путь/URI файла, а не строка подключения
-// к сетевой СУБД), иначе дефолт.
-func sqlitePath() (string, error) {
+// к сетевой СУБД), иначе дефолт. Экспортирован отдельно от Load: сервису
+// миграций нужен только путь к БД, без остальных настроек и ключей.
+func SQLitePath() (string, error) {
 	if p := strings.TrimSpace(os.Getenv("SQLITE_PATH")); p != "" {
 		return p, nil
 	}

@@ -8,19 +8,25 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
 // и не требуют внешнего сервера (в отличие от прежнего Postgres-варианта).
+// Схему готовит migrate.Up — в приложении это делает отдельный сервис миграций.
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	if err := migrate.Up(ctx, st.DB()); err != nil {
+		t.Fatalf("migrate.Up: %v", err)
+	}
 	return st
 }
 
@@ -369,6 +375,9 @@ func TestDataSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	if err := migrate.Up(ctx, first.DB()); err != nil {
+		t.Fatalf("migrate.Up: %v", err)
+	}
 	id, err := first.Create(ctx, "", agents.Brief{Product: "Эко-бутылка"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -396,29 +405,6 @@ func TestDataSurvivesReopen(t *testing.T) {
 	}
 	if got.Status != "done" || len(got.Deliverables) != 1 || got.Brief.Product != "Эко-бутылка" {
 		t.Errorf("after reopen: %+v", got)
-	}
-}
-
-// Повторное применение миграций безопасно (учёт в schema_migrations).
-func TestMigrateIdempotent(t *testing.T) {
-	st := newTestStore(t)
-	ctx := context.Background()
-
-	if err := store.Migrate(ctx, st.DB()); err != nil {
-		t.Fatalf("second Migrate: %v", err)
-	}
-	var applied, campaigns int
-	if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
-		t.Fatalf("count schema_migrations: %v", err)
-	}
-	if applied == 0 {
-		t.Error("schema_migrations is empty")
-	}
-	if err := st.DB().QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type='table' AND name='campaigns'`).Scan(&campaigns); err != nil {
-		t.Fatalf("count campaigns table: %v", err)
-	}
-	if campaigns != 1 {
-		t.Errorf("campaigns table count = %d, want 1", campaigns)
 	}
 }
 

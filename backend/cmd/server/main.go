@@ -14,6 +14,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/config"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -31,15 +32,23 @@ func main() {
 	baseCtx, baseCancel := context.WithCancel(context.Background())
 	defer baseCancel()
 
-	// SQLite: файл БД открывается (и при необходимости создаётся) вместе с
-	// миграциями. Драйвер — modernc.org/sqlite, без CGO.
-	st, err := store.Open(baseCtx, cfg.SQLitePath)
+	// SQLite: соединение открывается здесь, а схему применяет отдельный сервис
+	// миграций (в compose — migrate, локально — make migrate). Сервер только
+	// проверяет готовность схемы и не стартует на неподготовленной БД.
+	db, err := store.OpenDB(baseCtx, cfg.SQLitePath)
 	if err != nil {
 		logger.Error("db", "path", cfg.SQLitePath, "err", err)
 		os.Exit(1)
 	}
+	version, err := migrate.CheckReady(baseCtx, db)
+	if err != nil {
+		logger.Error("db schema", "path", cfg.SQLitePath, "err", err)
+		_ = db.Close()
+		os.Exit(1)
+	}
+	st := store.New(db)
 	defer st.Close()
-	logger.Info("db ready", "path", cfg.SQLitePath)
+	logger.Info("db ready", "path", cfg.SQLitePath, "schema_version", version)
 
 	if n, err := st.RecoverInterrupted(baseCtx); err != nil {
 		logger.Error("recover interrupted", "err", err)

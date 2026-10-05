@@ -55,9 +55,11 @@ type Store struct{ db *sql.DB }
 // New оборачивает уже открытое соединение (без миграций).
 func New(db *sql.DB) *Store { return &Store{db: db} }
 
-// Open открывает (при необходимости создаёт каталог и файл) БД, применяет
-// миграции и возвращает готовый Store.
-func Open(ctx context.Context, path string) (*Store, error) {
+// OpenDB открывает (при необходимости создаёт каталог и файл) соединение с БД.
+// Миграции не применяет: это отдельный шаг — сервис migrate в docker-compose или
+// `make migrate` (см. internal/migrate), а сервер до старта проверяет готовность
+// схемы через migrate.CheckReady.
+func OpenDB(ctx context.Context, path string) (*sql.DB, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("store: empty sqlite path")
 	}
@@ -75,8 +77,14 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: ping %s: %w", path, err)
 	}
-	if err := Migrate(ctx, db); err != nil {
-		_ = db.Close()
+	return db, nil
+}
+
+// Open открывает БД и возвращает готовый Store. Схему не мигрирует: считается,
+// что миграции применены отдельным сервисом (см. internal/migrate).
+func Open(ctx context.Context, path string) (*Store, error) {
+	db, err := OpenDB(ctx, path)
+	if err != nil {
 		return nil, err
 	}
 	return New(db), nil

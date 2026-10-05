@@ -9,6 +9,7 @@ API_URL  ?= http://127.0.0.1:8080
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-unit test-e2e test-live test-frontend check check-frontend verify \
         backend frontend start-frontend dev \
+        migrate migrate-down \
         docker-build up docker-down docker-logs docker-ps health clean
 
 # --- подготовка окружения ---
@@ -96,10 +97,22 @@ check-frontend: $(FRONTEND)/node_modules
 ## verify: полный набор перед коммитом (build + check + test)
 verify: build check test
 
+# --- миграции схемы (golang-migrate) ---
+# Приложение миграции не применяет: в compose это отдельный сервис migrate,
+# локально — эти цели. Сервер на старте только проверяет версию схемы.
+
+## migrate: применить миграции схемы (golang-migrate, up)
+migrate: env
+	cd $(BACKEND) && $(GO) run ./cmd/migrate up
+
+## migrate-down: откатить последнюю миграцию
+migrate-down: env
+	cd $(BACKEND) && $(GO) run ./cmd/migrate down
+
 # --- локальный запуск (без Docker) ---
 
 ## backend: API на 127.0.0.1:8080 (окружение читается из backend/.env)
-backend:
+backend: migrate
 	cd $(BACKEND) && $(GO) run ./cmd/server
 
 ## frontend: dev-сервер фронта на 127.0.0.1:5173 (/api и /healthz → :8080)
@@ -110,8 +123,8 @@ frontend:
 start-frontend: build-frontend
 	cd $(FRONTEND) && BACKEND_URL=$(API_URL) $(NPM) start
 
-## dev: API и dev-сервер фронта вместе (Ctrl-C гасит оба)
-dev: env
+## dev: миграции, затем API и dev-сервер фронта вместе (Ctrl-C гасит оба)
+dev: migrate
 	@echo "API → http://127.0.0.1:8080    UI → http://127.0.0.1:5173    (Ctrl-C — остановить)"
 	@trap 'kill 0' INT TERM; \
 		( set -a; . $(BACKEND)/.env; set +a; cd $(BACKEND) && $(GO) run ./cmd/server ) & \
@@ -124,7 +137,7 @@ dev: env
 docker-build:
 	$(COMPOSE) build
 
-## up: поднять стек compose (фронт публикуется на 127.0.0.1:8080)
+## up: поднять стек compose (сервис migrate применяет схему, затем API; фронт на 127.0.0.1:8080)
 up:
 	$(COMPOSE) up -d --build
 

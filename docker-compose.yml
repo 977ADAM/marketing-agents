@@ -1,6 +1,23 @@
 services:
+  # Миграции — отдельный одноразовый сервис: применяет схему к SQLite на общем
+  # volume и завершается. API стартует только после его успешного выхода
+  # (condition: service_completed_successfully) и сам миграции не применяет —
+  # только проверяет версию схемы. Секреты сюда не передаём: сервису нужен
+  # лишь путь к БД.
+  migrate:
+    build:
+      context: ./backend
+      target: migrate
+    environment:
+      SQLITE_PATH: /data/marketing.db
+    volumes:
+      - sqlite:/data
+    restart: "no"
+
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      target: server
     env_file: ./backend/.env
     environment:
       SQLITE_PATH: /data/marketing.db
@@ -9,6 +26,9 @@ services:
       - sqlite:/data
     expose:
       - "8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   frontend:
     build:

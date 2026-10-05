@@ -10,6 +10,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -20,10 +21,15 @@ import (
 // события через декораторы, рекордер складывает их в БД с тем же run_id.
 func TestRunnerWritesTrajectory(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, t.TempDir()+"/trace.db")
+	// Схему готовит отдельный сервис миграций; тест повторяет этот шаг явно.
+	db, err := store.OpenDB(ctx, t.TempDir()+"/trace.db")
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatalf("OpenDB: %v", err)
 	}
+	if err := migrate.Up(ctx, db); err != nil {
+		t.Fatalf("migrate.Up: %v", err)
+	}
+	st := store.New(db)
 	t.Cleanup(func() { _ = st.Close() })
 
 	rec := trace.New(st, trace.Config{Mode: trace.ModeSummary})

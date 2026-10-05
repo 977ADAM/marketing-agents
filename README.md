@@ -38,13 +38,15 @@
 
 ```
 backend/            Go-сервис (отдельный модуль): API /api/*, /healthz, SQLite
-  cmd/server/       точка входа
-  internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace
+  cmd/server/       точка входа API
+  cmd/migrate/      отдельный шаг миграций схемы (в compose — одноразовый сервис)
+  internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace, migrate
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
+  internal/migrate  миграции схемы (golang-migrate): .up.sql/.down.sql рядом с пакетом
   tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
-  Dockerfile        образ API: distroless + SQLite
+  Dockerfile        два образа: API и сервис миграций (distroless + SQLite)
 frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   src/routes/       страницы /, /campaigns/[id], /reviews, /reviews/[id]
   src/routes/api/   прокси /api/* на Go-API (endpoint-роут +server.ts)
@@ -67,8 +69,14 @@ Go-команды запускаются из `backend/`, фронтовые —
 Nginx в стек не входит — снаружи стоит nginx сервера и проксирует на контейнер
 фронта (единственная опубликованная точка входа).
 
+Схему БД применяет **отдельный шаг миграций** (`cmd/migrate`, библиотека
+golang-migrate): в compose это одноразовый сервис `migrate`, локально — `make
+migrate`. Сервер миграции не применяет, а на старте проверяет версию схемы и
+падает с понятной ошибкой, если она не готова.
+
 Короткие команды на все шаги ниже собраны в `Makefile` — `make help` печатает
-список целей. Основные: `make dev` (API и dev-сервер фронта вместе),
+список целей. Основные: `make migrate` (применить схему), `make dev` (миграции,
+затем API и dev-сервер фронта вместе),
 `make verify` (сборка + статические проверки + тесты бэкенда и фронта),
 `make backend` / `make frontend` (каждое по отдельности), `make up` / `make down` /
 `make logs` (стек compose), `make health`. Зависимости ставятся автоматически
@@ -80,6 +88,9 @@ cp backend/.env.example backend/.env   # указать DEEPSEEK_API_KEY (+ BASI
 docker compose up -d --build
 curl localhost:8080/healthz            # ok (запрос уходит через фронт в API)
 ```
+- `migrate` — одноразовый сервис: применяет схему к SQLite на volume `sqlite` и
+  завершается; `backend` стартует только после его успешного выхода
+  (`condition: service_completed_successfully`). Ключи API миграциям не передаются;
 - `frontend` публикуется на `127.0.0.1:8080`: SvelteKit отдаёт приложение и сам
   проксирует `/api/*` и `/healthz` в `backend` по внутренней сети compose;
 - `backend` наружу не публикуется, БД лежит на volume `sqlite`
@@ -89,7 +100,7 @@ curl localhost:8080/healthz            # ok (запрос уходит чере�
 ```bash
 cd backend
 cp .env.example .env       # при первом запуске: указать DEEPSEEK_API_KEY
-set -a; source .env; set +a
+make -C .. migrate         # применить схему (или: go run ./cmd/migrate up)
 go run ./cmd/server        # API на 127.0.0.1:8080, БД → backend/data/marketing.db
 ```
 ```bash
@@ -265,8 +276,31 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 БД — один файл SQLite (`SQLITE_PATH`, по умолчанию `data/marketing.db` относительно
 рабочего каталога), драйвер `modernc.org/sqlite` (чистый Go: CGO не нужен, бинарь
 остаётся статическим, рантайм-образ — distroless). Каталог под файл создаётся при
-старте, миграции применяются автоматически; применённые версии отмечаются в
-`schema_migrations`.
+старте.
+
+### Миграции схемы
+
+Схему ведёт [golang-migrate](https://github.com/golang-migrate/migrate) в пакете
+`internal/migrate`: файлы лежат рядом с пакетом, вшиты в бинарь (`source/iofs`) и
+идут парами `NNNN_name.up.sql` + `NNNN_name.down.sql`. Драйвер БД —
+`database/sqlite` (тот же modernc, чистый Go), учёт версий — в `schema_migrations`
+(`version`, `dirty`).
+
+Применяет миграции отдельный шаг, а не сервер:
+
+- в compose — сервис `migrate` (одноразовый, `target: migrate` в
+  `backend/Dockerfile`); `backend` ждёт его успешного выхода и на старте только
+  сверяет версию схемы, ключи API миграциям не передаются;
+- локально — `make migrate` (или `go run ./cmd/migrate up`); есть также `down`,
+  `version` и `force <N>` — вывести БД из «грязного» состояния.
+
+Если схема не готова, сервер не стартует и объясняет причину: «миграции не
+применены», «схема устарела: применено 1 из 2», «в „грязном“ состоянии».
+
+БД прежних версий (учёт в `schema_migrations` с колонками `name`, `applied_at`)
+переводится автоматически при первом `up`: старая таблица переименовывается в
+`schema_migrations_legacy`, версия помечается через `force`, а сами миграции
+повторно не выполняются — данные не трогаются.
 
 Соединение открывается с `journal_mode=WAL`, `busy_timeout=5000`,
 `foreign_keys=1` и `_txlock=immediate` — параллельные прогоны (каждая тема

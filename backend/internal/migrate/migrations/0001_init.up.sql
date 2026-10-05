@@ -1,4 +1,4 @@
--- 0001_init.sql — схема БД (SQLite).
+-- 0001_init.up.sql — схема БД (SQLite).
 --
 -- Особенности диалекта: UUID/JSONB заменены на TEXT (UUID генерирует Go),
 -- TIMESTAMPTZ — на DATETIME со значением по умолчанию в формате, который

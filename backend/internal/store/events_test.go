@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/migrate"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
@@ -129,8 +130,9 @@ func TestDeleteRunEventsBefore(t *testing.T) {
 	}
 }
 
-// Миграция идемпотентна: повторный Open по тому же файлу не падает.
-func TestRunEventsMigrationIdempotent(t *testing.T) {
+// События переживают перезапуск, а повторный Open по тому же файлу не падает и
+// повторно схему не мигрирует (учёт ведёт golang-migrate в schema_migrations).
+func TestRunEventsSurviveReopen(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/events.db"
 	ctx := context.Background()
@@ -139,6 +141,11 @@ func TestRunEventsMigrationIdempotent(t *testing.T) {
 		s, err := store.Open(ctx, path)
 		if err != nil {
 			t.Fatalf("Open #%d: %v", i+1, err)
+		}
+		if i == 0 {
+			if err := migrate.Up(ctx, s.DB()); err != nil {
+				t.Fatalf("migrate.Up: %v", err)
+			}
 		}
 		if err := s.SaveRunEvent(ctx, event("run-1", int64(i+1), time.Now().UTC(), "")); err != nil {
 			t.Fatalf("SaveRunEvent #%d: %v", i+1, err)
@@ -153,6 +160,9 @@ func TestRunEventsMigrationIdempotent(t *testing.T) {
 		t.Fatalf("Open после перезапуска: %v", err)
 	}
 	defer func() { _ = s.Close() }()
+	if err := migrate.Up(ctx, s.DB()); err != nil {
+		t.Fatalf("повторный migrate.Up: %v", err)
+	}
 	list, err := s.RunEvents(ctx, "run-1", 0)
 	if err != nil {
 		t.Fatalf("RunEvents: %v", err)
