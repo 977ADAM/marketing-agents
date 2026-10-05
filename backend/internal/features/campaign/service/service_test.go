@@ -97,3 +97,22 @@ func TestBusyDoesNotCreateRecord(t *testing.T) {
 		t.Fatalf("busy created record, err=%v", err)
 	}
 }
+
+type existingStore struct{ createStore }
+
+func (*existingStore) LookupCreation(context.Context, string, string, string) (string, error) {
+	return "existing", nil
+}
+func (*existingStore) CreateOnce(context.Context, string, string, string, campaign.Brief) (string, bool, error) {
+	panic("duplicate should return before reservation")
+}
+func TestDuplicateReturnsWhenAdmissionBusy(t *testing.T) {
+	ctx := context.Background()
+	a := runner.NewAdmission(ctx, 1)
+	slot, _ := a.Reserve(ctx)
+	defer slot.Release()
+	id, err := service.NewService(&existingStore{}, &starter{admission: a}).Create(run.WithIdempotencyKey(ctx, "key"), "", testBrief())
+	if err != nil || id != "existing" {
+		t.Fatalf("id=%s err=%v", id, err)
+	}
+}

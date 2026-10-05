@@ -17,3 +17,9 @@ type Store interface {
 	ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error)
 	Get(ctx context.Context, id string) (*campaign.Record, error)
 }
+
+// CreationStore persists idempotency independently of the ordinary read/write port.
+type CreationStore interface {
+	LookupCreation(context.Context, string, string, string) (string, error)
+	CreateOnce(context.Context, string, string, string, campaign.Brief) (string, bool, error)
+}

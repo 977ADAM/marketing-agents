@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	identity "github.com/977ADAM/marketing-agents/internal/core/identity"
+	shared "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"time"
 
 	"gorm.io/gorm"
@@ -205,4 +206,17 @@ func (cs *Campaigns) update(ctx context.Context, id string, values map[string]an
 func (rs *Campaigns) RecoverInterrupted(ctx context.Context) (int64, error) {
 	res := rs.db.WithContext(ctx).Model(&campaignRow{}).Where("status IN ?", []string{"pending", "running"}).Updates(map[string]any{"status": "failed", "error": "прервано рестартом сервиса", "updated_at": time.Now().UTC()})
 	return res.RowsAffected, res.Error
+}
+
+func (cs *Campaigns) LookupCreation(ctx context.Context, client, key, hash string) (string, error) {
+	return shared.LookupCreation(ctx, cs.db, client, "campaign", key, hash)
+}
+func (cs *Campaigns) CreateOnce(ctx context.Context, client, key, hash string, b campaign.Brief) (string, bool, error) {
+	if client == "" {
+		client = identity.DefaultClientID
+	}
+	data, _ := json.Marshal(b)
+	return shared.CreateOnce(ctx, cs.db, client, "campaign", key, hash, func(tx *gorm.DB, id string) error {
+		return tx.Create(&campaignRow{ID: id, ClientID: client, Status: "pending", Brief: string(data)}).Error
+	})
 }

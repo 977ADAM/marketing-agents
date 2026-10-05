@@ -51,8 +51,12 @@ func (a *Handler) postReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, err := a.reviews.Create(r.Context(), req.ClientID, review.Request{BriefText: req.Brief, Texts: req.Texts})
+	id, err := a.reviews.Create(run.WithIdempotencyKey(r.Context(), r.Header.Get("Idempotency-Key")), req.ClientID, review.Request{BriefText: req.Brief, Texts: req.Texts})
 	if err != nil {
+		if errors.Is(err, run.ErrIdempotencyConflict) {
+			response.WriteError(w, http.StatusConflict, "idempotency_conflict", err.Error())
+			return
+		}
 		if errors.Is(err, run.ErrBusy) || errors.Is(err, run.ErrStopping) {
 			response.WriteError(w, http.StatusServiceUnavailable, "busy", "background capacity unavailable")
 			return

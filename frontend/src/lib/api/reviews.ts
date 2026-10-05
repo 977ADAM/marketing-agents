@@ -1,5 +1,6 @@
 // Запросы к API проверки текстов.
 
+import { creationRequest } from './create.js';
 import { postJSON, request } from './client';
 import type {
 	CreateRunResponse,
@@ -9,8 +10,10 @@ import type {
 	ReviewRunSummary
 } from './types';
 
+const create=creationRequest((path,body,key)=>postJSON<CreateRunResponse>(path,body,key));
+
 export function createReview(req: ReviewRequest): Promise<CreateRunResponse> {
-	return postJSON<CreateRunResponse>('reviews', req);
+	return create('reviews', req);
 }
 
 export function getReview(id: string): Promise<ReviewRun> {

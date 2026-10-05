@@ -54,10 +54,10 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	return (await res.json()) as T;
 }
 
-export function postJSON<T>(path: string, body: unknown): Promise<T> {
+export function postJSON<T>(path: string, body: unknown, key?:string): Promise<T> {
 	return request<T>(path, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', ...(key?{'Idempotency-Key':key}:{}) },
 		body: JSON.stringify(body)
 	});
 }

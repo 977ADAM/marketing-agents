@@ -20,3 +20,9 @@ type Store interface {
 	GetCheck(ctx context.Context, id string) (*review.Record, error)
 	ListChecks(ctx context.Context, limit int) ([]review.Summary, error)
 }
+
+// CreationStore persists idempotency independently of the ordinary read/write port.
+type CreationStore interface {
+	LookupCreation(context.Context, string, string, string) (string, error)
+	CreateOnce(context.Context, string, string, string, review.Request) (string, bool, error)
+}

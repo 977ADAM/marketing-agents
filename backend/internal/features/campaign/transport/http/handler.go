@@ -58,8 +58,12 @@ func (a *Handler) postCampaign(w http.ResponseWriter, r *http.Request) {
 		Product: req.Product, Goal: req.Goal, Audience: req.Audience, Tone: req.Tone,
 		Region: req.Region, TopicsCount: req.TopicsCount,
 	}
-	id, err := a.campaigns.Create(r.Context(), req.ClientID, brief)
+	id, err := a.campaigns.Create(run.WithIdempotencyKey(r.Context(), r.Header.Get("Idempotency-Key")), req.ClientID, brief)
 	if err != nil {
+		if errors.Is(err, run.ErrIdempotencyConflict) {
+			response.WriteError(w, http.StatusConflict, "idempotency_conflict", err.Error())
+			return
+		}
 		if errors.Is(err, run.ErrBusy) || errors.Is(err, run.ErrStopping) {
 			response.WriteError(w, http.StatusServiceUnavailable, "busy", "background capacity unavailable")
 			return
