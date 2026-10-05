@@ -10,6 +10,7 @@ import (
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/runner"
 	"github.com/977ADAM/marketing-agents/internal/sqlite"
@@ -35,7 +36,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 
 	rec := trace.New(evStore, trace.Config{Mode: trace.ModeSummary})
 
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
@@ -44,8 +45,8 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
-	src := wordstat.NewFake()
-	src.SetTop("зимняя резина", wordstat.Seed("зимняя резина", 1028481, map[string]int64{
+	src := mock.NewWordstat()
+	src.SetTop("зимняя резина", mock.Seed("зимняя резина", 1028481, map[string]int64{
 		"зимняя резина":       1028481,
 		"какую зимнюю резину": 92398,
 	}))

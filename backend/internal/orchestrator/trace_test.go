@@ -7,11 +7,10 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // captureTrace собирает события трассы для проверок.
@@ -45,9 +44,9 @@ func (c *captureTrace) summaries() string {
 func runCtx() context.Context { return trace.WithRunID(context.Background(), "run-1") }
 
 // happyCampaignFakes настраивает фейковую модель на полный успешный прогон.
-func happyCampaignFakes(t *testing.T) *llm.FakeClient {
+func happyCampaignFakes(t *testing.T) *mock.LLM {
 	t.Helper()
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
 	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
@@ -138,7 +137,7 @@ func TestRunEmitsDecisionTrail(t *testing.T) {
 
 // Итерации критика раньше терялись: теперь по каждой есть запись с оценкой.
 func TestRunEmitsCriticIterations(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
@@ -180,9 +179,9 @@ func TestRunEmitsCriticIterations(t *testing.T) {
 
 // Провалившийся прогон тоже оставляет итог — иначе трасса не объясняет сбой.
 func TestRunEmitsFailedResult(t *testing.T) {
-	src := wordstat.NewFake()
+	src := mock.NewWordstat()
 	src.Err = errors.New("MCP недоступен")
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	rec := &captureTrace{}

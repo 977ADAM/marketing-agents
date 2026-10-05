@@ -1,9 +1,13 @@
-package llm
+// Package mock — тест-двойники портов: держим их вне пакетов-продюсеров, чтобы
+// прод-код не тащил тестовые сущности в бинарь (см. Go Code Review Comments:
+// «Do not define interfaces on the implementor side of an API for mocking»).
+package mock
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/llm"
 	"sync"
 )
 
@@ -16,9 +20,9 @@ type Request struct {
 	User   string
 }
 
-// FakeClient возвращает заранее заданные JSON-ответы по роли и считает вызовы.
+// LLM возвращает заранее заданные JSON-ответы по роли и считает вызовы.
 // Потокобезопасен: оркестратор вызывает копирайтеров из параллельных горутин.
-type FakeClient struct {
+type LLM struct {
 	mu sync.Mutex
 	// Responses: role -> очередь JSON-строк (по одной на вызов).
 	Responses map[string][]string
@@ -28,31 +32,31 @@ type FakeClient struct {
 	Err      error
 }
 
-func NewFake() *FakeClient {
-	return &FakeClient{Responses: map[string][]string{}, Calls: map[string]int{}}
+func NewLLM() *LLM {
+	return &LLM{Responses: map[string][]string{}, Calls: map[string]int{}}
 }
 
-func (f *FakeClient) Complete(_ context.Context, role, system, user string, out any) (Usage, error) {
+func (f *LLM) Complete(_ context.Context, role, system, user string, out any) (llm.Usage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Requests = append(f.Requests, Request{Role: role, System: system, User: user})
 	if f.Err != nil {
-		return Usage{}, f.Err
+		return llm.Usage{}, f.Err
 	}
 	queue := f.Responses[role]
 	n := f.Calls[role]
 	if n >= len(queue) {
-		return Usage{}, fmt.Errorf("fake: no response for role %q call #%d", role, n)
+		return llm.Usage{}, fmt.Errorf("fake: no response for role %q call #%d", role, n)
 	}
 	f.Calls[role]++
 	if err := json.Unmarshal([]byte(queue[n]), out); err != nil {
-		return Usage{}, err
+		return llm.Usage{}, err
 	}
-	return Usage{PromptTokens: 10, CompletionTokens: 10}, nil
+	return llm.Usage{PromptTokens: 10, CompletionTokens: 10}, nil
 }
 
 // LastRequest возвращает последний зафиксированный вызов.
-func (f *FakeClient) LastRequest() (Request, bool) {
+func (f *LLM) LastRequest() (Request, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if len(f.Requests) == 0 {

@@ -7,6 +7,8 @@
 // зависело от конкретной библиотеки.
 package corelogger
 
+import ()
+
 // Logger — то, что ядру нужно от журнала.
 type Logger interface {
 	Debug(msg string, args ...any)

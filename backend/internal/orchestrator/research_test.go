@@ -7,11 +7,10 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 // researchProgress — recorder с поддержкой этапа подбора тем.
@@ -48,16 +47,16 @@ func (r *researchProgress) ResearchSeedDone(int) {
 }
 
 // winterSource — источник с реальными числами из фикстур Wordstat.
-func winterSource() *wordstat.Fake {
-	src := wordstat.NewFake()
-	src.SetTop("зимняя резина", wordstat.Seed("зимняя резина", 1028481, map[string]int64{
+func winterSource() *mock.Wordstat {
+	src := mock.NewWordstat()
+	src.SetTop("зимняя резина", mock.Seed("зимняя резина", 1028481, map[string]int64{
 		"зимняя резина":             1028481,
 		"купить зимнюю резину":      289429,
 		"какую зимнюю резину":       92398,
 		"какая зимняя резина лучше": 34038,
 		"зимняя резина 205 55 16":   16880,
 	}))
-	src.SetTop("какую зимнюю резину", wordstat.Seed("какую зимнюю резину", 92398, map[string]int64{
+	src.SetTop("какую зимнюю резину", mock.Seed("какую зимнюю резину", 92398, map[string]int64{
 		"какую зимнюю резину":       92398,
 		"какая зимняя резина лучше": 34038,
 	}))
@@ -87,7 +86,7 @@ func researchOptions(src topic.Source, opt orchestrator.Options) orchestrator.Op
 
 func TestRunResearchUsesWordstatTopics(t *testing.T) {
 	src := winterSource()
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
 	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины: 6 простых правил","goal":"поймать в момент выбора",
@@ -187,8 +186,8 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 
 // Спроса нет вовсе: классификация не запускается, темы берём у модели.
 func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
-	src := wordstat.NewFake() // default: hasData=false
-	fake := llm.NewFake()
+	src := mock.NewWordstat() // default: hasData=false
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["ыфвыфв ыфва"]}`}
 	fake.Responses[topic.RoleFallback] = []string{`{"topics":[
 		{"title":"Как подобрать размер","goal":"g","task":"t","intent":"выбор"},
@@ -225,9 +224,9 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 }
 
 func TestRunResearchFailsOnSourceError(t *testing.T) {
-	src := wordstat.NewFake()
+	src := mock.NewWordstat()
 	src.Err = errors.New("mcp недоступен")
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
@@ -246,7 +245,7 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 // Выдуманная цитата валит прогон: цифры должны быть проверяемыми.
 func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	src := winterSource()
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Лучшая зимняя резина 2026","goal":"g","task":"t","queries":["лучшая зимняя резина 2026"]}]}`}
@@ -264,7 +263,7 @@ func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 // Лимит обращений к Wordstat соблюдается, а прогресс не зависает на необработанных сеялках.
 func TestRunResearchRespectsCallLimit(t *testing.T) {
 	src := winterSource()
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","какая зимняя резина лучше","купить зимнюю резину"]}`}
 	fake.Responses[topic.RoleCluster] = []string{`{"topics":[
 		{"title":"Как выбрать","goal":"g","task":"t","queries":["какую зимнюю резину"]}]}`}
@@ -290,7 +289,7 @@ func TestRunResearchRespectsCallLimit(t *testing.T) {
 
 // Без настроенного источника подбор не запускается — работает прежний путь.
 func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`}
 	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}

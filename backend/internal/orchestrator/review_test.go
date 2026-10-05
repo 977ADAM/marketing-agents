@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
 )
@@ -13,7 +13,7 @@ import (
 // Тексты обрабатываются параллельно, поэтому порядок ответов ролей недетерминирован:
 // один текст получает (90,85) → pass/85, другой (70,95) → fix/70.
 func TestReviewTwoTexts(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[review.RoleCompliance] = []string{
 		`{"score":90,"issues":[]}`,
 		`{"score":70,"issues":["не отражено УТП"]}`,
@@ -58,7 +58,7 @@ func TestReviewTwoTexts(t *testing.T) {
 
 // Пустые заголовки заменяются на «Текст N» в прогресс-тайтлах.
 func TestReviewTitleFallback(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[review.RoleCompliance] = []string{`{"score":81,"issues":[]}`}
 	fake.Responses[review.RoleQuality] = []string{`{"score":82,"issues":[]}`}
 	o := orchestrator.New(fake, orchestrator.Options{})

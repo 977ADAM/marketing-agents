@@ -2,10 +2,10 @@ package runner
 
 import (
 	"context"
-	"github.com/977ADAM/marketing-agents/internal/core/corelogger"
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/core/corelogger"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/trace"

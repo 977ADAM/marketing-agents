@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mock"
 )
 
 func testBrief() campaign.Brief {
@@ -13,7 +13,7 @@ func testBrief() campaign.Brief {
 }
 
 func TestStrategistReturnsTopics(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses["strategist"] = []string{
 		`{"positioning":"умная гидратация","topics":[{"title":"Зачем пить воду","angle":"польза","points":["а","б"]},{"title":"Эко-выбор","angle":"экология","points":["в"]}]}`,
 	}
@@ -35,7 +35,7 @@ func TestStrategistReturnsTopics(t *testing.T) {
 }
 
 func TestStrategistRejectsEmptyTopics(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses["strategist"] = []string{`{"positioning":"x","topics":[]}`}
 	s := campaign.NewStrategist(fake)
 	if _, _, err := s.Run(context.Background(), testBrief()); err == nil {
@@ -44,7 +44,7 @@ func TestStrategistRejectsEmptyTopics(t *testing.T) {
 }
 
 func TestCopywriterWritesArticle(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses["copywriter"] = []string{
 		`{"topic":"Зачем пить воду","title":"Пей умно","body":"Текст статьи...","cta":"Купить"}`,
 	}
@@ -61,7 +61,7 @@ func TestCopywriterWritesArticle(t *testing.T) {
 }
 
 func TestCopywriterReviseUsesIssues(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses["copywriter"] = []string{
 		`{"topic":"t","title":"v2","body":"улучшено","cta":"Жми"}`,
 	}
@@ -79,7 +79,7 @@ func TestCopywriterReviseUsesIssues(t *testing.T) {
 }
 
 func TestCriticScores(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses["critic"] = []string{
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
@@ -96,7 +96,7 @@ func TestCriticScores(t *testing.T) {
 }
 
 func TestCriticClampsScore(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses["critic"] = []string{`{"score":150,"issues":[],"verdict":"accept"}`}
 	cr := campaign.NewCritic(fake)
 	rev, _, err := cr.Run(context.Background(), testBrief(), campaign.Article{Title: "T", Body: "B"})

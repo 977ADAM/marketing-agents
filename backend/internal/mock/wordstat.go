@@ -1,17 +1,18 @@
-package wordstat
+package mock
 
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/wordstat"
 	"sync"
 
 	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
-// Fake — подмена topic.Source в тестах: заранее заданные ответы по фразам плюс
+// Wordstat — подмена topic.Source в тестах: заранее заданные ответы по фразам плюс
 // журнал вызовов. По умолчанию (фраза не описана) возвращает «спроса нет» — это
 // валидный ответ, а не ошибка, поэтому тесты не обязаны описывать каждую фразу.
-type Fake struct {
+type Wordstat struct {
 	mu sync.Mutex
 
 	// Tops — ответы по спросу на фразу.
@@ -20,7 +21,7 @@ type Fake struct {
 	Default *topic.Demand
 	// DynamicsR и RegionsR — ответы соответствующих запросов.
 	DynamicsR *topic.Dynamics
-	RegionsR  *Regions
+	RegionsR  *wordstat.Regions
 	// Err — если задан, все вызовы возвращают эту ошибку.
 	Err error
 
@@ -32,20 +33,20 @@ type Fake struct {
 	DynamicsParamsLog []topic.DynamicsParams
 }
 
-// NewFake создаёт подмену с пустым журналом.
-func NewFake() *Fake {
-	return &Fake{Tops: map[string]topic.Demand{}}
+// NewWordstat создаёт подмену с пустым журналом.
+func NewWordstat() *Wordstat {
+	return &Wordstat{Tops: map[string]topic.Demand{}}
 }
 
 // SetTop описывает ответ по спросу на конкретную фразу.
-func (f *Fake) SetTop(phrase string, demand topic.Demand) {
+func (f *Wordstat) SetTop(phrase string, demand topic.Demand) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Tops[phrase] = demand
 }
 
 // Demand возвращает спрос по фразе (порт topic.Source).
-func (f *Fake) Demand(_ context.Context, p topic.DemandParams) (topic.Demand, error) {
+func (f *Wordstat) Demand(_ context.Context, p topic.DemandParams) (topic.Demand, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "top_requests:"+p.Phrase)
@@ -63,7 +64,7 @@ func (f *Fake) Demand(_ context.Context, p topic.DemandParams) (topic.Demand, er
 }
 
 // Dynamics возвращает сезонность (порт topic.Source).
-func (f *Fake) Dynamics(_ context.Context, p topic.DynamicsParams) (topic.Dynamics, error) {
+func (f *Wordstat) Dynamics(_ context.Context, p topic.DynamicsParams) (topic.Dynamics, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "dynamics:"+p.Phrase)
@@ -79,7 +80,7 @@ func (f *Fake) Dynamics(_ context.Context, p topic.DynamicsParams) (topic.Dynami
 
 // Regions возвращает географию: в порт topic.Source не входит, но клиент и
 // подмена её умеют — этим пользуются тесты декоратора и дымовой тест.
-func (f *Fake) Regions(_ context.Context, p RegionsParams) (*Regions, error) {
+func (f *Wordstat) Regions(_ context.Context, p wordstat.RegionsParams) (*wordstat.Regions, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "regions:"+p.Phrase)
@@ -89,18 +90,18 @@ func (f *Fake) Regions(_ context.Context, p RegionsParams) (*Regions, error) {
 	if f.RegionsR != nil {
 		return f.RegionsR, nil
 	}
-	return &Regions{Phrase: p.Phrase}, nil
+	return &wordstat.Regions{Phrase: p.Phrase}, nil
 }
 
 // Calls возвращает журнал вызовов в формате «инструмент:фраза».
-func (f *Fake) Calls() []string {
+func (f *Wordstat) Calls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
 }
 
 // CallCount — число обращений к источнику (для проверки лимита вызовов).
-func (f *Fake) CallCount() int {
+func (f *Wordstat) CallCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.calls)
@@ -116,6 +117,6 @@ func Seed(phrase string, total int64, requests map[string]int64) topic.Demand {
 }
 
 // String — для читаемых сообщениях об ошибках в тестах.
-func (f *Fake) String() string {
+func (f *Wordstat) String() string {
 	return fmt.Sprintf("wordstat.Fake(%d вызовов)", f.CallCount())
 }

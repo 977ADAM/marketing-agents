@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
@@ -64,7 +65,7 @@ func TestTracingSourceRecordsTopRequests(t *testing.T) {
 
 func TestTracingSourceRecordsNoDemand(t *testing.T) {
 	rec := &captureRecorder{}
-	src := wordstat.NewTracing(wordstat.NewFake(), rec) // Fake по умолчанию отдаёт «спроса нет»
+	src := wordstat.NewTracing(mock.NewWordstat(), rec) // Fake по умолчанию отдаёт «спроса нет»
 
 	if _, err := src.Demand(ctxWithRun(), topic.DemandParams{Phrase: "ыфвыфв ыфва"}); err != nil {
 		t.Fatalf("TopRequests: %v", err)
@@ -80,7 +81,7 @@ func TestTracingSourceRecordsNoDemand(t *testing.T) {
 
 func TestTracingSourceRecordsDynamicsAndRegions(t *testing.T) {
 	rec := &captureRecorder{}
-	fake := wordstat.NewFake()
+	fake := mock.NewWordstat()
 	fake.DynamicsR = &topic.Dynamics{Phrase: "зимняя резина", Points: []topic.DynamicsPoint{{Date: "2026-09-01T00:00:00Z", Count: 10}}}
 	fake.RegionsR = &wordstat.Regions{Phrase: "аренда офиса", Items: []wordstat.RegionItem{{RegionID: "225", Name: "Россия", Count: 45299}}}
 	src := wordstat.NewTracing(fake, rec)
@@ -105,7 +106,7 @@ func TestTracingSourceRecordsDynamicsAndRegions(t *testing.T) {
 
 func TestTracingSourceRecordsError(t *testing.T) {
 	rec := &captureRecorder{}
-	fake := wordstat.NewFake()
+	fake := mock.NewWordstat()
 	fake.Err = errors.New("MCP недоступен")
 	src := wordstat.NewTracing(fake, rec)
 
@@ -145,9 +146,9 @@ func TestHumanCount(t *testing.T) {
 }
 
 // winterSourceForTrace — источник с числами из фикстур Wordstat.
-func winterSourceForTrace() *wordstat.Fake {
-	fake := wordstat.NewFake()
-	fake.SetTop("зимняя резина", wordstat.Seed("зимняя резина", 1028481, map[string]int64{
+func winterSourceForTrace() *mock.Wordstat {
+	fake := mock.NewWordstat()
+	fake.SetTop("зимняя резина", mock.Seed("зимняя резина", 1028481, map[string]int64{
 		"зимняя резина":        1028481,
 		"купить зимнюю резину": 289429,
 	}))

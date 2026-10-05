@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/mock"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 )
 
@@ -17,7 +17,7 @@ func brief() campaign.Brief {
 
 // fanout: 2 темы, критик сразу accept → 2 deliverables, по одному вызову критика.
 func TestRunFanOutAcceptsImmediately(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]},{"title":"T2","angle":"a","points":["y"]}]}`,
 	}
@@ -45,7 +45,7 @@ func TestRunFanOutAcceptsImmediately(t *testing.T) {
 
 // цикл критика: первый черновик ниже порога → ревизия → второй проходит.
 func TestRunCriticReviseLoop(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
@@ -73,7 +73,7 @@ func TestRunCriticReviseLoop(t *testing.T) {
 
 // maxIter исчерпан → берём лучший по score черновик.
 func TestRunPicksBestWhenMaxIter(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
@@ -100,7 +100,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 }
 
 func TestRunFailsWhenStrategistErrors(t *testing.T) {
-	fake := llm.NewFake() // нет ответов → стратег вернёт ошибку
+	fake := mock.NewLLM() // нет ответов → стратег вернёт ошибку
 	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80})
 	if _, err := o.Run(context.Background(), brief(), nil); err == nil {
 		t.Fatal("expected error")
@@ -109,7 +109,7 @@ func TestRunFailsWhenStrategistErrors(t *testing.T) {
 
 // MaxTopics ограничивает число обрабатываемых тем сверху.
 func TestRunCapsTopics(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1"},{"title":"T2"},{"title":"T3"}]}`,
 	}
@@ -151,7 +151,7 @@ func (r *recordProgress) TopicDone(i, sc int)      { r.add(fmt.Sprintf("done:%d:
 
 // исчерпан max-iter без accept → второй путь TopicDone (с лучшим score).
 func TestRunEmitsProgressPickBest(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
@@ -181,7 +181,7 @@ func TestRunEmitsProgressPickBest(t *testing.T) {
 }
 
 func TestRunEmitsProgress(t *testing.T) {
-	fake := llm.NewFake()
+	fake := mock.NewLLM()
 	fake.Responses[campaign.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}

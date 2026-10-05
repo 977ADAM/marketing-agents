@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // Config — конфигурация сервиса, собранная из переменных окружения.
@@ -67,6 +65,17 @@ const DefaultHTTPAddr = "127.0.0.1:8080"
 // DefaultWordstatRegion — регион по умолчанию для подбора тем: 225 — Россия.
 const DefaultWordstatRegion = "225"
 
+// Режимы трассы прогона. Конфиг знает свои значения сам и не тянет доменный
+// пакет trace: в trace.Mode его переводит composition root (cmd/server).
+const (
+	TraceModeOff     = "off"
+	TraceModeSummary = "summary"
+	TraceModeFull    = "full"
+)
+
+// DefaultTraceMaxPayloadBytes — лимит одного payload в режиме full.
+const DefaultTraceMaxPayloadBytes = 32 << 10
+
 // Load читает env, подставляет дефолты и валидирует обязательные поля.
 func Load() (*Config, error) {
 	// .env опционален: если файла нет — читаем только реальное окружение.
@@ -108,9 +117,9 @@ func Load() (*Config, error) {
 		WordstatMaxCallsPerRun:    getInt("WORDSTAT_MAX_CALLS_PER_RUN", 60),
 		TopicsMultiplier:          getInt("TOPICS_MULTIPLIER", 2),
 
-		TraceMode:            getStr("TRACE_MODE", string(trace.ModeSummary)),
+		TraceMode:            getStr("TRACE_MODE", TraceModeSummary),
 		TraceRetentionDays:   getInt("TRACE_RETENTION_DAYS", 30),
-		TraceMaxPayloadBytes: getInt("TRACE_MAX_PAYLOAD_BYTES", trace.DefaultMaxPayloadBytes),
+		TraceMaxPayloadBytes: getInt("TRACE_MAX_PAYLOAD_BYTES", DefaultTraceMaxPayloadBytes),
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -187,10 +196,12 @@ func (c *Config) validate() error {
 		return fmt.Errorf("TOPICS_MULTIPLIER должен быть >= 1, получено %d", c.TopicsMultiplier)
 	}
 
-	// Трасса: режим проверяем разбором, чтобы опечатка в .env не превращалась
-	// молча в «выключено».
-	if _, err := trace.ParseMode(c.TraceMode); err != nil {
-		return fmt.Errorf("TRACE_MODE: %w", err)
+	// Трасса: режим проверяем здесь же, чтобы опечатка в .env не превращалась
+	// молча в «выключено». Пустое значение — «summary», как и в trace.ParseMode.
+	switch strings.ToLower(strings.TrimSpace(c.TraceMode)) {
+	case "", TraceModeOff, TraceModeSummary, TraceModeFull:
+	default:
+		return fmt.Errorf("TRACE_MODE: неизвестный режим %q (off | summary | full)", c.TraceMode)
 	}
 	if c.TraceRetentionDays < 0 {
 		return fmt.Errorf("TRACE_RETENTION_DAYS должен быть >= 0, получено %d", c.TraceRetentionDays)
