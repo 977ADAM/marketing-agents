@@ -39,7 +39,7 @@ export interface Strategy {
 export type TopicSource = 'wordstat' | 'llm';
 
 /** Подэтап фазы researching. */
-export type ResearchStage = 'seeds' | 'fetching' | 'clustering' | 'selecting';
+export type ResearchStage = 'seeds' | 'fetching' | 'selecting';
 
 export interface PhraseCount {
 	phrase: string;

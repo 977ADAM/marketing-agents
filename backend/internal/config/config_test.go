@@ -144,17 +144,8 @@ func TestWordstatDefaults(t *testing.T) {
 	if cfg.WordstatRegionDefault != "225" {
 		t.Errorf("WordstatRegionDefault = %q, want 225", cfg.WordstatRegionDefault)
 	}
-	if cfg.WordstatMinVolume != 300 {
-		t.Errorf("WordstatMinVolume = %d, want 300", cfg.WordstatMinVolume)
-	}
-	if cfg.WordstatSeasonalityFactor != 3 {
-		t.Errorf("WordstatSeasonalityFactor = %v, want 3", cfg.WordstatSeasonalityFactor)
-	}
 	if cfg.WordstatMaxCallsPerRun != 60 {
 		t.Errorf("WordstatMaxCallsPerRun = %d, want 60", cfg.WordstatMaxCallsPerRun)
-	}
-	if cfg.TopicsMultiplier != 2 {
-		t.Errorf("TopicsMultiplier = %d, want 2", cfg.TopicsMultiplier)
 	}
 }
 
@@ -165,10 +156,7 @@ func TestWordstatOverrides(t *testing.T) {
 	os.Setenv("WORDSTAT_MCP_USER", "admin")
 	os.Setenv("WORDSTAT_MCP_PASS", "secret")
 	os.Setenv("WORDSTAT_REGION_DEFAULT", "213")
-	os.Setenv("WORDSTAT_MIN_VOLUME", "1000")
-	os.Setenv("WORDSTAT_SEASONALITY_FACTOR", "2.5")
 	os.Setenv("WORDSTAT_MAX_CALLS_PER_RUN", "20")
-	os.Setenv("TOPICS_MULTIPLIER", "3")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -183,11 +171,8 @@ func TestWordstatOverrides(t *testing.T) {
 	if cfg.WordstatRegionDefault != "213" {
 		t.Errorf("WordstatRegionDefault = %q, want 213", cfg.WordstatRegionDefault)
 	}
-	if cfg.WordstatMinVolume != 1000 || cfg.WordstatSeasonalityFactor != 2.5 {
-		t.Errorf("пороги = %d/%v", cfg.WordstatMinVolume, cfg.WordstatSeasonalityFactor)
-	}
-	if cfg.WordstatMaxCallsPerRun != 20 || cfg.TopicsMultiplier != 3 {
-		t.Errorf("лимиты = %d/%d", cfg.WordstatMaxCallsPerRun, cfg.TopicsMultiplier)
+	if cfg.WordstatMaxCallsPerRun != 20 {
+		t.Errorf("WordstatMaxCallsPerRun = %d, want 20", cfg.WordstatMaxCallsPerRun)
 	}
 }
 
@@ -236,10 +221,7 @@ func TestWordstatValidation(t *testing.T) {
 		{"url без схемы", map[string]string{"WORDSTAT_MCP_URL": "example.test/mcp"}, "WORDSTAT_MCP_URL"},
 		{"регион не число", map[string]string{"WORDSTAT_REGION_DEFAULT": "Москва"}, "WORDSTAT_REGION_DEFAULT"},
 		{"пустой регион", map[string]string{"WORDSTAT_REGION_DEFAULT": ""}, "WORDSTAT_REGION_DEFAULT"},
-		{"отрицательный объём", map[string]string{"WORDSTAT_MIN_VOLUME": "-1"}, "WORDSTAT_MIN_VOLUME"},
-		{"нулевой множитель сезонности", map[string]string{"WORDSTAT_SEASONALITY_FACTOR": "0.5"}, "WORDSTAT_SEASONALITY_FACTOR"},
 		{"нулевой лимит вызовов", map[string]string{"WORDSTAT_MAX_CALLS_PER_RUN": "0"}, "WORDSTAT_MAX_CALLS_PER_RUN"},
-		{"нулевой множитель тем", map[string]string{"TOPICS_MULTIPLIER": "0"}, "TOPICS_MULTIPLIER"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

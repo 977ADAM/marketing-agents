@@ -40,7 +40,7 @@ describe('словари подписей', () => {
 
 	it('описывают подбор тем: подэтапы и источник темы', () => {
 		expect(Object.keys(RESEARCH_STAGE_LABELS).sort()).toEqual(
-			['clustering', 'fetching', 'seeds', 'selecting'].sort()
+			['fetching', 'seeds', 'selecting'].sort()
 		);
 		expect(RESEARCH_STAGE_LABELS.fetching).toContain('Wordstat');
 		expect(SOURCE_LABELS.wordstat).toBe('по спросу');

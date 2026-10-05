@@ -35,7 +35,6 @@ export const PHASE_LABELS: Record<Phase, string> = {
 export const RESEARCH_STAGE_LABELS: Record<ResearchStage, string> = {
 	seeds: 'Придумываем поисковые фразы',
 	fetching: 'Собираем спрос в Wordstat',
-	clustering: 'Собираем темы из запросов',
 	selecting: 'Отбираем лучшие темы'
 };
 

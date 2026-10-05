@@ -28,8 +28,6 @@ const (
 	StageSeeds ResearchStage = "seeds"
 	// StageFetching — сбор спроса по сеялкам в Wordstat.
 	StageFetching ResearchStage = "fetching"
-	// StageClustering — группировка собранных фраз в темы.
-	StageClustering ResearchStage = "clustering"
 	// StageSelecting — отбор лучших тем и сезонная поправка.
 	StageSelecting ResearchStage = "selecting"
 )

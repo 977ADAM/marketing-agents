@@ -36,14 +36,13 @@ type Config struct {
 
 	// Wordstat — подбор тем по поисковому спросу через MCP-сервер.
 	// Пустой URL означает, что подбор выключен: темы генерирует стратег, как раньше.
-	WordstatMCPURL            string
-	WordstatMCPUser           string
-	WordstatMCPPass           string
-	WordstatRegionDefault     string  // geo ID Яндекса: 225 Россия, 1 Москва и область, 213 Москва
-	WordstatMinVolume         int     // минимальный объём темы, показов за 30 дней
-	WordstatSeasonalityFactor float64 // во сколько раз пик за 12 месяцев должен превышать порог
-	WordstatMaxCallsPerRun    int     // лимит обращений к Wordstat на прогон
-	TopicsMultiplier          int     // сколько идей предлагать на одну статью (×2)
+	WordstatMCPURL         string
+	WordstatMCPUser        string
+	WordstatMCPPass        string
+	WordstatRegionDefault  string // geo ID Яндекса: 225 Россия, 1 Москва и область, 213 Москва
+	WordstatMinVolume      int    // минимальный объём темы, показов за 30 дней
+	WordstatMaxCallsPerRun int    // лимит обращений к Wordstat на прогон
+	TopicsMultiplier       int    // сколько идей предлагать на одну статью (×2)
 
 	// Трасса прогона: журнал того, что делали агенты.
 	TraceMode            string // off | summary | full
@@ -108,14 +107,11 @@ func Load() (*Config, error) {
 		CostPer1KPrompt:     getFloat("COST_PER_1K_PROMPT", 0.00027),
 		CostPer1KCompletion: getFloat("COST_PER_1K_COMPLETION", 0.0011),
 
-		WordstatMCPURL:            getStr("WORDSTAT_MCP_URL", ""),
-		WordstatMCPUser:           getStr("WORDSTAT_MCP_USER", ""),
-		WordstatMCPPass:           getStr("WORDSTAT_MCP_PASS", ""),
-		WordstatRegionDefault:     getStr("WORDSTAT_REGION_DEFAULT", DefaultWordstatRegion),
-		WordstatMinVolume:         getInt("WORDSTAT_MIN_VOLUME", 300),
-		WordstatSeasonalityFactor: getFloat("WORDSTAT_SEASONALITY_FACTOR", 3),
-		WordstatMaxCallsPerRun:    getInt("WORDSTAT_MAX_CALLS_PER_RUN", 60),
-		TopicsMultiplier:          getInt("TOPICS_MULTIPLIER", 2),
+		WordstatMCPURL:         getStr("WORDSTAT_MCP_URL", ""),
+		WordstatMCPUser:        getStr("WORDSTAT_MCP_USER", ""),
+		WordstatMCPPass:        getStr("WORDSTAT_MCP_PASS", ""),
+		WordstatRegionDefault:  getStr("WORDSTAT_REGION_DEFAULT", DefaultWordstatRegion),
+		WordstatMaxCallsPerRun: getInt("WORDSTAT_MAX_CALLS_PER_RUN", 60),
 
 		TraceMode:            getStr("TRACE_MODE", TraceModeSummary),
 		TraceRetentionDays:   getInt("TRACE_RETENTION_DAYS", 30),
@@ -183,17 +179,8 @@ func (c *Config) validate() error {
 	if !isGeoID(c.WordstatRegionDefault) {
 		return fmt.Errorf("WORDSTAT_REGION_DEFAULT должен быть geo ID Яндекса (только цифры), получено %q", c.WordstatRegionDefault)
 	}
-	if c.WordstatMinVolume < 0 {
-		return fmt.Errorf("WORDSTAT_MIN_VOLUME должен быть >= 0, получено %d", c.WordstatMinVolume)
-	}
-	if c.WordstatSeasonalityFactor < 1 {
-		return fmt.Errorf("WORDSTAT_SEASONALITY_FACTOR должен быть >= 1, получено %v", c.WordstatSeasonalityFactor)
-	}
 	if c.WordstatMaxCallsPerRun <= 0 {
 		return fmt.Errorf("WORDSTAT_MAX_CALLS_PER_RUN должен быть > 0, получено %d", c.WordstatMaxCallsPerRun)
-	}
-	if c.TopicsMultiplier < 1 {
-		return fmt.Errorf("TOPICS_MULTIPLIER должен быть >= 1, получено %d", c.TopicsMultiplier)
 	}
 
 	// Трасса: режим проверяем здесь же, чтобы опечатка в .env не превращалась
