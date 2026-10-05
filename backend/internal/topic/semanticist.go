@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"strings"
-
-	"github.com/977ADAM/marketing-agents/internal/llm"
 )
 
 // Роли агента подбора тем. Идут на MODEL_DEFAULT: здесь важнее рассуждения,
@@ -26,9 +25,9 @@ var ErrUnknownQuery = errors.New("cluster: запрос отсутствует �
 
 // Semanticist — агент, который предлагает темы на основе поискового спроса:
 // сначала сеялки по брифу, затем группировка уже собранных фраз в темы.
-type Semanticist struct{ llm llm.Client }
+type Semanticist struct{ llm corellm.Client }
 
-func NewSemanticist(c llm.Client) *Semanticist { return &Semanticist{llm: c} }
+func NewSemanticist(c corellm.Client) *Semanticist { return &Semanticist{llm: c} }
 
 const seedsSystem = `Ты — маркетинговый аналитик. По брифу выпиши короткие поисковые фразы,
 которые реально вводят люди в Яндекс, когда ищут такой продукт или решают такую задачу.
@@ -53,7 +52,7 @@ const clusterSystem = `Ты — редактор, который собирае�
 - числа, частотности и проценты не приводи: их подставит система.`
 
 // Seeds просит у модели 10–15 поисковых фраз по брифу.
-func (s *Semanticist) Seeds(ctx context.Context, b Briefing, count int) ([]string, llm.Usage, error) {
+func (s *Semanticist) Seeds(ctx context.Context, b Briefing, count int) ([]string, corellm.Usage, error) {
 	if count <= 0 {
 		count = DefaultSeedCount
 	}
@@ -81,9 +80,9 @@ func (s *Semanticist) Seeds(ctx context.Context, b Briefing, count int) ([]strin
 //
 // Числа в промпт не передаются сознательно: модель не должна ни видеть
 // частотности, ни тем более их придумывать.
-func (s *Semanticist) Cluster(ctx context.Context, b Briefing, phrases []string, wantTopics int) ([]TopicDraft, llm.Usage, error) {
+func (s *Semanticist) Cluster(ctx context.Context, b Briefing, phrases []string, wantTopics int) ([]TopicDraft, corellm.Usage, error) {
 	if len(phrases) == 0 {
-		return nil, llm.Usage{}, fmt.Errorf("semanticist cluster: пустой список фраз")
+		return nil, corellm.Usage{}, fmt.Errorf("semanticist cluster: пустой список фраз")
 	}
 
 	user := fmt.Sprintf(
@@ -111,9 +110,9 @@ func (s *Semanticist) Cluster(ctx context.Context, b Briefing, phrases []string,
 // Fallback просит темы «от себя», когда спроса нет или его не хватило на
 // нужное число тем: строго по ЦА, продукту и задаче из брифа. Такие темы
 // помечаются источником llm и в отчёте идут без цифр — это гипотеза, а не данные.
-func (s *Semanticist) Fallback(ctx context.Context, b Briefing, want int, avoid []string) ([]TopicDraft, llm.Usage, error) {
+func (s *Semanticist) Fallback(ctx context.Context, b Briefing, want int, avoid []string) ([]TopicDraft, corellm.Usage, error) {
 	if want <= 0 {
-		return nil, llm.Usage{}, nil
+		return nil, corellm.Usage{}, nil
 	}
 	avoidNote := ""
 	if len(avoid) > 0 {

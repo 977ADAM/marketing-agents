@@ -133,10 +133,11 @@ composition root, не импортирует.
 внутренней зависимости: режим трассы (`off|summary|full`) и лимит payload
 валидируются собственными константами, `main` переводит строку в `trace.Mode`.
 
-**Осталось сверх плана:** домен всё ещё импортирует пакет-адаптер `llm`
-(`campaign`/`review`/`topic` используют `llm.Client` и `llm.Usage`). Чтобы домен
-зависел только от ядра, порт нужно вынести: `internal/core/corellm` (интерфейс
-`Client` и `Usage`) + адаптер `internal/openai` (клиент, ретраи, декоратор трассы).
+**Сверх плана (сделано):** порт вызова модели вынесен в ядро —
+`internal/core/corellm` (`Client`, `Usage`), а `internal/llm` остался адаптером
+(клиент DeepSeek, ретраи, декоратор трассы). Домен теперь зависит только от ядра и
+своих типов: `campaign -> corellm run score topic`, `review -> corellm run score`,
+`topic -> corellm`.
 
 ## Приёмка
 

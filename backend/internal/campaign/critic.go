@@ -3,8 +3,8 @@ package campaign
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 
-	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/score"
 )
 
@@ -15,11 +15,11 @@ const criticSystem = `Ты — строгий редактор. Оцени ст�
 verdict="accept" если статья готова к публикации, иначе "revise".
 Замечания (issues) пиши на русском. Снижай оценку, если статья не на русском языке.`
 
-type Critic struct{ llm llm.Client }
+type Critic struct{ llm corellm.Client }
 
-func NewCritic(c llm.Client) *Critic { return &Critic{llm: c} }
+func NewCritic(c corellm.Client) *Critic { return &Critic{llm: c} }
 
-func (cr *Critic) Run(ctx context.Context, b Brief, a Article) (Review, llm.Usage, error) {
+func (cr *Critic) Run(ctx context.Context, b Brief, a Article) (Review, corellm.Usage, error) {
 	user := fmt.Sprintf("Аудитория: %s; тон: %s.\nЗаголовок: %s\nТекст: %s\nCTA: %s",
 		b.Audience, b.Tone, a.Title, a.Body, a.CTA)
 	var out Review

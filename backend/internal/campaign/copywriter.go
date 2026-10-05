@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 )
 
 const RoleCopywriter = "copywriter"
@@ -15,18 +14,18 @@ const copywriterSystem = `Ты — копирайтер нативных ста�
 body — связный текст статьи; cta — призыв к действию. Учитывай тон и аудиторию из брифа.
 Пиши на русском языке (title, body, cta — всё по-русски).`
 
-type Copywriter struct{ llm llm.Client }
+type Copywriter struct{ llm corellm.Client }
 
-func NewCopywriter(c llm.Client) *Copywriter { return &Copywriter{llm: c} }
+func NewCopywriter(c corellm.Client) *Copywriter { return &Copywriter{llm: c} }
 
-func (cw *Copywriter) Run(ctx context.Context, b Brief, s Strategy, t Topic) (Article, llm.Usage, error) {
+func (cw *Copywriter) Run(ctx context.Context, b Brief, s Strategy, t Topic) (Article, corellm.Usage, error) {
 	user := fmt.Sprintf(
 		"Бриф — продукт: %s; цель: %s; аудитория: %s; тон: %s.\nПозиционирование: %s.\nТема: %s\nУгол: %s\nТезисы: %v",
 		b.Product, b.Goal, b.Audience, b.Tone, s.Positioning, t.Title, t.Angle, t.Points)
 	return cw.complete(ctx, copywriterSystem, user)
 }
 
-func (cw *Copywriter) Revise(ctx context.Context, prev Article, r Review) (Article, llm.Usage, error) {
+func (cw *Copywriter) Revise(ctx context.Context, prev Article, r Review) (Article, corellm.Usage, error) {
 	prevJSON, _ := json.Marshal(prev)
 	user := fmt.Sprintf(
 		"Доработай статью с учётом замечаний критика.\nТекущая версия: %s\nОценка: %d\nЗамечания: %v\nВерни улучшенную статью в том же JSON-формате.",
@@ -34,7 +33,7 @@ func (cw *Copywriter) Revise(ctx context.Context, prev Article, r Review) (Artic
 	return cw.complete(ctx, copywriterSystem, user)
 }
 
-func (cw *Copywriter) complete(ctx context.Context, system, user string) (Article, llm.Usage, error) {
+func (cw *Copywriter) complete(ctx context.Context, system, user string) (Article, corellm.Usage, error) {
 	var out Article
 	usage, err := cw.llm.Complete(ctx, RoleCopywriter, system, user, &out)
 	if err != nil {

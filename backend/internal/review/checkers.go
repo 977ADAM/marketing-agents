@@ -3,8 +3,8 @@ package review
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 
-	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/score"
 )
 
@@ -33,11 +33,11 @@ issues — конкретные замечания с примерами из т
 Если замечаний нет, issues = [].`
 
 // ComplianceChecker — агент «соответствие брифу».
-type ComplianceChecker struct{ llm llm.Client }
+type ComplianceChecker struct{ llm corellm.Client }
 
-func NewComplianceChecker(c llm.Client) *ComplianceChecker { return &ComplianceChecker{llm: c} }
+func NewComplianceChecker(c corellm.Client) *ComplianceChecker { return &ComplianceChecker{llm: c} }
 
-func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t TextToReview) (CheckScore, llm.Usage, error) {
+func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t TextToReview) (CheckScore, corellm.Usage, error) {
 	user := fmt.Sprintf("БРИФ:\n%s\n\nТЕКСТ ДЛЯ ПРОВЕРКИ:\nЗаголовок: %s\n\n%s",
 		briefText, t.Title, t.Body)
 	var out CheckScore
@@ -51,11 +51,11 @@ func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t TextTo
 }
 
 // QualityChecker — агент «корректность текста».
-type QualityChecker struct{ llm llm.Client }
+type QualityChecker struct{ llm corellm.Client }
 
-func NewQualityChecker(c llm.Client) *QualityChecker { return &QualityChecker{llm: c} }
+func NewQualityChecker(c corellm.Client) *QualityChecker { return &QualityChecker{llm: c} }
 
-func (q *QualityChecker) Run(ctx context.Context, t TextToReview) (CheckScore, llm.Usage, error) {
+func (q *QualityChecker) Run(ctx context.Context, t TextToReview) (CheckScore, corellm.Usage, error) {
 	user := fmt.Sprintf("Заголовок: %s\n\n%s", t.Title, t.Body)
 	var out CheckScore
 	usage, err := q.llm.Complete(ctx, RoleQuality, qualitySystem, user, &out)

@@ -7,7 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"sync"
 )
 
@@ -36,23 +36,23 @@ func NewLLM() *LLM {
 	return &LLM{Responses: map[string][]string{}, Calls: map[string]int{}}
 }
 
-func (f *LLM) Complete(_ context.Context, role, system, user string, out any) (llm.Usage, error) {
+func (f *LLM) Complete(_ context.Context, role, system, user string, out any) (corellm.Usage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Requests = append(f.Requests, Request{Role: role, System: system, User: user})
 	if f.Err != nil {
-		return llm.Usage{}, f.Err
+		return corellm.Usage{}, f.Err
 	}
 	queue := f.Responses[role]
 	n := f.Calls[role]
 	if n >= len(queue) {
-		return llm.Usage{}, fmt.Errorf("fake: no response for role %q call #%d", role, n)
+		return corellm.Usage{}, fmt.Errorf("fake: no response for role %q call #%d", role, n)
 	}
 	f.Calls[role]++
 	if err := json.Unmarshal([]byte(queue[n]), out); err != nil {
-		return llm.Usage{}, err
+		return corellm.Usage{}, err
 	}
-	return llm.Usage{PromptTokens: 10, CompletionTokens: 10}, nil
+	return corellm.Usage{PromptTokens: 10, CompletionTokens: 10}, nil
 }
 
 // LastRequest возвращает последний зафиксированный вызов.

@@ -1,3 +1,5 @@
+// Package llm — адаптер DeepSeek (OpenAI-совместимый API): клиент, ретраи и
+// декоратор трассы. Порт вызова модели объявлен в ядре — internal/core/corellm.
 package llm
 
 import (
@@ -5,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"github.com/sashabaranov/go-openai"
 	"net/http"
 	"sort"
@@ -47,7 +50,7 @@ func (c *OpenAIClient) ModelFor(role string) string {
 	return c.defModel
 }
 
-func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, out any) (Usage, error) {
+func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, out any) (corellm.Usage, error) {
 	req := openai.ChatCompletionRequest{
 		Model: c.ModelFor(role),
 		Messages: []openai.ChatCompletionMessage{
@@ -59,13 +62,13 @@ func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, 
 
 	resp, err := c.callWithRetry(ctx, req)
 	if err != nil {
-		return Usage{}, err
+		return corellm.Usage{}, err
 	}
 	if len(resp.Choices) == 0 {
-		return Usage{}, errors.New("llm: empty choices")
+		return corellm.Usage{}, errors.New("llm: empty choices")
 	}
 	content := resp.Choices[0].Message.Content
-	usage := Usage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}
+	usage := corellm.Usage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}
 
 	if err := decodeJSON(content, out); err != nil {
 		return usage, fmt.Errorf("llm: parse JSON: %w (content=%q)", err, truncate(content, 400))

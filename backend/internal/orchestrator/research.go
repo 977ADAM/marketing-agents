@@ -3,10 +3,10 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"sort"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 )
@@ -29,8 +29,8 @@ const (
 // цитата проверена по данным (см. topic.Semanticist). Если спроса нет совсем или
 // подтверждённых тем не хватило, добираем темы от модели с пометкой source=llm —
 // без цифр, потому что цифр по ним нет.
-func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Progress) (campaign.Strategy, llm.Usage, error) {
-	var total llm.Usage
+func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Progress) (campaign.Strategy, corellm.Usage, error) {
+	var total corellm.Usage
 	rp, hasRP := p.(run.ResearchProgress)
 	stage := func(s run.ResearchStage) {
 		if hasRP {

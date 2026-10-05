@@ -4,11 +4,11 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"golang.org/x/sync/errgroup"
 	"sync"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -51,11 +51,11 @@ type Result struct {
 	CostUSD      float64
 	// Usage — суммарные токены прогона (трасса показывает их по ролям в событиях,
 	// здесь — общий итог).
-	Usage llm.Usage
+	Usage corellm.Usage
 }
 
 type Orchestrator struct {
-	llm         llm.Client
+	llm         corellm.Client
 	strategist  *campaign.Strategist
 	copywriter  *campaign.Copywriter
 	critic      *campaign.Critic
@@ -64,7 +64,7 @@ type Orchestrator struct {
 	opt         Options
 }
 
-func New(c llm.Client, opt Options) *Orchestrator {
+func New(c corellm.Client, opt Options) *Orchestrator {
 	semanticist := opt.Semanticist
 	if semanticist == nil {
 		semanticist = topic.NewSemanticist(c)
@@ -90,8 +90,8 @@ func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p run.Progress
 		p = run.NopProgress{}
 	}
 	var mu sync.Mutex
-	total := llm.Usage{}
-	addUsage := func(u llm.Usage) {
+	total := corellm.Usage{}
+	addUsage := func(u corellm.Usage) {
 		mu.Lock()
 		total = total.Add(u)
 		mu.Unlock()
@@ -170,8 +170,8 @@ func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p run.Progress
 }
 
 // produce пишет статью и гоняет цикл критика; usage аккумулируется по всем вызовам.
-func (o *Orchestrator) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p run.Progress) (campaign.Deliverable, llm.Usage, error) {
-	total := llm.Usage{}
+func (o *Orchestrator) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p run.Progress) (campaign.Deliverable, corellm.Usage, error) {
+	total := corellm.Usage{}
 	p.TopicWriting(i)
 	art, u, err := o.copywriter.Run(ctx, b, s, t)
 	total = total.Add(u)
@@ -225,7 +225,7 @@ func verdictNote(verdict string) string {
 	return "на доработку"
 }
 
-func (o *Orchestrator) cost(u llm.Usage) float64 {
+func (o *Orchestrator) cost(u corellm.Usage) float64 {
 	return float64(u.PromptTokens)/1000*o.opt.CostPer1KPrompt +
 		float64(u.CompletionTokens)/1000*o.opt.CostPer1KCompletion
 }

@@ -3,10 +3,10 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"golang.org/x/sync/errgroup"
 	"sync"
 
-	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/score"
@@ -19,8 +19,8 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Pro
 		p = run.NopProgress{}
 	}
 	var mu sync.Mutex
-	total := llm.Usage{}
-	addUsage := func(u llm.Usage) {
+	total := corellm.Usage{}
+	addUsage := func(u corellm.Usage) {
 		mu.Lock()
 		total = total.Add(u)
 		mu.Unlock()
@@ -64,8 +64,8 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Pro
 
 // reviewOne — проверка одного текста двумя агентами с прогрессом.
 func (o *Orchestrator) reviewOne(ctx context.Context, compliance *review.ComplianceChecker, quality *review.QualityChecker,
-	briefText string, i int, t review.TextToReview, p run.Progress) (review.TextReport, llm.Usage, error) {
-	var total llm.Usage
+	briefText string, i int, t review.TextToReview, p run.Progress) (review.TextReport, corellm.Usage, error) {
+	var total corellm.Usage
 
 	p.TopicWriting(i) // первый агент: соответствие брифу
 	c, u, err := compliance.Run(ctx, briefText, t)

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"github.com/977ADAM/marketing-agents/internal/core/corellm"
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/trace"
@@ -15,13 +16,13 @@ import (
 // режиме summary они не сохраняются. Так декоратор не знает про режимы, а трасса
 // остаётся единственным местом, где определяется, что писать в БД.
 type TracingClient struct {
-	inner Client
+	inner corellm.Client
 	rec   trace.Recorder
 }
 
 // NewTracing оборачивает клиент. Рекордер nil-безопасен: без него клиент работает
 // как обычно, просто без трассы.
-func NewTracing(inner Client, rec trace.Recorder) *TracingClient {
+func NewTracing(inner corellm.Client, rec trace.Recorder) *TracingClient {
 	return &TracingClient{inner: inner, rec: trace.OrNop(rec)}
 }
 
@@ -30,7 +31,7 @@ type modelNamer interface {
 	ModelFor(role string) string
 }
 
-func (c *TracingClient) Complete(ctx context.Context, role, system, user string, out any) (Usage, error) {
+func (c *TracingClient) Complete(ctx context.Context, role, system, user string, out any) (corellm.Usage, error) {
 	start := time.Now()
 	usage, err := c.inner.Complete(ctx, role, system, user, out)
 
