@@ -6,64 +6,77 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
-// applyMigrations готовит схему так же, как сервис migrate (апстрим-CLI
-// golang-migrate): выполняет backend/migrations/*.up.sql по порядку и заводит
-// таблицу учёта. Библиотеку миграций тесты не тянут — её нет в зависимостях.
+// applyMigrations готовит схему так же, как сервис migrate (образ dbmate):
+// применяет секции `-- migrate:up` из backend/migrations/*.sql по порядку и
+// заводит таблицу учёта версий.
 func applyMigrations(t *testing.T, db *sql.DB) {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join("..", "..", "migrations", "*.up.sql"))
+	files, err := filepath.Glob(filepath.Join("..", "..", "migrations", "*.sql"))
 	if err != nil {
 		t.Fatalf("поиск миграций: %v", err)
 	}
 	if len(files) == 0 {
-		t.Fatal("миграции не найдены: ожидались backend/migrations/*.up.sql")
+		t.Fatal("миграции не найдены: ожидались backend/migrations/*.sql")
 	}
 	sort.Strings(files)
 
-	var latest int64
+	versions := make([]string, 0, len(files))
 	for _, file := range files {
 		body, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("чтение %s: %v", file, err)
 		}
-		if _, err := db.Exec(string(body)); err != nil {
+		up, ok := upSection(string(body))
+		if !ok {
+			t.Fatalf("%s: нет секции -- migrate:up", file)
+		}
+		if _, err := db.Exec(up); err != nil {
 			t.Fatalf("применение %s: %v", file, err)
 		}
-		if v, ok := versionOf(file); ok {
-			latest = v
-		}
+		versions = append(versions, versionOf(file))
 	}
 
+	// Таблица учёта — та же, что создаёт dbmate (version varchar primary key).
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version BIGINT PRIMARY KEY,
-		dirty   BOOLEAN NOT NULL
+		version varchar(128) PRIMARY KEY
 	)`); err != nil {
 		t.Fatalf("таблица учёта миграций: %v", err)
 	}
-	if _, err := db.Exec(`INSERT OR REPLACE INTO schema_migrations (version, dirty) VALUES (?, 0)`, latest); err != nil {
-		t.Fatalf("версия схемы: %v", err)
+	for _, v := range versions {
+		if _, err := db.Exec(`INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)`, v); err != nil {
+			t.Fatalf("версия схемы %s: %v", v, err)
+		}
 	}
 }
 
-// versionOf достаёт номер из имени файла миграции: 0001_init.up.sql → 1.
-func versionOf(name string) (int64, bool) {
+// upSection вырезает SQL между `-- migrate:up` и `-- migrate:down`.
+func upSection(body string) (string, bool) {
+	const upMarker, downMarker = "-- migrate:up", "-- migrate:down"
+	i := strings.Index(body, upMarker)
+	if i < 0 {
+		return "", false
+	}
+	rest := body[i+len(upMarker):]
+	if j := strings.Index(rest, downMarker); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest, true
+}
+
+// versionOf — версия миграции: ведущие цифры имени файла (0001_init.sql → 0001).
+func versionOf(name string) string {
 	base := filepath.Base(name)
-	i := strings.IndexByte(base, '_')
-	if i <= 0 {
-		return 0, false
+	i := 0
+	for i < len(base) && base[i] >= '0' && base[i] <= '9' {
+		i++
 	}
-	v, err := strconv.ParseInt(base[:i], 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return v, true
+	return base[:i]
 }
 
 // CheckSchema: понятные отказы на неподготовленной БД и версия на готовой.
@@ -98,26 +111,30 @@ func TestCheckSchema(t *testing.T) {
 		}
 	})
 
+	t.Run("таблица учёта пуста", func(t *testing.T) {
+		st, err := openStore(t)
+		if err != nil {
+			t.Fatalf("open: %v", err)
+		}
+		if _, err := st.DB().ExecContext(ctx,
+			`CREATE TABLE schema_migrations (version varchar(128) PRIMARY KEY)`); err != nil {
+			t.Fatalf("таблица учёта: %v", err)
+		}
+		if _, err := store.CheckSchema(ctx, st.DB()); err == nil {
+			t.Fatal("ожидали отказ: миграции не применены")
+		} else if !strings.Contains(err.Error(), "пуста") {
+			t.Errorf("текст ошибки = %q, ожидали упоминание пустой таблицы", err)
+		}
+	})
+
 	t.Run("готово", func(t *testing.T) {
 		st := newTestStore(t)
 		version, err := store.CheckSchema(ctx, st.DB())
 		if err != nil {
 			t.Fatalf("CheckSchema: %v", err)
 		}
-		if version != 2 {
-			t.Errorf("версия схемы = %d, want 2", version)
-		}
-	})
-
-	t.Run("грязное состояние", func(t *testing.T) {
-		st := newTestStore(t)
-		if _, err := st.DB().ExecContext(ctx, `UPDATE schema_migrations SET dirty = 1`); err != nil {
-			t.Fatalf("dirty: %v", err)
-		}
-		if _, err := store.CheckSchema(ctx, st.DB()); err == nil {
-			t.Fatal("ожидали отказ: грязное состояние")
-		} else if !strings.Contains(err.Error(), "грязном") {
-			t.Errorf("текст ошибки = %q, ожидали упоминание грязного состояния", err)
+		if version != "0002" {
+			t.Errorf("версия схемы = %q, want 0002", version)
 		}
 	})
 }

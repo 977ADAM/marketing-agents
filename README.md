@@ -42,10 +42,10 @@ backend/            Go-сервис (отдельный модуль): API /api/
   internal/         agents, llm, orchestrator, store, httpapi, wordstat, trace
   internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
   internal/trace    журнал событий прогона (трасса) и его декораторы
-  migrations/       миграции схемы: NNNN_name.up.sql / .down.sql (апстрим-CLI golang-migrate)
+  migrations/       миграции схемы: NNNN_name.sql с секциями -- migrate:up / -- migrate:down (dbmate)
   tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
-  Dockerfile        образ API; Dockerfile.migrate — образ сервиса миграций
+  Dockerfile        образ API (миграции применяет сервис migrate на готовом образе dbmate)
 frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   src/routes/       страницы /, /campaigns/[id], /reviews, /reviews/[id]
   src/routes/api/   прокси /api/* на Go-API (endpoint-роут +server.ts)
@@ -68,10 +68,10 @@ Go-команды запускаются из `backend/`, фронтовые —
 Nginx в стек не входит — снаружи стоит nginx сервера и проксирует на контейнер
 фронта (единственная опубликованная точка входа).
 
-Схему БД применяет **отдельный сервис миграций** (апстрим-CLI golang-migrate):
-в compose это одноразовый сервис `migrate`, локально — `make migrate`. Сервер
-миграции не применяет, а на старте только проверяет, что схема готова, и падает
-с понятной ошибкой, если нет.
+Схему БД применяет **отдельный сервис миграций** на готовом образе
+[dbmate](https://github.com/amacneil/dbmate): в compose это одноразовый сервис
+`migrate`, локально — `make migrate`. Сервер миграции не применяет, а на старте
+только проверяет, что учёт версий на месте, и падает с понятной ошибкой, если нет.
 
 Короткие команды на все шаги ниже собраны в `Makefile` — `make help` печатает
 список целей. Основные: `make migrate` (применить схему), `make dev` (миграции,
@@ -87,11 +87,11 @@ cp backend/.env.example backend/.env   # указать DEEPSEEK_API_KEY (+ BASI
 docker compose up -d --build
 curl localhost:8080/healthz            # ok (запрос уходит через фронт в API)
 ```
-- `migrate` — одноразовый сервис: применяет схему к SQLite на volume `sqlite` и
+- `migrate` — одноразовый сервис на готовом образе
+  `ghcr.io/amacneil/dbmate:2.36.0`: применяет схему к SQLite на volume `sqlite` и
   завершается; `backend` стартует только после его успешного выхода
   (`condition: service_completed_successfully`). Ключи API миграциям не передаются.
-  Образ собирается из `backend/Dockerfile.migrate`, потому что в готовом образе
-  `migrate/migrate` нет драйвера SQLite (подробности — в «Миграции схемы»);
+  Почему не golang-migrate — в «Миграции схемы»;
 - `frontend` публикуется на `127.0.0.1:8080`: SvelteKit отдаёт приложение и сам
   проксирует `/api/*` и `/healthz` в `backend` по внутренней сети compose;
 - `backend` наружу не публикуется, БД лежит на volume `sqlite`
@@ -101,7 +101,7 @@ curl localhost:8080/healthz            # ok (запрос уходит чере�
 ```bash
 cd backend
 cp .env.example .env       # при первом запуске: указать DEEPSEEK_API_KEY
-make -C .. migrate         # применить схему (CLI миграций ставится при первом запуске)
+make -C .. migrate         # применить схему (сервис migrate из compose; нужен Docker)
 go run ./cmd/server        # API на 127.0.0.1:8080, БД → backend/data/marketing.db
 ```
 ```bash
@@ -281,38 +281,42 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 
 ### Миграции схемы
 
-Схему ведёт [golang-migrate](https://github.com/golang-migrate/migrate) обычными
-SQL-файлами в `backend/migrations`, парами `NNNN_name.up.sql` +
-`NNNN_name.down.sql`; учёт версий — в `schema_migrations` (`version`, `dirty`).
-Своего кода миграций в проекте нет — применяет их апстрим-CLI.
+Схему ведёт [dbmate](https://github.com/amacneil/dbmate) обычными SQL-файлами в
+`backend/migrations`: один файл — одна миграция с секциями `-- migrate:up` /
+`-- migrate:down`, версия — ведущие цифры имени (`0001_init.sql`). Применённые
+версии dbmate пишет в `schema_migrations (version varchar primary key)` — таблицу
+создаёт сам.
 
 Применяет миграции отдельный сервис, а не сервер:
 
-- в compose — сервис `migrate` (образ из `backend/Dockerfile.migrate`);
-  `backend` ждёт его успешного выхода и на старте только проверяет, что таблица
-  учёта существует и не помечена «грязной», а ключи API миграциям не передаются;
-- локально — `make migrate` (при первом запуске ставит CLI в `backend/bin`) и
-  `make migrate-down`. Вручную:
-  `backend/bin/migrate -path backend/migrations -database "sqlite://<путь>" version`
-  (а также `force <N>`, `down 1`).
+- в compose — сервис `migrate` на готовом образе
+  `ghcr.io/amacneil/dbmate:2.36.0` (настройки через `DATABASE_URL`,
+  `DBMATE_MIGRATIONS_DIR`, `DBMATE_NO_DUMP_SCHEMA`); `backend` ждёт его успешного
+  выхода и на старте лишь проверяет, что таблица учёта существует и не пуста, а
+  ключи API миграциям не передаются;
+- локально — `make migrate` и `make migrate-down` (запускают тот же сервис через
+  compose, поэтому нужен Docker). Без Docker: `brew install dbmate` и
+  `dbmate --no-dump-schema -d backend/migrations -u sqlite:backend/data/marketing.db up`.
 
-**Почему образ собирается свой.** В готовом образе `migrate/migrate` драйвера
-SQLite нет: он собирается с тегами `DATABASE` (postgres, mysql, clickhouse и
-другие), где `sqlite`/`sqlite3` отсутствуют — драйвер подключается только файлом
-`internal/cli/build_sqlite.go` с тегом `//go:build sqlite`. Такой бинарь на нашей
-БД отвечает `error: failed to open database: database driver: unknown driver sqlite
-(forgotten import?)`. Поэтому `Dockerfile.migrate` делает `go install -tags sqlite`
-ровно того же апстрим-CLI: собственной логики миграций нет, только сборка с нужным
-тегом. По той же причине `make migrate` ставит CLI с `-tags sqlite`.
+**Почему не golang-migrate.** У него нет готового образа с SQLite: `migrate/migrate`
+собирается с тегами `DATABASE` (postgres, mysql, clickhouse…), где `sqlite` и
+`sqlite3` отсутствуют, — драйвер подключается только файлом
+`internal/cli/build_sqlite.go` с тегом `//go:build sqlite`. Такой бинарь на нашей БД
+отвечает `error: failed to open database: database driver: unknown driver sqlite
+(forgotten import?)`, а чтобы получить рабочий, образ пришлось бы собирать
+самому (`go install -tags sqlite`). dbmate же даёт SQLite в готовом образе: он
+собирается с `CGO_ENABLED=1` и статической линковкой (`-extldflags "-static"` для
+linux), SQLite — его основной драйвер.
 
 **БД прежних версий.** Учёт старого самописного раннера лежал в `schema_migrations`
-с колонками `name`/`applied_at`, и golang-migrate такую таблицу не понимает. Разово:
+с колонками `name`/`applied_at`, а dbmate такую таблицу не понимает (`no such
+column: version`). Разово:
 
 ```bash
 # 1) отложить старую таблицу учёта (данные при этом не трогаются)
 sqlite3 backend/data/marketing.db "ALTER TABLE schema_migrations RENAME TO schema_migrations_legacy;"
-# 2) применить схему: миграции идемпотентны (CREATE TABLE IF NOT EXISTS), поэтому
-#    на существующей схеме они просто заводят учёт нужного формата
+# 2) применить миграции: они идемпотентны (CREATE TABLE IF NOT EXISTS), поэтому на
+#    существующей схеме просто заводится учёт нужного формата
 make migrate
 ```
 Таблицу `schema_migrations_legacy` можно оставить как есть или удалить.

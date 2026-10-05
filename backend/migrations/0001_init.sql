@@ -1,9 +1,10 @@
--- 0001_init.up.sql — схема БД (SQLite).
+-- 0001_init.sql — схема БД (SQLite).
 --
 -- Особенности диалекта: UUID/JSONB заменены на TEXT (UUID генерирует Go),
 -- TIMESTAMPTZ — на DATETIME со значением по умолчанию в формате, который
 -- драйвер modernc.org/sqlite разбирает в time.Time ('YYYY-MM-DD HH:MM:SS.mmm').
 
+-- migrate:up
 CREATE TABLE IF NOT EXISTS clients (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -57,3 +58,17 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON campaigns (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_reviews_created_at   ON reviews (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deliverables_campaign ON deliverables (campaign_id, created_at);
+
+-- migrate:down
+--
+-- Порядок обратный созданию: сначала индексы и дочерние таблицы, потом родители
+-- (deliverables ссылается на campaigns, campaigns и reviews — на clients).
+
+DROP INDEX IF EXISTS idx_deliverables_campaign;
+DROP INDEX IF EXISTS idx_reviews_created_at;
+DROP INDEX IF EXISTS idx_campaigns_created_at;
+
+DROP TABLE IF EXISTS deliverables;
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS campaigns;
+DROP TABLE IF EXISTS clients;

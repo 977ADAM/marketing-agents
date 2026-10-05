@@ -2,7 +2,8 @@
 #
 # Контекст сборки — каталог backend/ (docker build ./backend).
 # CGO не нужен: драйвер SQLite (modernc.org/sqlite) — чистый Go.
-# Миграции применяет отдельный сервис — см. Dockerfile.migrate.
+# Миграции применяет отдельный сервис migrate в docker-compose (готовый образ
+# dbmate, см. docker-compose.yml и README) — схему API не трогает.
 
 # 1) сборка
 FROM golang:1.25 AS build

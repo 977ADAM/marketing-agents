@@ -10,37 +10,33 @@ import (
 )
 
 // CheckSchema проверяет, что схема БД готова к работе приложения: таблица учёта
-// миграций существует, создана golang-migrate и не помечена «грязной».
-// Возвращает применённую версию схемы.
+// миграций dbmate существует и не пуста. Возвращает применённую версию
+// (например «0002»).
 //
 // Миграции применяет отдельный сервис (в compose — migrate, локально — make
 // migrate), поэтому сервер их не выполняет: он отказывается стартовать на
 // неподготовленной БД и объясняет, что делать.
-func CheckSchema(ctx context.Context, db *sql.DB) (int64, error) {
+func CheckSchema(ctx context.Context, db *sql.DB) (string, error) {
 	columns, err := tableColumns(ctx, db, "schema_migrations")
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	switch {
 	case columns == nil:
-		return 0, errors.New("миграции не применены: запустите сервис migrate (docker compose up migrate) или make migrate")
+		return "", errors.New("миграции не применены: запустите сервис migrate (docker compose run --rm migrate) или make migrate")
 	case !columns["version"]:
-		return 0, fmt.Errorf(
+		return "", fmt.Errorf(
 			"таблица учёта миграций старого формата (колонки: %s): переименуйте её и примените миграции сервисом migrate",
 			strings.Join(sortedKeys(columns), ", "))
 	}
 
-	var version int64
-	var dirty bool
+	var version string
 	if err := db.QueryRowContext(ctx,
-		`SELECT version, dirty FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version, &dirty); err != nil {
+		`SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, errors.New("миграции не применены: таблица учёта пуста, запустите сервис migrate")
+			return "", errors.New("миграции не применены: таблица учёта пуста, запустите сервис migrate")
 		}
-		return 0, fmt.Errorf("store: чтение версии схемы: %w", err)
-	}
-	if dirty {
-		return version, fmt.Errorf("схема БД в «грязном» состоянии: миграция %d не завершилась", version)
+		return "", fmt.Errorf("store: чтение версии схемы: %w", err)
 	}
 	return version, nil
 }

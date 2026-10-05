@@ -1,16 +1,22 @@
 services:
-  # Миграции — отдельный одноразовый сервис: применяет схему к SQLite на общем
-  # volume и завершается. API стартует только после его успешного выхода
-  # (condition: service_completed_successfully) и сам миграции не применяет —
-  # только проверяет готовность схемы. Секреты сюда не передаём: сервису нужен
-  # лишь путь к БД и каталог с миграциями.
+  # Миграции — отдельный одноразовый сервис на готовом образе dbmate: применяет
+  # схему к SQLite на общем volume и завершается. API стартует только после его
+  # успешного выхода (condition: service_completed_successfully) и сам миграции не
+  # применяет — только проверяет, что учёт версий на месте. Секреты сюда не
+  # передаём: сервису нужен лишь путь к БД и каталог с миграциями.
   #
-  # Образ собирается из backend/Dockerfile.migrate (апстрим-CLI golang-migrate с
-  # драйвером sqlite): в готовом migrate/migrate драйвера SQLite нет.
+  # Готовый migrate/migrate тут не подходит: в нём нет драйвера SQLite (собирается
+  # с тегами DATABASE без sqlite/sqlite3), поэтому нужен инструмент, у которого
+  # SQLite — основной драйвер. Формат миграций — plain SQL с секциями
+  # `-- migrate:up` / `-- migrate:down` (backend/migrations).
   migrate:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.migrate
+    image: ghcr.io/amacneil/dbmate:2.36.0
+    environment:
+      DATABASE_URL: sqlite:/data/marketing.db
+      DBMATE_MIGRATIONS_DIR: /migrations
+      # schema.sql в контейнере не нужен: дампы схемы в git ведём миграциями.
+      DBMATE_NO_DUMP_SCHEMA: "true"
+    command: ["up"]
     volumes:
       - ./backend/migrations:/migrations:ro
       - sqlite:/data
