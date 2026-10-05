@@ -64,7 +64,7 @@ describe('campaignRun', () => {
 		await vi.waitFor(() => expect(get(store.loading)).toBe(false));
 		expect(get(store.data)?.status).toBe('running');
 		expect(get(store.error)).toBeNull();
-		expect(getCampaignMock).toHaveBeenCalledWith('c1');
+		expect(getCampaignMock).toHaveBeenCalledWith('c1', expect.any(AbortSignal));
 		store.destroy();
 	});
 
@@ -126,8 +126,15 @@ describe('reviewRun', () => {
 		const store = reviewRun('r1');
 
 		await vi.waitFor(() => expect(get(store.data)?.status).toBe('running'));
-		expect(getReviewMock).toHaveBeenCalledWith('r1');
+		expect(getReviewMock).toHaveBeenCalledWith('r1', expect.any(AbortSignal));
 		expect(FakeEventSource.last.url).toBe('/api/reviews/r1/events');
 		store.destroy();
 	});
+});
+
+it('latest refresh wins and destroyed store ignores late responses',async()=>{
+ let first!: (value:Campaign)=>void;let second!: (value:Campaign)=>void;
+ getCampaignMock.mockImplementationOnce(()=>new Promise(resolve=>{first=resolve})).mockImplementationOnce(()=>new Promise(resolve=>{second=resolve}));
+ const store=campaignRun('c1');const fresh=store.refresh();second(campaign('done'));await fresh;first(campaign('running'));await Promise.resolve();expect(get(store.data)?.status).toBe('done');store.destroy();
+ getCampaignMock.mockImplementationOnce(()=>new Promise(resolve=>{first=resolve}));const gone=campaignRun('c1');gone.destroy();first(campaign('done'));await Promise.resolve();expect(get(gone.data)).toBeNull();
 });

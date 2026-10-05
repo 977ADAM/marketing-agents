@@ -68,3 +68,10 @@ describe('refreshHistory', () => {
 		expect(get(historyLoaded)).toBe(true);
 	});
 });
+
+it('ignores stale history refresh',async()=>{
+ let old!: (value:CampaignSummary[])=>void;
+ listCampaignsMock.mockImplementationOnce(()=>new Promise(resolve=>{old=resolve})).mockResolvedValueOnce(campaignList);
+ listReviewsMock.mockResolvedValue(reviewList);
+ const stale=refreshHistory();await refreshHistory();old([]);await stale;expect(get(campaigns)).toEqual(campaignList);
+});

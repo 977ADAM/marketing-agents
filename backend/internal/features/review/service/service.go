@@ -150,3 +150,20 @@ func (s *Service) Resume(ctx context.Context, id string) (string, error) {
 	}
 	return id, nil
 }
+
+func (s *Service) ListChecksPage(ctx context.Context, limit int, before int64) ([]review.Summary, int64, error) {
+	if store, ok := s.store.(interface {
+		ListChecksPage(context.Context, int, int64) ([]review.Summary, int64, error)
+	}); ok {
+		rows, next, err := store.ListChecksPage(ctx, limit, before)
+		for i := range rows {
+			rows[i].BriefTitle = firstLine(rows[i].BriefText)
+		}
+		return rows, next, err
+	}
+	if before > 0 {
+		return nil, 0, fmt.Errorf("store does not support history cursor")
+	}
+	rows, err := s.ListChecks(ctx, limit)
+	return rows, 0, err
+}

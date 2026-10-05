@@ -19,7 +19,7 @@
 	// (см. {#key} в +page.svelte), поэтому захват начального значения корректен
 	const run = reviewRun(id);
 	const { data: review, error, loading } = run;
-	const { snapshot, terminal } = run.progress;
+	const { snapshot, terminal, reconnecting } = run.progress;
 
 	const unsubscribe = run.progress.terminal.subscribe((done) => {
 		if (done) void refreshHistory();
@@ -62,7 +62,10 @@
 			{/each}
 		</div>
 	</div>
+{:else if $review?.status === 'done'}
+	<ErrorState message="Проверка завершена, но отчёт не сохранён" onRetry={() => void run.refresh()} />
 {:else if $review}
+	{#if $reconnecting}<p class="muted" role="status">Восстанавливаем соединение…</p>{/if}
 	<ProgressPanel
 		title="Проверка текстов"
 		snapshot={$snapshot ?? $review.progress ?? null}

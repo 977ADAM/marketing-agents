@@ -11,7 +11,31 @@ import (
 
 const maxDocxText = 512 << 10
 
+type ExtractLimits struct{ UploadBytes, XMLBytes, TextBytes int }
+type Document struct{ Text string }
+
+func ExtractDOCX(data []byte, limits ExtractLimits) (Document, error) {
+	if limits.UploadBytes <= 0 {
+		limits.UploadBytes = 20 << 20
+	}
+	if limits.XMLBytes <= 0 {
+		limits.XMLBytes = 4 << 20
+	}
+	if limits.TextBytes <= 0 {
+		limits.TextBytes = maxDocxText
+	}
+	if len(data) > limits.UploadBytes {
+		return Document{}, errors.New("document upload too large")
+	}
+	text, err := extractDOCX(data, limits)
+	return Document{Text: text}, err
+}
+
 func ExtractDOCXText(data []byte) (string, error) {
+	doc, err := ExtractDOCX(data, ExtractLimits{})
+	return doc.Text, err
+}
+func extractDOCX(data []byte, limits ExtractLimits) (string, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return "", err
@@ -25,14 +49,14 @@ func ExtractDOCXText(data []byte) (string, error) {
 			return "", err
 		}
 		defer rc.Close()
-		xmlBytes, err := io.ReadAll(io.LimitReader(rc, maxDocxText+1))
+		xmlBytes, err := io.ReadAll(io.LimitReader(rc, int64(limits.XMLBytes)+1))
 		if err != nil {
 			return "", err
 		}
-		if len(xmlBytes) > maxDocxText {
-			return "", errors.New("extracted text too large")
+		if len(xmlBytes) > limits.XMLBytes {
+			return "", errors.New("document XML too large")
 		}
-		return parseDocxDocument(xmlBytes), nil
+		return parseDocxDocument(xmlBytes, limits.TextBytes)
 	}
 	return "", errors.New("word/document.xml not found")
 }
@@ -40,7 +64,7 @@ func ExtractDOCXText(data []byte) (string, error) {
 // parseDocxDocument собирает текст всех абзацев (w:p) документа, включая
 // абзацы внутри таблиц (w:tbl/w:tr/w:tc). w:tab → '\t', w:br/w:cr → '\n'.
 // Разбор идёт токенами, чтобы не зависеть от вложенности элементов.
-func parseDocxDocument(xmlBytes []byte) string {
+func parseDocxDocument(xmlBytes []byte, textLimit int) (string, error) {
 	dec := xml.NewDecoder(bytes.NewReader(xmlBytes))
 	var out strings.Builder
 	var line strings.Builder
@@ -53,7 +77,10 @@ func parseDocxDocument(xmlBytes []byte) string {
 			break
 		}
 		if err != nil {
-			return out.String()
+			return "", err
+		}
+		if out.Len()+line.Len() > textLimit {
+			return "", errors.New("extracted text too large")
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -94,5 +121,8 @@ func parseDocxDocument(xmlBytes []byte) string {
 			}
 		}
 	}
-	return out.String()
+	if out.Len() > textLimit {
+		return "", errors.New("extracted text too large")
+	}
+	return out.String(), nil
 }

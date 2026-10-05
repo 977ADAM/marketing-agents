@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import Skeleton from './Skeleton.svelte';
 	import StatusChip from './StatusChip.svelte';
-	import { historyLoaded, reviews } from '#lib/stores/history.js';
+	import { reviewCursor, historyLoading, loadMoreHistory, historyLoaded, reviews } from '#lib/stores/history.js';
 </script>
 
 {#if !$historyLoaded}
@@ -20,4 +20,8 @@
 			</li>
 		{/each}
 	</ul>
+{/if}
+
+{#if $reviewCursor}
+ <button type="button" disabled={$historyLoading} onclick={() => void loadMoreHistory('review')}>Загрузить ещё</button>
 {/if}

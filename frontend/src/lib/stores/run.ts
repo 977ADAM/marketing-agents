@@ -20,22 +20,30 @@ export interface RunStore<T> {
 function createRunStore<T>(
 	kind: RunKind,
 	id: string,
-	fetcher: (id: string) => Promise<T>
+	fetcher: (id: string, signal?: AbortSignal) => Promise<T>
 ): RunStore<T> {
 	const data = writable<T | null>(null);
 	const error = writable<string | null>(null);
 	const loading = writable(true);
 	const progress = runProgress(kind, id);
 
+	let generation = 0;
+	let destroyed = false;
+	let controller: AbortController | undefined;
 	async function refresh(): Promise<void> {
+		if (destroyed) return;
+		const current = ++generation;
+		controller?.abort();
+		controller = new AbortController();
 		loading.set(true);
 		error.set(null);
 		try {
-			data.set(await fetcher(id));
+			const result = await fetcher(id, controller.signal);
+			if (!destroyed && current === generation) data.set(result);
 		} catch (err) {
-			error.set(errorMessage(err));
+			if (!destroyed && current === generation) error.set(errorMessage(err));
 		} finally {
-			loading.set(false);
+			if (!destroyed && current === generation) loading.set(false);
 		}
 	}
 
@@ -53,6 +61,9 @@ function createRunStore<T>(
 		progress,
 		refresh,
 		destroy: () => {
+			destroyed = true;
+			generation++;
+			controller?.abort();
 			unsubscribe();
 			progress.stop();
 		}

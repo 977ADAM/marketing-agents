@@ -136,3 +136,17 @@ func (s *Service) Resume(ctx context.Context, id string) (string, error) {
 	}
 	return id, nil
 }
+
+func (s *Service) ListRecentPage(ctx context.Context, limit int, before int64) ([]campaign.Summary, int64, error) {
+	if store, ok := s.store.(interface {
+		ListRecentPage(context.Context, int, int64) ([]campaign.Summary, int64, error)
+	}); ok {
+		rows, next, err := store.ListRecentPage(ctx, limit, before)
+		return rows, next, err
+	}
+	if before > 0 {
+		return nil, 0, fmt.Errorf("store does not support history cursor")
+	}
+	rows, err := s.ListRecent(ctx, limit)
+	return rows, 0, err
+}

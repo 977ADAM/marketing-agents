@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { createUploadCoordinator } from '#lib/stores/uploads.js';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { errorMessage } from '#lib/api/client.js';
@@ -8,48 +10,60 @@
 	import { toast } from '#lib/stores/toast.js';
 
 	let brief = $state('');
-	let texts = $state<ReviewText[]>([{ title: '', body: '' }]);
+	let texts = $state<(ReviewText & { id: string })[]>([{ id: crypto.randomUUID(), title: '', body: '' }]);
+	const uploads = createUploadCoordinator();
+	let uploading = $state(false);
+	onDestroy(() => uploads.destroy());
 	let busy = $state(false);
 	let serverError = $state<string | null>(null);
 
 	let briefFile: HTMLInputElement;
-	let textFiles: HTMLInputElement[] = [];
+	let textFiles: Record<string, HTMLInputElement> = {};
 
 	// Разбор .docx и валидация — на стороне API: клиент только отправляет файл
 	// и раскладывает готовые title/body по полям.
-	async function handleDocx(e: Event, target: 'brief' | number) {
+	async function handleDocx(e: Event, target: string) {
 		const input = e.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
 		input.value = ''; // позволяем повторно выбрать тот же файл
 		if (!file) return;
 		serverError = null;
+		const upload = uploads.start(target);
+		uploading = uploads.busy();
 		try {
 			const doc = await extractDocx(file);
+			if (!upload.current()) return;
 			if (target === 'brief') {
 				brief = doc.text;
 			} else {
-				texts[target].title = doc.title;
-				texts[target].body = doc.body;
+				const row = texts.find(text => text.id === target);
+				if (row) { row.title = doc.title; row.body = doc.body; }
 			}
 		} catch (err) {
-			serverError = `Не удалось разобрать .docx: ${errorMessage(err)}`;
+			if (upload.current()) serverError = `Не удалось разобрать .docx: ${errorMessage(err)}`;
+		} finally {
+			upload.finish();
+			uploading = uploads.busy();
 		}
 	}
 
 	function addText() {
-		texts.push({ title: '', body: '' });
+		texts.push({ id: crypto.randomUUID(), title: '', body: '' });
 	}
 
-	function removeText(i: number) {
-		texts.splice(i, 1);
+	function removeText(id: string) {
+		uploads.remove(id);
+		uploading = uploads.busy();
+		texts = texts.filter(text => text.id !== id);
 	}
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
+		if (uploads.busy() || busy) return;
 		busy = true;
 		serverError = null;
 		try {
-			const { id } = await createReview({ brief, texts });
+			const { id } = await createReview({ brief, texts: texts.map(({title, body}) => ({title, body})) });
 			await refreshHistory();
 			toast.success('Проверка запущена');
 			await goto(resolve('/reviews/[id]', { id }));
@@ -86,23 +100,23 @@
 
 	<div class="review-texts">
 		<div class="review-texts-label">Тексты для проверки</div>
-		{#each texts as t, i (i)}
+		{#each texts as t (t.id)}
 			<div class="review-text">
 				<input class="control" bind:value={t.title} placeholder="Заголовок статьи" />
 				<textarea class="control" bind:value={t.body} placeholder="Текст статьи…"></textarea>
 				<div class="review-text-actions">
 					<input
-						bind:this={textFiles[i]}
+						bind:this={textFiles[t.id]}
 						type="file"
 						accept=".docx"
 						hidden
-						onchange={(e) => void handleDocx(e, i)}
+						onchange={(e) => void handleDocx(e, t.id)}
 					/>
-					<button type="button" class="btn btn-secondary" onclick={() => textFiles[i]?.click()}>
+					<button type="button" class="btn btn-secondary" onclick={() => textFiles[t.id]?.click()}>
 						📄 Загрузить статью (.docx)
 					</button>
 					{#if texts.length > 1}
-						<button type="button" class="btn btn-danger" onclick={() => removeText(i)}>Убрать</button>
+						<button type="button" class="btn btn-danger" onclick={() => removeText(t.id)}>Убрать</button>
 					{/if}
 				</div>
 			</div>
@@ -113,7 +127,7 @@
 	{#if serverError}
 		<p class="error" role="alert">{serverError}</p>
 	{/if}
-	<button type="submit" class="btn btn-primary btn-block" disabled={busy}>
+	<button type="submit" class="btn btn-primary btn-block" disabled={busy || uploading}>
 		{busy ? 'Проверяем…' : 'Проверить агентами →'}
 	</button>
 </form>

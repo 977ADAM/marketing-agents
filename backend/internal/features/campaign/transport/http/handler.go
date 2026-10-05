@@ -103,10 +103,34 @@ func (a *Handler) listCampaigns(w http.ResponseWriter, r *http.Request) {
 	if limit > 200 {
 		limit = 200
 	}
-	items, err := a.campaigns.ListRecent(r.Context(), limit)
+	var before int64
+	if raw := r.URL.Query().Get("before_seq"); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed <= 0 {
+			response.WriteError(w, 400, "validation", "invalid history cursor")
+			return
+		}
+		before = parsed
+	}
+	var items []campaign.Summary
+	var next int64
+	var err error
+	if paged, ok := a.campaigns.(interface {
+		ListRecentPage(context.Context, int, int64) ([]campaign.Summary, int64, error)
+	}); ok {
+		items, next, err = paged.ListRecentPage(r.Context(), limit, before)
+	} else if before == 0 {
+		items, err = a.campaigns.ListRecent(r.Context(), limit)
+	} else {
+		response.WriteError(w, 400, "validation", "history cursor unavailable")
+		return
+	}
 	if err != nil {
 		response.WriteError(w, http.StatusInternalServerError, "internal", "could not list campaigns")
 		return
+	}
+	if next > 0 {
+		w.Header().Set("X-Next-Cursor", strconv.FormatInt(next, 10))
 	}
 	response.WriteJSON(w, http.StatusOK, items)
 }

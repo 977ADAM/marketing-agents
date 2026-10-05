@@ -19,6 +19,7 @@ import (
 // разбирает и собирает его Go. created_at/updated_at только читаются (->):
 // created_at ставит БД при вставке, updated_at обновляем явно вместе с данными.
 type campaignRow struct {
+	Seq       int64     `gorm:"column:seq;->"`
 	ID        string    `gorm:"column:id;type:varchar(36);primaryKey"`
 	ClientID  string    `gorm:"column:client_id;type:varchar(36);not null"`
 	Status    string    `gorm:"column:status;type:varchar(32);not null"`
@@ -159,17 +160,32 @@ func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outco
 // seq — порядок вставки: тайбрейкер для записей с одинаковым created_at
 // (точность — миллисекунды).
 func (cs *Campaigns) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
+	rows, _, err := cs.ListRecentPage(ctx, limit, 0)
+	return rows, err
+}
+func (cs *Campaigns) ListRecentPage(ctx context.Context, limit int, before int64) ([]campaign.Summary, int64, error) {
 	var rows []campaignRow
-	if err := cs.db.WithContext(ctx).Order("created_at DESC, seq DESC").Limit(limit).Find(&rows).Error; err != nil {
-		return nil, err
+	q := cs.db.WithContext(ctx).Order("seq DESC").Limit(limit + 1)
+	if before > 0 {
+		q = q.Where("seq < ?", before)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	var next int64
+	if len(rows) > limit {
+		rows = rows[:limit]
+		next = rows[len(rows)-1].Seq
 	}
 	out := make([]campaign.Summary, 0, len(rows))
 	for _, r := range rows {
 		s := campaign.Summary{ID: r.ID, Status: r.Status, CostKnown: r.CostKnown, CostUSD: r.CostUSD, CreatedAt: r.CreatedAt}
-		_ = json.Unmarshal([]byte(r.Brief), &s.Brief)
+		if err := json.Unmarshal([]byte(r.Brief), &s.Brief); err != nil {
+			return nil, 0, err
+		}
 		out = append(out, s)
 	}
-	return out, nil
+	return out, next, nil
 }
 
 // Get читает кампанию вместе с deliverables.
@@ -186,21 +202,25 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 		ID: row.ID, ClientID: row.ClientID, Status: row.Status,
 		CostKnown: row.CostKnown, CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
-	_ = json.Unmarshal([]byte(row.Brief), &c.Brief)
+	if err := json.Unmarshal([]byte(row.Brief), &c.Brief); err != nil {
+		return nil, err
+	}
 	if row.Strategy != nil && *row.Strategy != "" {
 		var st campaign.Strategy
-		if json.Unmarshal([]byte(*row.Strategy), &st) == nil {
-			c.Strategy = &st
+		if err := json.Unmarshal([]byte(*row.Strategy), &st); err != nil {
+			return nil, err
 		}
+		c.Strategy = &st
 	}
 	if row.Error != nil {
 		c.Error = *row.Error
 	}
 	if row.Progress != nil && *row.Progress != "" {
 		var snap run.Snapshot
-		if json.Unmarshal([]byte(*row.Progress), &snap) == nil {
-			c.Progress = &snap
+		if err := json.Unmarshal([]byte(*row.Progress), &snap); err != nil {
+			return nil, err
 		}
+		c.Progress = &snap
 	}
 
 	// Порядок статей — как в медиаплане (position), а не по времени.
@@ -213,7 +233,9 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 		del := campaign.Deliverable{Article: campaign.Article{
 			Topic: d.Topic, Title: d.Title, Body: d.Body, CTA: d.CTA,
 		}}
-		_ = json.Unmarshal([]byte(d.Review), &del.Review)
+		if err := json.Unmarshal([]byte(d.Review), &del.Review); err != nil {
+			return nil, err
+		}
 		c.Deliverables = append(c.Deliverables, del)
 	}
 	found, err := shared.HasInput(ctx, cs.db, "campaign", id)

@@ -47,6 +47,8 @@
  <p class="muted">Оценочная стоимость: {formatCost($campaign.cost_usd,$campaign.cost_known)}</p>
  {#each $campaign.deliverables ?? [] as d,i (i)}<ArticleCard deliverable={d} />{/each}
 	</div>
+{:else if $campaign?.status === 'done' && (!$campaign.strategy || !$campaign.deliverables?.length)}
+	<ErrorState message="Кампания завершена, но результат не сохранён" onRetry={() => void run.refresh()} />
 {:else if $campaign?.status === 'done'}
 	<div class="result">
 		<h2>{$campaign.brief.product}</h2>

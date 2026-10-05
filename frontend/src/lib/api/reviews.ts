@@ -1,7 +1,7 @@
 // Запросы к API проверки текстов.
 
 import { creationRequest } from './create.js';
-import { postJSON, request } from './client';
+import { postJSON, request, historyPage, type HistoryRows } from './client';
 import type {
 	CreateRunResponse,
 	ExtractedDoc,
@@ -16,12 +16,12 @@ export function createReview(req: ReviewRequest): Promise<CreateRunResponse> {
 	return create('reviews', req);
 }
 
-export function getReview(id: string): Promise<ReviewRun> {
-	return request<ReviewRun>(`reviews/${id}`);
+export function getReview(id: string, signal?: AbortSignal): Promise<ReviewRun> {
+	return request<ReviewRun>(`reviews/${id}`, { signal });
 }
 
-export function listReviews(): Promise<ReviewRunSummary[]> {
-	return request<ReviewRunSummary[]>('reviews');
+export function listReviews(before?: string, signal?: AbortSignal): Promise<HistoryRows<ReviewRunSummary>> {
+	return historyPage<ReviewRunSummary>('reviews', before, signal);
 }
 
 /**

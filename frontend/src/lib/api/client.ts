@@ -73,3 +73,13 @@ export function errorMessage(err: unknown): string {
 	if (err instanceof Error) return err.message;
 	return 'Неизвестная ошибка';
 }
+
+export type HistoryRows<T> = T[] & { nextCursor?: string };
+export async function historyPage<T>(path: string, before?: string, signal?: AbortSignal): Promise<HistoryRows<T>> {
+ const res = await fetch(apiUrl(path + (before ? `?before_seq=${encodeURIComponent(before)}` : '')), { signal });
+ if (!res.ok) throw await toApiError(res);
+ const rows = await res.json() as HistoryRows<T>;
+ const next = res.headers.get('X-Next-Cursor');
+ if (next) Object.defineProperty(rows, 'nextCursor', { value: next });
+ return rows;
+}

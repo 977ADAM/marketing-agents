@@ -18,6 +18,7 @@ import (
 // reviewRow — таблица reviews. Результат и прогресс — JSON текстом;
 // created_at/updated_at только читаются (см. campaignRow).
 type reviewRow struct {
+	Seq       int64     `gorm:"column:seq;->"`
 	ID        string    `gorm:"column:id;type:varchar(36);primaryKey"`
 	ClientID  string    `gorm:"column:client_id;type:varchar(36);not null"`
 	Status    string    `gorm:"column:status;type:varchar(32);not null"`
@@ -120,18 +121,20 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 	}
 	if row.Result != nil && *row.Result != "" {
 		var res review.Result
-		if json.Unmarshal([]byte(*row.Result), &res) == nil {
-			r.Result = &res
+		if err := json.Unmarshal([]byte(*row.Result), &res); err != nil {
+			return nil, err
 		}
+		r.Result = &res
 	}
 	if row.Error != nil {
 		r.Error = *row.Error
 	}
 	if row.Progress != nil && *row.Progress != "" {
 		var snap run.Snapshot
-		if json.Unmarshal([]byte(*row.Progress), &snap) == nil {
-			r.Progress = &snap
+		if err := json.Unmarshal([]byte(*row.Progress), &snap); err != nil {
+			return nil, err
 		}
+		r.Progress = &snap
 	}
 	found, err := shared.HasInput(ctx, rs.db, "review", id)
 	if err != nil {
@@ -176,9 +179,22 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 // ListChecks возвращает до limit последних проверок, новые сверху.
 // seq — порядок вставки: тайбрейкер для записей с одинаковым created_at.
 func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary, error) {
+	rows, _, err := rs.ListChecksPage(ctx, limit, 0)
+	return rows, err
+}
+func (rs *Reviews) ListChecksPage(ctx context.Context, limit int, before int64) ([]review.Summary, int64, error) {
 	var rows []reviewRow
-	if err := rs.db.WithContext(ctx).Order("created_at DESC, seq DESC").Limit(limit).Find(&rows).Error; err != nil {
-		return nil, err
+	q := rs.db.WithContext(ctx).Order("seq DESC").Limit(limit + 1)
+	if before > 0 {
+		q = q.Where("seq < ?", before)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	var next int64
+	if len(rows) > limit {
+		rows = rows[:limit]
+		next = rows[len(rows)-1].Seq
 	}
 	out := make([]review.Summary, 0, len(rows))
 	for _, r := range rows {
@@ -187,7 +203,7 @@ func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary,
 			CostKnown: r.CostKnown, CostUSD: r.CostUSD, CreatedAt: r.CreatedAt,
 		})
 	}
-	return out, nil
+	return out, next, nil
 }
 
 // update — общий путь записи: updated_at ставим сами (в модели колонка только для
