@@ -204,7 +204,13 @@ func NewHandler(s CampaignService, sub Subscriber, limiter *middleware.RateLimit
 }
 
 func (h *Handler) Routes() []server.Route {
-	return []server.Route{{"POST /api/campaigns/{id}/retry", h.retry}, {"POST /api/campaigns", h.postCampaign}, {"GET /api/campaigns", h.listCampaigns}, {"GET /api/campaigns/{id}", h.getCampaign}, {"GET /api/campaigns/{id}/events", h.campaignEvents}}
+	return []server.Route{
+		{"POST /api/campaigns/{id}/retry", h.retry},
+		{"POST /api/campaigns", h.postCampaign},
+		{"GET /api/campaigns", h.listCampaigns},
+		{"GET /api/campaigns/{id}", h.getCampaign},
+		{"GET /api/campaigns/{id}/events", h.campaignEvents},
+	}
 }
 
 func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
