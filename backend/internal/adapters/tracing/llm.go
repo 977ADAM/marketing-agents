@@ -61,3 +61,10 @@ func (c *TracingClient) Complete(ctx context.Context, role, system, user string,
 
 	return usage, err
 }
+
+func (c *TracingClient) ModelFor(role string) string {
+	if n, ok := c.inner.(modelNamer); ok {
+		return n.ModelFor(role)
+	}
+	return ""
+}

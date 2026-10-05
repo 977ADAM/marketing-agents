@@ -7,6 +7,7 @@ import (
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"golang.org/x/sync/errgroup"
 	"sync"
+	"time"
 
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	score "github.com/977ADAM/marketing-agents/internal/core/score"
@@ -32,8 +33,20 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 		mu.Lock()
 		usage := total
 		mu.Unlock()
-		res.CostUSD = o.cost(usage)
-		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, Usage: usage}); saveErr != nil && err == nil {
+		if store, ok := o.opt.Checkpoints.(corellm.UsageStore); ok && checkpoints.ID != "" {
+			final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			entries, loadErr := store.UsageEntries(final, checkpoints.ID)
+			cancel()
+			if loadErr != nil && err == nil {
+				err = loadErr
+			}
+			if len(entries) > 0 {
+				usage = corellm.FromEntries(entries)
+			}
+		}
+		var known bool
+		res.CostUSD, known = corellm.EstimateUsage(usage, o.opt.Prices, corellm.Rates{Prompt: o.opt.CostPer1KPrompt, Completion: o.opt.CostPer1KCompletion})
+		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, CostKnown: known, Usage: usage}); saveErr != nil && err == nil {
 			err = saveErr
 		}
 	}()

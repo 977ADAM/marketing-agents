@@ -11,11 +11,12 @@ import "context"
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
+	Entries          []UsageEntry
 }
 
 // Add складывает расход двух вызовов.
 func (u Usage) Add(o Usage) Usage {
-	return Usage{u.PromptTokens + o.PromptTokens, u.CompletionTokens + o.CompletionTokens}
+	return Usage{PromptTokens: u.PromptTokens + o.PromptTokens, CompletionTokens: u.CompletionTokens + o.CompletionTokens, Entries: append(append([]UsageEntry(nil), u.Entries...), o.Entries...)}
 }
 
 // Client — один вызов с JSON-ответом, разобранным в out. role задаёт модель

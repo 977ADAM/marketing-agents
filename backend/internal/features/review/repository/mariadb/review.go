@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	identity "github.com/977ADAM/marketing-agents/internal/core/identity"
+	llm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	shared "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"time"
 
@@ -23,6 +24,7 @@ type reviewRow struct {
 	BriefText string    `gorm:"column:brief_text;type:mediumtext;not null"`
 	Result    *string   `gorm:"column:result;type:mediumtext"`
 	Progress  *string   `gorm:"column:progress;type:mediumtext"`
+	CostKnown *bool     `gorm:"column:cost_known"`
 	CostUSD   *float64  `gorm:"column:cost_usd"`
 	Error     *string   `gorm:"column:error;type:mediumtext"`
 	CreatedAt time.Time `gorm:"column:created_at;->"`
@@ -114,7 +116,7 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 	}
 	r := review.Record{
 		ID: row.ID, ClientID: row.ClientID, Status: row.Status, BriefText: row.BriefText,
-		CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		CostKnown: row.CostKnown, CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	if row.Result != nil && *row.Result != "" {
 		var res review.Result
@@ -162,6 +164,8 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 		return nil, err
 	} else if ok {
 		r.CostUSD = &summary.CostUSD
+		r.CostKnown = &summary.CostKnown
+		r.Usage = &summary.Usage
 		if r.Result != nil {
 			r.Result.CostUSD = summary.CostUSD
 		}
@@ -180,7 +184,7 @@ func (rs *Reviews) ListChecks(ctx context.Context, limit int) ([]review.Summary,
 	for _, r := range rows {
 		out = append(out, review.Summary{
 			ID: r.ID, Status: r.Status, BriefText: r.BriefText,
-			CostUSD: r.CostUSD, CreatedAt: r.CreatedAt,
+			CostKnown: r.CostKnown, CostUSD: r.CostUSD, CreatedAt: r.CreatedAt,
 		})
 	}
 	return out, nil
@@ -244,4 +248,11 @@ func (rs *Reviews) SaveCheckpoint(ctx context.Context, id, stage string, pos int
 }
 func (rs *Reviews) Requeue(ctx context.Context, id string) error {
 	return shared.Requeue(ctx, rs.db, "reviews", "review", id, rs.now().UTC())
+}
+
+func (rs *Reviews) AppendUsage(ctx context.Context, id string, e llm.UsageEntry) error {
+	return shared.AppendUsage(ctx, rs.db, "reviews", "review", id, e, rs.now().UTC())
+}
+func (rs *Reviews) UsageEntries(ctx context.Context, id string) ([]llm.UsageEntry, error) {
+	return shared.UsageEntries(ctx, rs.db, "review", id)
 }

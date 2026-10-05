@@ -9,6 +9,7 @@ import (
 	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	"golang.org/x/sync/errgroup"
 	"sync"
+	"time"
 
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
@@ -17,6 +18,7 @@ import (
 )
 
 type Options struct {
+	Prices              *corellm.Prices
 	CriticMaxIter       int
 	ScoreThreshold      int
 	CostPer1KPrompt     float64
@@ -49,6 +51,7 @@ type Result struct {
 	Strategy     campaign.Strategy
 	Deliverables []campaign.Deliverable
 	CostUSD      float64
+	CostKnown    bool
 	// Usage — суммарные токены прогона (трасса показывает их по ролям в событиях,
 	// здесь — общий итог).
 	Usage corellm.Usage
@@ -106,8 +109,19 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 		mu.Lock()
 		res.Usage = total
 		mu.Unlock()
-		res.CostUSD = o.cost(res.Usage)
-		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, Usage: res.Usage}); saveErr != nil && err == nil {
+		if store, ok := o.opt.Checkpoints.(corellm.UsageStore); ok && checkpoints.ID != "" {
+			final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			entries, loadErr := store.UsageEntries(final, checkpoints.ID)
+			cancel()
+			if loadErr != nil && err == nil {
+				err = loadErr
+			}
+			if len(entries) > 0 {
+				res.Usage = corellm.FromEntries(entries)
+			}
+		}
+		res.CostUSD, res.CostKnown = corellm.EstimateUsage(res.Usage, o.opt.Prices, corellm.Rates{Prompt: o.opt.CostPer1KPrompt, Completion: o.opt.CostPer1KCompletion})
+		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, CostKnown: res.CostKnown, Usage: res.Usage}); saveErr != nil && err == nil {
 			err = saveErr
 		}
 		o.traceResult(ctx, res, err)

@@ -42,15 +42,15 @@
 		<h2>Ошибка проверки</h2>
 		<p class="error">{$review.error}</p>
  {#if $review.resume_available}<button class="btn btn-primary" disabled={retrying} onclick={resume}>{retrying ? 'Запускаем…' : 'Продолжить'}</button>{/if}
- <p class="muted">Стоимость: {formatCost($review.cost_usd)}</p>
+ <p class="muted">Оценочная стоимость: {formatCost($review.cost_usd,$review.cost_known)}</p>
  {#each $review.result?.items ?? [] as report,i (i)}<ReportCard {report} />{/each}
 	</div>
 {:else if $review?.status === 'done' && $review.result}
 	<div class="result">
 		<h2>Отчёт по текстам</h2>
 		<p class="muted">
-			Проверено текстов: {$review.result.items.length}, прошло: {$review.result.passed} · Стоимость:
-			{formatCost($review.cost_usd)}
+			Проверено текстов: {$review.result.items.length}, прошло: {$review.result.passed} · Оценочная стоимость:
+			{formatCost($review.cost_usd,$review.cost_known)}
 		</p>
 		<details class="brief-box">
 			<summary>Бриф</summary>

@@ -23,8 +23,9 @@ type Saved[T any] struct {
 	Usage llm.Usage `json:"usage"`
 }
 type RunSummary struct {
-	CostUSD float64   `json:"cost_usd"`
-	Usage   llm.Usage `json:"usage"`
+	CostKnown bool      `json:"cost_known"`
+	CostUSD   float64   `json:"cost_usd"`
+	Usage     llm.Usage `json:"usage"`
 }
 
 // Checkpoints is inert outside persisted runs, preserving standalone workflows.

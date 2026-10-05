@@ -4,6 +4,7 @@ import run "github.com/977ADAM/marketing-agents/internal/core/run"
 import corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 
 type Options struct {
+	Prices                               *corellm.Prices
 	Checkpoints                          run.CheckpointStore
 	CostPer1KPrompt, CostPer1KCompletion float64
 	ParallelTexts                        int

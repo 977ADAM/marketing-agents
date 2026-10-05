@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"github.com/977ADAM/marketing-agents/internal/core/limits"
+	llm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	"net/url"
 	"os"
 	"strconv"
@@ -33,6 +34,8 @@ type Config struct {
 	CriticScoreThreshold           int
 	MaxTopics                      int // верхний кап на число тем от стратега (контроль стоимости)
 
+	ModelPrices         llm.Prices
+	ModelPricesJSON     string
 	CostPer1KPrompt     float64
 	CostPer1KCompletion float64
 
@@ -114,6 +117,7 @@ func Load() (*Config, error) {
 		MaxTopics:            getInt("MAX_TOPICS", 5),
 		RateLimitPerMin:      getInt("RATE_LIMIT_PER_MIN", 30),
 
+		ModelPricesJSON:     getStr("MODEL_PRICES_JSON", ""),
 		CostPer1KPrompt:     getFloat("COST_PER_1K_PROMPT", 0.00027),
 		CostPer1KCompletion: getFloat("COST_PER_1K_COMPLETION", 0.0011),
 
@@ -128,6 +132,11 @@ func Load() (*Config, error) {
 		TraceMaxPayloadBytes: getInt("TRACE_MAX_PAYLOAD_BYTES", DefaultTraceMaxPayloadBytes),
 	}
 
+	prices, err := llm.ParsePrices(cfg.ModelPricesJSON, llm.Rates{Prompt: cfg.CostPer1KPrompt, Completion: cfg.CostPer1KCompletion})
+	if err != nil {
+		return nil, err
+	}
+	cfg.ModelPrices = prices
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}

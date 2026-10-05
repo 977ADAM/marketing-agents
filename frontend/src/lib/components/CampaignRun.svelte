@@ -44,7 +44,7 @@
 		<h2>Ошибка</h2>
 		<p class="error">{$campaign.error}</p>
  {#if $campaign.resume_available}<button class="btn btn-primary" disabled={retrying} onclick={resume}>{retrying ? 'Запускаем…' : 'Продолжить'}</button>{/if}
- <p class="muted">Стоимость: {formatCost($campaign.cost_usd)}</p>
+ <p class="muted">Оценочная стоимость: {formatCost($campaign.cost_usd,$campaign.cost_known)}</p>
  {#each $campaign.deliverables ?? [] as d,i (i)}<ArticleCard deliverable={d} />{/each}
 	</div>
 {:else if $campaign?.status === 'done'}
@@ -57,7 +57,7 @@
  {#each $campaign.strategy.warnings ?? [] as warning (warning)}<p class="muted">{warning}</p>{/each}
 			</div>
 		{/if}
-		<p class="muted">Стоимость прогона: {formatCost($campaign.cost_usd)}</p>
+		<p class="muted">Оценочная стоимость: {formatCost($campaign.cost_usd,$campaign.cost_known)}</p>
 		<div class="articles">
 			{#each $campaign.deliverables ?? [] as d, i (i)}
 				<ArticleCard deliverable={d} />

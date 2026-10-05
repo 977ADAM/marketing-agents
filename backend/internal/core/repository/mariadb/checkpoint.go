@@ -55,7 +55,13 @@ func SaveCheckpoint(ctx context.Context, db *gorm.DB, table, kind, id, stage str
 			return err
 		}
 		row := CheckpointRow{RunKind: kind, RunID: id, Stage: stage, Position: pos, InputHash: input.InputHash, Payload: string(encoded), UpdatedAt: now}
-		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "run_kind"}, {Name: "run_id"}, {Name: "stage"}, {Name: "position"}}, DoUpdates: clause.AssignmentColumns([]string{"payload", "input_hash", "updated_at"})}).Create(&row).Error
+		if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "run_kind"}, {Name: "run_id"}, {Name: "stage"}, {Name: "position"}}, DoUpdates: clause.AssignmentColumns([]string{"payload", "input_hash", "updated_at"})}).Create(&row).Error; err != nil {
+			return err
+		}
+		if summary, ok := data.(run.RunSummary); ok {
+			return Fenced(ctx, tx.Table(table).Where("id=?", id), now).Updates(map[string]any{"cost_usd": summary.CostUSD, "cost_known": summary.CostKnown}).Error
+		}
+		return nil
 	})
 }
 func HasInput(ctx context.Context, db *gorm.DB, kind, id string) (bool, error) {

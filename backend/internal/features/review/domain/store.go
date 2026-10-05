@@ -2,6 +2,7 @@ package review
 
 import (
 	"errors"
+	llm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	"time"
 
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
@@ -12,6 +13,8 @@ var ErrNotFound = errors.New("review not found")
 
 // Record — сохранённая проверка текстов: бриф, отчёт и состояние прогона.
 type Record struct {
+	CostKnown       *bool         `json:"cost_known,omitempty"`
+	Usage           *llm.Usage    `json:"usage,omitempty"`
 	ResumeAvailable bool          `json:"resume_available"`
 	ID              string        `json:"id"`
 	ClientID        string        `json:"client_id"`
@@ -29,6 +32,7 @@ type Record struct {
 // BriefTitle — первая строка брифа: её заполняет слой API, чтобы фронт ничего не
 // вычислял сам.
 type Summary struct {
+	CostKnown  *bool     `json:"cost_known,omitempty"`
 	ID         string    `json:"id"`
 	Status     string    `json:"status"`
 	BriefText  string    `json:"brief_text"`

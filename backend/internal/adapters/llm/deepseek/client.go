@@ -64,11 +64,15 @@ func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, 
 	if err != nil {
 		return corellm.Usage{}, err
 	}
+	model := resp.Model
+	if model == "" {
+		model = req.Model
+	}
+	usage := corellm.Usage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens, Entries: []corellm.UsageEntry{{Model: model, Role: role, PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}}}
 	if len(resp.Choices) == 0 {
-		return corellm.Usage{}, errors.New("llm: empty choices")
+		return usage, errors.New("llm: empty choices")
 	}
 	content := resp.Choices[0].Message.Content
-	usage := corellm.Usage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}
 
 	if err := decodeJSON(content, out); err != nil {
 		return usage, fmt.Errorf("llm: parse JSON: %w (content=%q)", err, truncate(content, 400))

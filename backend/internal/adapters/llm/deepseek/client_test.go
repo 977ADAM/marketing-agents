@@ -237,3 +237,15 @@ func TestCompleteNoJSONAtAll(t *testing.T) {
 		t.Fatal("ожидалась ошибка парсинга")
 	}
 }
+
+func TestUsageNamesActualModelOnParseFailure(t *testing.T) {
+	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse("actual-model", "invalid", 12, 7), nil
+	})
+	client := llm.New("key", "https://example.test", "requested-model", 0, &http.Client{Transport: rt})
+	var out struct{ OK bool }
+	u, err := client.Complete(context.Background(), "critic", "S", "U", &out)
+	if err == nil || len(u.Entries) != 1 || u.Entries[0].Model != "actual-model" || u.Entries[0].Role != "critic" || u.PromptTokens != 12 {
+		t.Fatalf("usage=%+v err=%v", u, err)
+	}
+}

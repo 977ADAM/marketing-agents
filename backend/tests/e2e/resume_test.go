@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/adapters/accounting"
 	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	repo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
@@ -24,7 +25,7 @@ func TestResumeSkipsSavedArticleAndStrategy(t *testing.T) {
 	f := mock.NewLLM()
 	f.Responses["strategist"] = []string{`{"positioning":"P","topics":[{"title":"one"},{"title":"two"}]}`}
 	f.Responses["copywriter"] = []string{`{"title":"one","body":"ready"}`, `{"title":"","body":"invalid"}`, `{"title":"two","body":"ready"}`}
-	workflow := service.NewWorkflow(f, service.Options{ParallelTexts: 1, Checkpoints: c, CostPer1KPrompt: 1})
+	workflow := service.NewWorkflow(accounting.New(f), service.Options{ParallelTexts: 1, Checkpoints: c, CostPer1KPrompt: 1})
 	hub := runner.NewHub(ctx, c, reviews)
 	first := runner.NewRunner(ctx, c, reviews, workflow, nil, time.Minute, nil, hub)
 	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
@@ -47,7 +48,7 @@ func TestResumeSkipsSavedArticleAndStrategy(t *testing.T) {
 		t.Fatal(err)
 	}
 	final, err := c.Get(ctx, id)
-	if err != nil || final.Status != "done" || len(final.Deliverables) != 2 || f.Calls["strategist"] != 1 || f.Calls["copywriter"] != 3 {
+	if err != nil || final.Status != "done" || len(final.Deliverables) != 2 || f.Calls["strategist"] != 1 || f.Calls["copywriter"] != 3 || final.Usage == nil || final.Usage.PromptTokens != 40 || final.CostUSD == nil || *final.CostUSD != 0.04 {
 		t.Fatalf("final=%+v calls=%v err=%v", final, f.Calls, err)
 	}
 }
@@ -60,7 +61,7 @@ func TestReviewResumeUsesPersistedTexts(t *testing.T) {
 	f := mock.NewLLM()
 	f.Responses["compliance"] = []string{`{"score":90,"issues":[]}`, `{"score":90,"issues":[]}`, `{"score":90,"issues":[]}`}
 	f.Responses["quality"] = []string{`{"score":90,"issues":[]}`, `{"issues":[]}`, `{"score":90,"issues":[]}`}
-	workflow := reviewservice.NewWorkflow(f, reviewservice.Options{ParallelTexts: 1, Checkpoints: reviews})
+	workflow := reviewservice.NewWorkflow(accounting.New(f), reviewservice.Options{ParallelTexts: 1, Checkpoints: reviews, CostPer1KPrompt: 1})
 	first := runner.NewRunner(ctx, c, reviews, nil, workflow, time.Minute, nil, runner.NewHub(ctx, c, reviews))
 	req := review.Request{BriefText: "B", Texts: []review.TextToReview{{Title: "one", Body: "first body"}, {Title: "two", Body: "second body"}}}
 	id, err := reviewservice.NewService(reviews, first).Create(ctx, "", req)
@@ -82,7 +83,7 @@ func TestReviewResumeUsesPersistedTexts(t *testing.T) {
 		t.Fatal(err)
 	}
 	final, err := reviews.GetCheck(ctx, id)
-	if err != nil || final.Status != "done" || len(final.Result.Items) != 2 || f.Calls["compliance"] != 3 || f.Calls["quality"] != 3 {
+	if err != nil || final.Status != "done" || len(final.Result.Items) != 2 || f.Calls["compliance"] != 3 || f.Calls["quality"] != 3 || final.Usage == nil || final.Usage.PromptTokens != 60 {
 		t.Fatalf("final=%+v err=%v calls=%v", final, err, f.Calls)
 	}
 	last, _ := f.LastRequest()

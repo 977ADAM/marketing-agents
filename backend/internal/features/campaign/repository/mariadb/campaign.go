@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	identity "github.com/977ADAM/marketing-agents/internal/core/identity"
+	llm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	shared "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"time"
 
@@ -24,6 +25,7 @@ type campaignRow struct {
 	Brief     string    `gorm:"column:brief;type:mediumtext;not null"`
 	Strategy  *string   `gorm:"column:strategy;type:mediumtext"`
 	Progress  *string   `gorm:"column:progress;type:mediumtext"`
+	CostKnown *bool     `gorm:"column:cost_known"`
 	CostUSD   *float64  `gorm:"column:cost_usd"`
 	Error     *string   `gorm:"column:error;type:mediumtext"`
 	CreatedAt time.Time `gorm:"column:created_at;->"`
@@ -163,7 +165,7 @@ func (cs *Campaigns) ListRecent(ctx context.Context, limit int) ([]campaign.Summ
 	}
 	out := make([]campaign.Summary, 0, len(rows))
 	for _, r := range rows {
-		s := campaign.Summary{ID: r.ID, Status: r.Status, CostUSD: r.CostUSD, CreatedAt: r.CreatedAt}
+		s := campaign.Summary{ID: r.ID, Status: r.Status, CostKnown: r.CostKnown, CostUSD: r.CostUSD, CreatedAt: r.CreatedAt}
 		_ = json.Unmarshal([]byte(r.Brief), &s.Brief)
 		out = append(out, s)
 	}
@@ -182,7 +184,7 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 	}
 	c := campaign.Record{
 		ID: row.ID, ClientID: row.ClientID, Status: row.Status,
-		CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		CostKnown: row.CostKnown, CostUSD: row.CostUSD, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 	_ = json.Unmarshal([]byte(row.Brief), &c.Brief)
 	if row.Strategy != nil && *row.Strategy != "" {
@@ -244,6 +246,8 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 		return nil, err
 	} else if ok {
 		c.CostUSD = &summary.CostUSD
+		c.CostKnown = &summary.CostKnown
+		c.Usage = &summary.Usage
 	}
 	return &c, nil
 }
@@ -293,4 +297,11 @@ func (cs *Campaigns) SaveCheckpoint(ctx context.Context, id, stage string, pos i
 }
 func (cs *Campaigns) Requeue(ctx context.Context, id string) error {
 	return shared.Requeue(ctx, cs.db, "campaigns", "campaign", id, cs.now().UTC())
+}
+
+func (cs *Campaigns) AppendUsage(ctx context.Context, id string, e llm.UsageEntry) error {
+	return shared.AppendUsage(ctx, cs.db, "campaigns", "campaign", id, e, cs.now().UTC())
+}
+func (cs *Campaigns) UsageEntries(ctx context.Context, id string) ([]llm.UsageEntry, error) {
+	return shared.UsageEntries(ctx, cs.db, "campaign", id)
 }

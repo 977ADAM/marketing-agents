@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	llm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	"time"
 )
@@ -20,6 +21,9 @@ func (r *BackgroundRunner) own(ctx context.Context, id string, store any, cancel
 		return ctx, func() {}, run.ErrLeaseLost
 	}
 	ctx = run.WithOwnership(ctx, run.Ownership{Owner: r.owner, Attempt: attempt})
+	if sink, ok := store.(llm.UsageStore); ok {
+		ctx = llm.WithUsageSink(ctx, func(ctx context.Context, e llm.UsageEntry) error { return sink.AppendUsage(ctx, id, e) })
+	}
 	beatCtx, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {

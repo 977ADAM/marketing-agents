@@ -2,6 +2,7 @@ package campaignservice_test
 
 import (
 	"context"
+	"fmt"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	service "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
@@ -98,5 +99,16 @@ func TestFewerTopicsHasWarning(t *testing.T) {
 	r, err := service.NewWorkflow(f, service.Options{MaxTopics: 5}).Run(context.Background(), b, nil)
 	if err != nil || len(r.Strategy.Warnings) == 0 {
 		t.Fatalf("result=%+v err=%v", r, err)
+	}
+}
+
+func TestResearchFailurePreservesUsage(t *testing.T) {
+	f := mock.NewLLM()
+	f.Responses["semanticist_seeds"] = []string{`{"seeds":["seed"]}`}
+	source := mock.NewWordstat()
+	source.Err = fmt.Errorf("upstream failed")
+	res, err := service.NewWorkflow(f, service.Options{Wordstat: source, CostPer1KPrompt: 1}).Run(context.Background(), testBrief(), nil)
+	if err == nil || res.Usage.PromptTokens != 10 || res.CostUSD != 0.01 {
+		t.Fatalf("usage=%+v cost=%v err=%v", res.Usage, res.CostUSD, err)
 	}
 }

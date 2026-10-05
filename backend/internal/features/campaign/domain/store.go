@@ -2,6 +2,7 @@ package campaign
 
 import (
 	"errors"
+	llm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	"time"
 
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
@@ -12,6 +13,8 @@ var ErrNotFound = errors.New("campaign not found")
 
 // Record — сохранённая кампания: бриф, стратегия, статьи и состояние прогона.
 type Record struct {
+	CostKnown       *bool         `json:"cost_known,omitempty"`
+	Usage           *llm.Usage    `json:"usage,omitempty"`
 	ResumeAvailable bool          `json:"resume_available"`
 	ID              string        `json:"id"`
 	ClientID        string        `json:"client_id"`
@@ -28,6 +31,7 @@ type Record struct {
 
 // Summary — лёгкая сводка для списка истории (без strategy/deliverables/body).
 type Summary struct {
+	CostKnown *bool     `json:"cost_known,omitempty"`
 	ID        string    `json:"id"`
 	Status    string    `json:"status"`
 	Brief     Brief     `json:"brief"`

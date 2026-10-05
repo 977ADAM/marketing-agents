@@ -112,6 +112,7 @@ export interface Campaign {
 	deliverables?: Deliverable[];
 	progress?: Snapshot;
 	cost_usd?: number;
+ cost_known?:boolean;
 	error?: string;
 	created_at: string;
 	updated_at: string;
@@ -122,6 +123,7 @@ export interface CampaignSummary {
 	status: Status;
 	brief: Brief;
 	cost_usd?: number;
+ cost_known?:boolean;
 	created_at: string;
 }
 
@@ -168,6 +170,7 @@ export interface ReviewRun {
 	result?: ReviewResult;
 	progress?: Snapshot;
 	cost_usd?: number;
+ cost_known?:boolean;
 	error?: string;
 	created_at: string;
 	updated_at: string;
@@ -180,6 +183,7 @@ export interface ReviewRunSummary {
 	/** Первая строка брифа — заголовок для списка, готовит API. */
 	brief_title?: string;
 	cost_usd?: number;
+ cost_known?:boolean;
 	created_at: string;
 }
 

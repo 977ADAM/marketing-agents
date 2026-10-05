@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/adapters/accounting"
 	llm "github.com/977ADAM/marketing-agents/internal/adapters/llm/deepseek"
 	sloglogger "github.com/977ADAM/marketing-agents/internal/adapters/logger/slog"
 	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
@@ -98,7 +99,7 @@ func main() {
 	baseLLM := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
 	baseLLM.SetRoleModel(campaignservice.RoleCopywriter, cfg.ModelFast)
-	llmClient := tracing.NewLLM(baseLLM, recorder)
+	llmClient := accounting.New(tracing.NewLLM(baseLLM, recorder))
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
 	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
@@ -114,7 +115,7 @@ func main() {
 		logger.Warn("WORDSTAT_MCP_URL не задан: подбор тем по спросу выключен, темы даёт стратег")
 	}
 
-	orch := campaignservice.NewWorkflow(llmClient, campaignservice.Options{
+	orch := campaignservice.NewWorkflow(llmClient, campaignservice.Options{Prices: &cfg.ModelPrices,
 		Checkpoints:         campaigns,
 		CriticMaxIter:       cfg.CriticMaxIter,
 		ScoreThreshold:      cfg.CriticScoreThreshold,
@@ -130,7 +131,7 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews, sloglogger.New(logger))
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{Checkpoints: reviews, CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{Prices: &cfg.ModelPrices, Checkpoints: reviews, CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
