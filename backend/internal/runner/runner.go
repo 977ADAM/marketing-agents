@@ -2,7 +2,7 @@ package runner
 
 import (
 	"context"
-	"log/slog"
+	"github.com/977ADAM/marketing-agents/internal/core/corelogger"
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
@@ -18,12 +18,15 @@ type BackgroundRunner struct {
 	orch       *orchestrator.Orchestrator
 	baseCtx    context.Context
 	runTimeout time.Duration
-	logger     *slog.Logger
+	logger     corelogger.Logger
 	hub        *Hub
 	wg         chan struct{} // семафор учёта in-flight для graceful shutdown
 }
 
-func NewRunner(baseCtx context.Context, campaigns campaign.Store, reviews review.Store, orch *orchestrator.Orchestrator, timeout time.Duration, logger *slog.Logger, hub *Hub) *BackgroundRunner {
+func NewRunner(baseCtx context.Context, campaigns campaign.Store, reviews review.Store, orch *orchestrator.Orchestrator, timeout time.Duration, logger corelogger.Logger, hub *Hub) *BackgroundRunner {
+	if logger == nil {
+		logger = corelogger.Nop()
+	}
 	return &BackgroundRunner{
 		campaigns: campaigns, reviews: reviews, orch: orch, baseCtx: baseCtx,
 		runTimeout: timeout, logger: logger, hub: hub,

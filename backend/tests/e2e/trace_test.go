@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/sloglogger"
 	"io"
 	"log/slog"
 	"testing"
@@ -61,7 +62,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	})
 	hub := runner.NewHub(ctx, campaigns, reviews)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner := runner.NewRunner(ctx, campaigns, reviews, orch, 30*time.Second, logger, hub)
+	runner := runner.NewRunner(ctx, campaigns, reviews, orch, 30*time.Second, sloglogger.New(logger), hub)
 
 	brief := campaign.Brief{
 		Product: "Зимняя резина", Goal: "рост продаж", Audience: "автовладельцы",

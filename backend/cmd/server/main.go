@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/977ADAM/marketing-agents/internal/sloglogger"
 	"log/slog"
 	"net/http"
 	"os"
@@ -119,7 +120,7 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews)
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, cfg.RunTimeout, logger, hub)
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, cfg.RunTimeout, sloglogger.New(logger), hub)
 	api := apihttp.New(campaigns, reviews, events, runner, hub, cfg.RateLimitPerMin)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
