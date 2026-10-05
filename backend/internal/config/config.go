@@ -40,9 +40,7 @@ type Config struct {
 	WordstatMCPUser        string
 	WordstatMCPPass        string
 	WordstatRegionDefault  string // geo ID Яндекса: 225 Россия, 1 Москва и область, 213 Москва
-	WordstatMinVolume      int    // минимальный объём темы, показов за 30 дней
 	WordstatMaxCallsPerRun int    // лимит обращений к Wordstat на прогон
-	TopicsMultiplier       int    // сколько идей предлагать на одну статью (×2)
 
 	// Трасса прогона: журнал того, что делали агенты.
 	TraceMode            string // off | summary | full
