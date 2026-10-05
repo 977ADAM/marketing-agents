@@ -1,9 +1,11 @@
-package http
+package tracehttp
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	response "github.com/977ADAM/marketing-agents/internal/core/transport/http/response"
+	server "github.com/977ADAM/marketing-agents/internal/core/transport/http/server"
 	"net/http"
 	"strconv"
 	"time"
@@ -50,7 +52,7 @@ type trajectoryResponse struct {
 	Events []trajectoryEvent `json:"events"`
 }
 
-func (a *API) campaignTrajectory(w http.ResponseWriter, r *http.Request) {
+func (a *Handler) campaignTrajectory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectory(w, r, id, func(ctx context.Context) error {
 		_, err := a.campaigns.Get(ctx, id)
@@ -58,7 +60,7 @@ func (a *API) campaignTrajectory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *API) campaignTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
+func (a *Handler) campaignTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectoryEvent(w, r, id, func(ctx context.Context) error {
 		_, err := a.campaigns.Get(ctx, id)
@@ -66,7 +68,7 @@ func (a *API) campaignTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *API) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
+func (a *Handler) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectory(w, r, id, func(ctx context.Context) error {
 		_, err := a.reviews.GetCheck(ctx, id)
@@ -74,7 +76,7 @@ func (a *API) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *API) reviewTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
+func (a *Handler) reviewTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectoryEvent(w, r, id, func(ctx context.Context) error {
 		_, err := a.reviews.GetCheck(ctx, id)
@@ -84,7 +86,7 @@ func (a *API) reviewTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 
 // writeTrajectory отдаёт ленту событий прогона. exists проверяет, что прогон есть:
 // иначе трасса несуществующей кампании выглядела бы как «пустая».
-func (a *API) writeTrajectory(w http.ResponseWriter, r *http.Request, id string, exists func(context.Context) error) {
+func (a *Handler) writeTrajectory(w http.ResponseWriter, r *http.Request, id string, exists func(context.Context) error) {
 	if err := exists(r.Context()); err != nil {
 		a.writeRunLookupError(w, err, "campaign")
 		return
@@ -102,7 +104,7 @@ func (a *API) writeTrajectory(w http.ResponseWriter, r *http.Request, id string,
 
 	rows, err := a.traces.RunEvents(r.Context(), id, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "could not load trajectory")
+		response.WriteError(w, http.StatusInternalServerError, "internal", "could not load trajectory")
 		return
 	}
 
@@ -114,31 +116,31 @@ func (a *API) writeTrajectory(w http.ResponseWriter, r *http.Request, id string,
 			CompletionTokens: row.CompletionTokens, HasPayload: row.HasPayload, Error: row.Error,
 		})
 	}
-	writeJSON(w, http.StatusOK, trajectoryResponse{ID: id, Total: len(events), Events: events})
+	response.WriteJSON(w, http.StatusOK, trajectoryResponse{ID: id, Total: len(events), Events: events})
 }
 
 // writeTrajectoryEvent отдаёт одно событие вместе с телом.
-func (a *API) writeTrajectoryEvent(w http.ResponseWriter, r *http.Request, id string, exists func(context.Context) error) {
+func (a *Handler) writeTrajectoryEvent(w http.ResponseWriter, r *http.Request, id string, exists func(context.Context) error) {
 	if err := exists(r.Context()); err != nil {
 		a.writeRunLookupError(w, err, "campaign")
 		return
 	}
 	seq, err := strconv.ParseInt(r.PathValue("seq"), 10, 64)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation", "seq must be a number")
+		response.WriteError(w, http.StatusBadRequest, "validation", "seq must be a number")
 		return
 	}
 
 	row, err := a.traces.RunEvent(r.Context(), id, seq)
 	if errors.Is(err, trace.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "trajectory event not found")
+		response.WriteError(w, http.StatusNotFound, "not_found", "trajectory event not found")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "could not load trajectory event")
+		response.WriteError(w, http.StatusInternalServerError, "internal", "could not load trajectory event")
 		return
 	}
-	writeJSON(w, http.StatusOK, trajectoryEventFull{
+	response.WriteJSON(w, http.StatusOK, trajectoryEventFull{
 		trajectoryEvent: trajectoryEvent{
 			Seq: row.Seq, At: row.At, Kind: row.Kind, Name: row.Name, Status: row.Status,
 			Summary: row.Summary, DurationMS: row.DurationMS, PromptTokens: row.PromptTokens,
@@ -150,12 +152,12 @@ func (a *API) writeTrajectoryEvent(w http.ResponseWriter, r *http.Request, id st
 
 // writeRunLookupError разделяет «прогона нет» и «стор сломался». Сентинелы у
 // доменов свои (campaign.ErrNotFound, review.ErrNotFound), поэтому проверяем оба.
-func (a *API) writeRunLookupError(w http.ResponseWriter, err error, what string) {
+func (a *Handler) writeRunLookupError(w http.ResponseWriter, err error, what string) {
 	if errors.Is(err, campaign.ErrNotFound) || errors.Is(err, review.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", what+" not found")
+		response.WriteError(w, http.StatusNotFound, "not_found", what+" not found")
 		return
 	}
-	writeError(w, http.StatusInternalServerError, "internal", "could not load "+what)
+	response.WriteError(w, http.StatusInternalServerError, "internal", "could not load "+what)
 }
 
 // rawPayload отдаёт payload как есть, если это валидный JSON: иначе фронт получил
@@ -173,4 +175,25 @@ func rawPayload(payload string) json.RawMessage {
 		return nil
 	}
 	return json.RawMessage(quoted)
+}
+
+type CampaignReader interface {
+	Get(context.Context, string) (*campaign.Record, error)
+}
+type ReviewReader interface {
+	GetCheck(context.Context, string) (*review.Record, error)
+}
+type TraceQuery interface {
+	RunEvents(context.Context, string, int) ([]trace.Row, error)
+	RunEvent(context.Context, string, int64) (*trace.Row, error)
+}
+type Handler struct {
+	campaigns CampaignReader
+	reviews   ReviewReader
+	traces    TraceQuery
+}
+
+func NewHandler(c CampaignReader, r ReviewReader, q TraceQuery) *Handler { return &Handler{c, r, q} }
+func (h *Handler) Routes() []server.Route {
+	return []server.Route{{"GET /api/campaigns/{id}/trajectory", h.campaignTrajectory}, {"GET /api/campaigns/{id}/trajectory/{seq}", h.campaignTrajectoryEvent}, {"GET /api/reviews/{id}/trajectory", h.reviewTrajectory}, {"GET /api/reviews/{id}/trajectory/{seq}", h.reviewTrajectoryEvent}}
 }

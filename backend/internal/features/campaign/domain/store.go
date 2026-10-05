@@ -1,7 +1,6 @@
 package campaign
 
 import (
-	"context"
 	"errors"
 	"time"
 
@@ -40,16 +39,4 @@ type Outcome struct {
 	Strategy     Strategy
 	Deliverables []Deliverable
 	CostUSD      float64
-}
-
-// Store — хранение кампаний: порт объявлен у потребителя (транспорт, сервис),
-// реализация живёт в адаптере (internal/repository/mariadb).
-type Store interface {
-	Create(ctx context.Context, clientID string, b Brief) (string, error)
-	MarkRunning(ctx context.Context, id string) error
-	SaveProgress(ctx context.Context, id string, snap run.Snapshot) error
-	Complete(ctx context.Context, id string, res Outcome) error
-	Fail(ctx context.Context, id, msg string) error
-	ListRecent(ctx context.Context, limit int) ([]Summary, error)
-	Get(ctx context.Context, id string) (*Record, error)
 }

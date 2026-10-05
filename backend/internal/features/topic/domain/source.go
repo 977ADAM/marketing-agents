@@ -1,9 +1,5 @@
 package topic
 
-import (
-	"context"
-)
-
 // Demand — спрос по фразе: широкая частотность головной фразы и популярные
 // формулировки.
 //
@@ -52,13 +48,4 @@ type DynamicsParams struct {
 	ToDate   string
 	Regions  []string
 	Devices  []string
-}
-
-// Source — порт источника спроса: то, что подбору тем нужно от поисковика.
-//
-// Объявлен здесь, у потребителя: реализации (Wordstat через MCP, Fake в тестах)
-// импортируют домен, а домен про них не знает.
-type Source interface {
-	Demand(ctx context.Context, p DemandParams) (Demand, error)
-	Dynamics(ctx context.Context, p DynamicsParams) (Dynamics, error)
 }

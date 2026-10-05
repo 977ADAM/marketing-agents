@@ -1,4 +1,4 @@
-package orchestrator_test
+package workflow_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 )
 
@@ -77,7 +77,7 @@ func researchBrief() campaign.Brief {
 	return b
 }
 
-func researchOptions(src topic.Source, opt orchestrator.Options) orchestrator.Options {
+func researchOptions(src topicservice.Source, opt campaignservice.Options) campaignservice.Options {
 	opt.CriticMaxIter = 3
 	opt.ScoreThreshold = 80
 	opt.CostPer1KPrompt = 1
@@ -105,7 +105,7 @@ func TestRunResearchModelDecidesSelection(t *testing.T) {
 	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	p := newResearchProgress()
-	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
+	o := campaignservice.NewWorkflow(fake, researchOptions(src, campaignservice.Options{}))
 	res, err := o.Run(context.Background(), researchBrief(), p)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -172,7 +172,7 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
 
-	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
+	o := campaignservice.NewWorkflow(fake, researchOptions(src, campaignservice.Options{}))
 	res, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -202,7 +202,7 @@ func TestRunResearchFailsWhenModelSelectsNothing(t *testing.T) {
 		{"title":"Сколько стоит","goal":"g","task":"k","queries":["купить зимнюю резину"],
 		 "selected":false,"reject":"не наша аудитория"}]}`}
 
-	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
+	o := campaignservice.NewWorkflow(fake, researchOptions(src, campaignservice.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if err == nil || !strings.Contains(err.Error(), "не выбрала ни одной темы") {
 		t.Fatalf("err = %v, want ошибку про пустой выбор модели", err)
@@ -217,7 +217,7 @@ func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"Летние шины","goal":"g","task":"k","queries":["летняя резина"],"selected":true}]}`}
 
-	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
+	o := campaignservice.NewWorkflow(fake, researchOptions(src, campaignservice.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if !errors.Is(err, topicservice.ErrUnknownQuery) {
 		t.Fatalf("err = %v, want ErrUnknownQuery", err)
@@ -231,7 +231,7 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 	fake := mock.NewLLM()
 	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
-	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
+	o := campaignservice.NewWorkflow(fake, researchOptions(src, campaignservice.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if err == nil || !strings.Contains(err.Error(), "wordstat недоступен") {
 		t.Fatalf("err = %v, want ошибку источника", err)
@@ -249,7 +249,7 @@ func TestRunResearchRespectsCallLimit(t *testing.T) {
 	fake.Responses[campaignservice.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
-	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{MaxWordstatCalls: 1}))
+	o := campaignservice.NewWorkflow(fake, researchOptions(src, campaignservice.Options{MaxWordstatCalls: 1}))
 	res, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -269,7 +269,7 @@ func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
 	fake.Responses[campaignservice.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
 	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 1, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 	res, err := o.Run(context.Background(), brief(), newResearchProgress())
 	if err != nil {
 		t.Fatalf("Run: %v", err)

@@ -1,11 +1,10 @@
 // Package orchestrator связывает агентов в пайплайн генерации кампании.
-package orchestrator
+package campaignservice
 
 import (
 	"context"
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
-	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	"golang.org/x/sync/errgroup"
 	"sync"
@@ -25,7 +24,7 @@ type Options struct {
 
 	// Wordstat — источник спроса на темы. nil (или nil Semanticist) означает,
 	// что подбор тем выключен: темы даёт стратег, как до появления Wordstat.
-	Wordstat topic.Source
+	Wordstat topicservice.Source
 	// Semanticist — агент подбора тем: сеялки, кластеризация, fallback.
 	Semanticist *topicservice.Semanticist
 	// SeedCount — сколько сеялок просить у модели (0 — дефолт).
@@ -52,38 +51,38 @@ type Result struct {
 	Usage corellm.Usage
 }
 
-type Orchestrator struct {
-	llm         corellm.Client
-	strategist  *campaignservice.Strategist
-	copywriter  *campaignservice.Copywriter
-	critic      *campaignservice.Critic
-	semanticist *topicservice.Semanticist
-	trace       trace.Recorder
-	opt         Options
+type Workflow struct {
+	llm        corellm.Client
+	strategist *Strategist
+	copywriter *Copywriter
+	critic     *Critic
+	researcher *topicservice.Workflow
+	trace      trace.Recorder
+	opt        Options
 }
 
-func New(c corellm.Client, opt Options) *Orchestrator {
+func NewWorkflow(c corellm.Client, opt Options) *Workflow {
 	semanticist := opt.Semanticist
 	if semanticist == nil {
 		semanticist = topicservice.NewSemanticist(c)
 	}
-	return &Orchestrator{
-		llm:         c,
-		strategist:  campaignservice.NewStrategist(c),
-		copywriter:  campaignservice.NewCopywriter(c),
-		critic:      campaignservice.NewCritic(c),
-		semanticist: semanticist,
-		trace:       trace.OrNop(opt.Recorder),
-		opt:         opt,
+	return &Workflow{
+		llm:        c,
+		strategist: NewStrategist(c),
+		copywriter: NewCopywriter(c),
+		critic:     NewCritic(c),
+		researcher: topicservice.NewWorkflow(c, topicservice.Options{Wordstat: opt.Wordstat, Semanticist: semanticist, SeedCount: opt.SeedCount, NumPhrases: opt.NumPhrases, MaxWordstatCalls: opt.MaxWordstatCalls, MaxPhrases: opt.MaxPhrases, DefaultRegion: opt.DefaultRegion, Recorder: opt.Recorder}),
+		trace:      trace.OrNop(opt.Recorder),
+		opt:        opt,
 	}
 }
 
 // canResearch сообщает, настроен ли подбор тем по спросу.
-func (o *Orchestrator) canResearch() bool {
-	return o.opt.Wordstat != nil && o.semanticist != nil
+func (o *Workflow) canResearch() bool {
+	return o.opt.Wordstat != nil && o.researcher != nil
 }
 
-func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p run.Progress) (res Result, err error) {
+func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (res Result, err error) {
 	if p == nil {
 		p = run.NopProgress{}
 	}
@@ -107,12 +106,16 @@ func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p run.Progress
 	// Позиционирование в обоих случаях даёт стратег.
 	var strat campaign.Strategy
 	if o.canResearch() {
-		researched, u, err := o.research(ctx, b, p)
+		researched, u, err := o.researcher.Run(ctx, topic.ResearchRequest{Briefing: b.Briefing(), Region: b.Region, TopicsCount: b.TopicsCount}, p)
 		if err != nil {
 			return Result{}, err
 		}
 		addUsage(u)
-		strat = researched
+		strat.TopicCandidates = researched.TopicCandidates
+		strat.WordstatCalls = researched.WordstatCalls
+		for _, t := range researched.Topics {
+			strat.Topics = append(strat.Topics, campaign.Topic{Title: t.Title, Angle: t.Angle, Points: t.Points})
+		}
 
 		p.Strategizing()
 		st, u, err := o.strategist.Run(ctx, b)
@@ -168,7 +171,7 @@ func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p run.Progress
 }
 
 // produce пишет статью и гоняет цикл критика; usage аккумулируется по всем вызовам.
-func (o *Orchestrator) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p run.Progress) (campaign.Deliverable, corellm.Usage, error) {
+func (o *Workflow) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p run.Progress) (campaign.Deliverable, corellm.Usage, error) {
 	total := corellm.Usage{}
 	p.TopicWriting(i)
 	art, u, err := o.copywriter.Run(ctx, b, s, t)
@@ -223,7 +226,7 @@ func verdictNote(verdict string) string {
 	return "на доработку"
 }
 
-func (o *Orchestrator) cost(u corellm.Usage) float64 {
+func (o *Workflow) cost(u corellm.Usage) float64 {
 	return float64(u.PromptTokens)/1000*o.opt.CostPer1KPrompt +
 		float64(u.CompletionTokens)/1000*o.opt.CostPer1KCompletion
 }

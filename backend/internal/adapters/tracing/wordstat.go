@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	wordstat "github.com/977ADAM/marketing-agents/internal/features/topic/source/wordstat"
 	"strconv"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
 
-// TracingSource оборачивает источник спроса (topic.Source) и пишет обращения в
+// TracingSource оборачивает источник спроса (topicservice.Source) и пишет обращения в
 // трассу прогона: что спрашивали, что вернулось и сколько заняло.
 //
 // В режиме full в payload попадают параметры и результат целиком (они небольшие),
@@ -21,12 +22,12 @@ import (
 // География (wordstat.Regions) в порт не входит: её запрашивает только дымовой тест, и он
 // работает с конкретным клиентом напрямую, без декоратора.
 type TracingSource struct {
-	inner topic.Source
+	inner topicservice.Source
 	rec   trace.Recorder
 }
 
 // NewTracing оборачивает источник. Рекордер nil-безопасен.
-func NewWordstat(inner topic.Source, rec trace.Recorder) *TracingSource {
+func NewWordstat(inner topicservice.Source, rec trace.Recorder) *TracingSource {
 	return &TracingSource{inner: inner, rec: trace.OrNop(rec)}
 }
 
@@ -97,7 +98,7 @@ func (s *TracingSource) Dynamics(ctx context.Context, p topic.DynamicsParams) (t
 	return dyn, err
 }
 
-// Regions записывает географию спроса: в порт topic.Source она не входит, поэтому
+// Regions записывает географию спроса: в порт topicservice.Source она не входит, поэтому
 // декоратор поддерживает её, только если внутренний источник умеет.
 func (s *TracingSource) Regions(ctx context.Context, p wordstat.RegionsParams) (*wordstat.Regions, error) {
 	inner, ok := s.inner.(interface {

@@ -1,4 +1,4 @@
-package orchestrator_test
+package workflow_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 )
 
@@ -30,7 +30,7 @@ func TestRunFanOutAcceptsImmediately(t *testing.T) {
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":88,"issues":[],"verdict":"accept"}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -58,7 +58,7 @@ func TestRunCriticReviseLoop(t *testing.T) {
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 		`{"score":70,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestRunPicksBestWhenMaxIter(t *testing.T) {
 
 func TestRunFailsWhenStrategistErrors(t *testing.T) {
 	fake := mock.NewLLM() // нет ответов → стратег вернёт ошибку
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 1, ScoreThreshold: 80})
 	if _, err := o.Run(context.Background(), brief(), nil); err == nil {
 		t.Fatal("expected error")
 	}
@@ -122,7 +122,7 @@ func TestRunCapsTopics(t *testing.T) {
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80, MaxTopics: 2, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 1, ScoreThreshold: 80, MaxTopics: 2, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	res, err := o.Run(context.Background(), brief(), nil)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestRunEmitsProgressPickBest(t *testing.T) {
 		`{"score":50,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 2, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 	rec := &recordProgress{}
 
 	if _, err := o.Run(context.Background(), brief(), rec); err != nil {
@@ -194,7 +194,7 @@ func TestRunEmitsProgress(t *testing.T) {
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := campaignservice.NewWorkflow(fake, campaignservice.Options{CriticMaxIter: 3, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 	rec := &recordProgress{}
 
 	if _, err := o.Run(context.Background(), brief(), rec); err != nil {

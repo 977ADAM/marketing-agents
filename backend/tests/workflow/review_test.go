@@ -1,4 +1,4 @@
-package orchestrator_test
+package workflow_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 )
 
@@ -23,7 +23,7 @@ func TestReviewTwoTexts(t *testing.T) {
 		`{"score":85,"issues":["мелкая опечатка"]}`,
 		`{"score":95,"issues":[]}`,
 	}
-	o := orchestrator.New(fake, orchestrator.Options{CostPer1KPrompt: 1, CostPer1KCompletion: 1})
+	o := reviewservice.NewWorkflow(fake, reviewservice.Options{CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
 	req := review.Request{BriefText: "бриф", Texts: []review.TextToReview{
 		{Title: "Статья 1", Body: "текст 1"},
@@ -62,7 +62,7 @@ func TestReviewTitleFallback(t *testing.T) {
 	fake := mock.NewLLM()
 	fake.Responses[reviewservice.RoleCompliance] = []string{`{"score":81,"issues":[]}`}
 	fake.Responses[reviewservice.RoleQuality] = []string{`{"score":82,"issues":[]}`}
-	o := orchestrator.New(fake, orchestrator.Options{})
+	o := reviewservice.NewWorkflow(fake, reviewservice.Options{})
 
 	var got []string
 	rec := &recordingProgress{onPlanned: func(titles []string) { got = append(got, titles...) }}

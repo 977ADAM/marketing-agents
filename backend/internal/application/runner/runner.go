@@ -2,20 +2,23 @@ package runner
 
 import (
 	"context"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
 	"time"
 
 	corelogger "github.com/977ADAM/marketing-agents/internal/core/logger"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 )
 
 // BackgroundRunner выполняет пайплайн в фоне и пишет результат в хранилище.
 type BackgroundRunner struct {
-	campaigns  campaign.Store
-	reviews    review.Store
-	orch       *orchestrator.Orchestrator
+	campaigns  campaignservice.Store
+	reviews    reviewservice.Store
+	orch       CampaignWorkflow
+	reviewer   ReviewWorkflow
 	baseCtx    context.Context
 	runTimeout time.Duration
 	logger     corelogger.Logger
@@ -23,12 +26,12 @@ type BackgroundRunner struct {
 	wg         chan struct{} // семафор учёта in-flight для graceful shutdown
 }
 
-func NewRunner(baseCtx context.Context, campaigns campaign.Store, reviews review.Store, orch *orchestrator.Orchestrator, timeout time.Duration, logger corelogger.Logger, hub *Hub) *BackgroundRunner {
+func NewRunner(baseCtx context.Context, campaigns campaignservice.Store, reviews reviewservice.Store, orch CampaignWorkflow, reviewer ReviewWorkflow, timeout time.Duration, logger corelogger.Logger, hub *Hub) *BackgroundRunner {
 	if logger == nil {
 		logger = corelogger.Nop()
 	}
 	return &BackgroundRunner{
-		campaigns: campaigns, reviews: reviews, orch: orch, baseCtx: baseCtx,
+		campaigns: campaigns, reviews: reviews, orch: orch, reviewer: reviewer, baseCtx: baseCtx,
 		runTimeout: timeout, logger: logger, hub: hub,
 		wg: make(chan struct{}, 64),
 	}
@@ -91,7 +94,7 @@ func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 			tr.Failed()
 			return
 		}
-		res, err := r.orch.Review(ctx, req, tr)
+		res, err := r.reviewer.Review(ctx, req, tr)
 		if err != nil {
 			r.logger.Error("review failed", "id", id, "err", err)
 			_ = r.reviews.FailCheck(context.WithoutCancel(ctx), id, err.Error())
@@ -107,4 +110,11 @@ func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 		tr.Done()
 		r.logger.Info("review done", "id", id, "texts", len(res.Items), "cost_usd", res.CostUSD)
 	}()
+}
+
+type CampaignWorkflow interface {
+	Run(context.Context, campaign.Brief, run.Progress) (campaignservice.Result, error)
+}
+type ReviewWorkflow interface {
+	Review(context.Context, review.Request, run.Progress) (review.Result, error)
 }

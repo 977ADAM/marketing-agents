@@ -1,4 +1,4 @@
-package orchestrator
+package campaignservice
 
 import (
 	"context"
@@ -11,13 +11,13 @@ import (
 // события просто никуда не идут, пайплайн об этом не знает.
 
 // traceEvent пишет произвольное событие.
-func (o *Orchestrator) traceEvent(ctx context.Context, ev trace.Event) {
+func (o *Workflow) traceEvent(ctx context.Context, ev trace.Event) {
 	o.trace.Event(ctx, ev)
 }
 
 // traceDecision пишет решение кода: сеялки, отбор с порогами, fallback, итерации
 // критика. Такие события декораторами не поймать — их фиксирует сам оркестратор.
-func (o *Orchestrator) traceDecision(ctx context.Context, name, summary string, payload any) {
+func (o *Workflow) traceDecision(ctx context.Context, name, summary string, payload any) {
 	o.trace.Event(ctx, trace.Event{
 		Kind:    trace.KindDecision,
 		Name:    name,
@@ -28,7 +28,7 @@ func (o *Orchestrator) traceDecision(ctx context.Context, name, summary string, 
 }
 
 // traceResult пишет итог прогона: сколько тем, обращений к Wordstat и денег.
-func (o *Orchestrator) traceResult(ctx context.Context, res Result, err error) {
+func (o *Workflow) traceResult(ctx context.Context, res Result, err error) {
 	ev := trace.Event{
 		Kind:             trace.KindResult,
 		Name:             "run",

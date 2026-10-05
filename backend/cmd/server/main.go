@@ -10,16 +10,20 @@ import (
 	config "github.com/977ADAM/marketing-agents/internal/core/config"
 	schema "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
+	middleware "github.com/977ADAM/marketing-agents/internal/core/transport/http/middleware"
+	server "github.com/977ADAM/marketing-agents/internal/core/transport/http/server"
 	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	campaignhttp "github.com/977ADAM/marketing-agents/internal/features/campaign/transport/http"
 	reviewrepo "github.com/977ADAM/marketing-agents/internal/features/review/repository/mariadb"
-	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
+	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
+	reviewhttp "github.com/977ADAM/marketing-agents/internal/features/review/transport/http"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	wordstat "github.com/977ADAM/marketing-agents/internal/features/topic/source/wordstat"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
 	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
-	apihttp "github.com/977ADAM/marketing-agents/internal/http"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	tracehttp "github.com/977ADAM/marketing-agents/internal/features/trace/transport/http"
 
 	"log/slog"
 	"net/http"
@@ -99,7 +103,7 @@ func main() {
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
 	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
-	var source topic.Source
+	var source topicservice.Source
 	if cfg.WordstatMCPURL != "" {
 		source = tracing.NewWordstat(wordstat.New(wordstat.Options{
 			URL:  cfg.WordstatMCPURL,
@@ -111,7 +115,7 @@ func main() {
 		logger.Warn("WORDSTAT_MCP_URL не задан: подбор тем по спросу выключен, темы даёт стратег")
 	}
 
-	orch := orchestrator.New(llmClient, orchestrator.Options{
+	orch := campaignservice.NewWorkflow(llmClient, campaignservice.Options{
 		CriticMaxIter:       cfg.CriticMaxIter,
 		ScoreThreshold:      cfg.CriticScoreThreshold,
 		CostPer1KPrompt:     cfg.CostPer1KPrompt,
@@ -125,8 +129,14 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews)
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, cfg.RunTimeout, sloglogger.New(logger), hub)
-	api := apihttp.New(campaigns, reviews, events, runner, hub, cfg.RateLimitPerMin)
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion}), cfg.RunTimeout, sloglogger.New(logger), hub)
+	campaignService := campaignservice.NewService(campaigns, runner)
+	reviewService := reviewservice.NewService(reviews, runner)
+	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
+	api := server.New()
+	api.RegisterRoutes(campaignhttp.NewHandler(campaignService, hub, limiter).Routes()...)
+	api.RegisterRoutes(reviewhttp.NewHandler(reviewService, hub, limiter).Routes()...)
+	api.RegisterRoutes(tracehttp.NewHandler(campaignService, reviewService, traceservice.NewQuery(events)).Routes()...)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
 	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и
@@ -144,7 +154,7 @@ func main() {
 		_, _ = w.Write([]byte("marketing-agents API: /api/*, /healthz. Веб-интерфейс отдаёт фронтенд (frontend/).\n"))
 	})
 
-	handler := apihttp.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
+	handler := middleware.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler}
 
 	go func() {

@@ -9,7 +9,7 @@ import (
 	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
 )
 
-// Wordstat — подмена topic.Source в тестах: заранее заданные ответы по фразам плюс
+// Wordstat — подмена topicservice.Source в тестах: заранее заданные ответы по фразам плюс
 // журнал вызовов. По умолчанию (фраза не описана) возвращает «спроса нет» — это
 // валидный ответ, а не ошибка, поэтому тесты не обязаны описывать каждую фразу.
 type Wordstat struct {
@@ -45,7 +45,7 @@ func (f *Wordstat) SetTop(phrase string, demand topic.Demand) {
 	f.Tops[phrase] = demand
 }
 
-// Demand возвращает спрос по фразе (порт topic.Source).
+// Demand возвращает спрос по фразе (порт topicservice.Source).
 func (f *Wordstat) Demand(_ context.Context, p topic.DemandParams) (topic.Demand, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -63,7 +63,7 @@ func (f *Wordstat) Demand(_ context.Context, p topic.DemandParams) (topic.Demand
 	return topic.Demand{Phrase: p.Phrase, HasData: false}, nil
 }
 
-// Dynamics возвращает сезонность (порт topic.Source).
+// Dynamics возвращает сезонность (порт topicservice.Source).
 func (f *Wordstat) Dynamics(_ context.Context, p topic.DynamicsParams) (topic.Dynamics, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -78,7 +78,7 @@ func (f *Wordstat) Dynamics(_ context.Context, p topic.DynamicsParams) (topic.Dy
 	return topic.Dynamics{Phrase: p.Phrase, Period: p.Period}, nil
 }
 
-// Regions возвращает географию: в порт topic.Source не входит, но клиент и
+// Regions возвращает географию: в порт topicservice.Source не входит, но клиент и
 // подмена её умеют — этим пользуются тесты декоратора и дымовой тест.
 func (f *Wordstat) Regions(_ context.Context, p wordstat.RegionsParams) (*wordstat.Regions, error) {
 	f.mu.Lock()

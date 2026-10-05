@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	middleware "github.com/977ADAM/marketing-agents/internal/core/transport/http/middleware"
+	reviewhttp "github.com/977ADAM/marketing-agents/internal/features/review/transport/http"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +21,6 @@ import (
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
-	apihttp "github.com/977ADAM/marketing-agents/internal/http"
 )
 
 // мок репозитория и раннера
@@ -154,7 +155,7 @@ func (errRepo) RunEvent(context.Context, string, int64) (*trace.Row, error) {
 func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := apihttp.New(repo, repo, repo, runner, nil, 1000)
+	api := newAPI(repo, repo, repo, runner, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -183,7 +184,7 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 func TestPostCampaignPassesRegionAndTopicsCount(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := apihttp.New(repo, repo, repo, runner, nil, 1000)
+	api := newAPI(repo, repo, repo, runner, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T","region":"213","topics_count":4}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -217,7 +218,7 @@ func TestPostCampaignValidatesRegionAndTopicsCount(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+			api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 			req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(tc.body))
 			rec := httptest.NewRecorder()
 			api.Handler().ServeHTTP(rec, req)
@@ -234,7 +235,7 @@ func TestPostCampaignValidatesRegionAndTopicsCount(t *testing.T) {
 // Без региона и числа статей бриф остаётся с нулями — подставит конфиг.
 func TestPostCampaignDefaultsRegionAndTopicsCount(t *testing.T) {
 	repo := &mockRepo{}
-	api := apihttp.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -251,7 +252,7 @@ func TestPostCampaignDefaultsRegionAndTopicsCount(t *testing.T) {
 }
 
 func TestPostCampaignBadJSON(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{not json`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -261,7 +262,7 @@ func TestPostCampaignBadJSON(t *testing.T) {
 }
 
 func TestPostCampaignRateLimited(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 4)}, nil, 1) // burst 1
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 4)}, nil, 1) // burst 1
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	send := func() int {
 		req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -278,7 +279,7 @@ func TestPostCampaignRateLimited(t *testing.T) {
 }
 
 func TestPostCampaignRepoError(t *testing.T) {
-	api := apihttp.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
@@ -289,7 +290,7 @@ func TestPostCampaignRepoError(t *testing.T) {
 }
 
 func TestGetCampaignInternalError(t *testing.T) {
-	api := apihttp.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/x", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -299,7 +300,7 @@ func TestGetCampaignInternalError(t *testing.T) {
 }
 
 func TestListCampaignsInternalError(t *testing.T) {
-	api := apihttp.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -309,7 +310,7 @@ func TestListCampaignsInternalError(t *testing.T) {
 }
 
 func TestListCampaignsLimitClamp(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns?limit=9999", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -319,7 +320,7 @@ func TestListCampaignsLimitClamp(t *testing.T) {
 }
 
 func TestPostCampaignValidates(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{"product":""}`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -329,7 +330,7 @@ func TestPostCampaignValidates(t *testing.T) {
 }
 
 func TestGetCampaignNotFound(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/missing", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -341,7 +342,7 @@ func TestGetCampaignNotFound(t *testing.T) {
 func TestListCampaigns(t *testing.T) {
 	repo := &mockRepo{}
 	_, _ = repo.Create(context.Background(), "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
-	api := apihttp.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)
 	rec := httptest.NewRecorder()
@@ -361,7 +362,7 @@ func TestListCampaigns(t *testing.T) {
 
 func TestBasicAuth(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	h := apihttp.BasicAuth("u", "p", inner)
+	h := middleware.BasicAuth("u", "p", inner)
 
 	// без креды → 401
 	rec := httptest.NewRecorder()
@@ -399,7 +400,7 @@ func TestBasicAuth(t *testing.T) {
 	}
 
 	// пустые креды в конфиге → пропускать всё
-	open := apihttp.BasicAuth("", "", inner)
+	open := middleware.BasicAuth("", "", inner)
 	rec = httptest.NewRecorder()
 	open.ServeHTTP(rec, httptest.NewRequest("GET", "/api/campaigns", nil))
 	if rec.Code != http.StatusOK {
@@ -422,7 +423,7 @@ func (f *fakeSub) SubscribeReview(string) (run.Snapshot, <-chan run.Snapshot, fu
 
 func TestCampaignEventsNotFound(t *testing.T) {
 	repo := &mockRepo{}
-	api := apihttp.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)},
+	api := newAPI(repo, repo, repo, &mockRunner{called: make(chan string, 1)},
 		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/nope/events", nil)
 	w := httptest.NewRecorder()
@@ -436,7 +437,7 @@ func TestCampaignEventsStream(t *testing.T) {
 	repo := &mockRepo{campaigns: map[string]*campaign.Record{"camp-1": {ID: "camp-1", Status: "running"}}}
 	ch := make(chan run.Snapshot, 4)
 	sub := &fakeSub{snap: run.Snapshot{Phase: run.PhaseStrategizing, Percent: 5}, ch: ch}
-	api := apihttp.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, sub, 1000)
+	api := newAPI(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, sub, 1000)
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 
@@ -479,7 +480,7 @@ func TestCampaignEventsStream(t *testing.T) {
 }
 
 func TestCampaignEventsInternalError(t *testing.T) {
-	api := apihttp.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)},
+	api := newAPI(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)},
 		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/x/events", nil)
 	w := httptest.NewRecorder()
@@ -492,7 +493,7 @@ func TestCampaignEventsInternalError(t *testing.T) {
 func TestPostReviewCreatesAndStartsRunner(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := apihttp.New(repo, repo, repo, runner, nil, 1000)
+	api := newAPI(repo, repo, repo, runner, nil, 1000)
 
 	body := `{"brief":"бриф","texts":[{"title":"T1","body":"текст"}]}`
 	req := httptest.NewRequest("POST", "/api/reviews", bytes.NewBufferString(body))
@@ -518,7 +519,7 @@ func TestPostReviewCreatesAndStartsRunner(t *testing.T) {
 }
 
 func TestPostReviewValidates(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	cases := []string{
 		`{"texts":[{"title":"T","body":"b"}]}`,              // нет брифа
 		`{"brief":"б"}`,                                     // нет текстов
@@ -535,7 +536,7 @@ func TestPostReviewValidates(t *testing.T) {
 }
 
 func TestGetCheckNotFound(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/reviews/missing", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -545,7 +546,7 @@ func TestGetCheckNotFound(t *testing.T) {
 }
 
 func TestReviewEventsNotFound(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)},
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)},
 		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/reviews/nope/events", nil)
 	rec := httptest.NewRecorder()
@@ -581,7 +582,7 @@ func minimalDocx(t *testing.T, paras ...string) []byte {
 
 func TestExtractDocxEndpoint(t *testing.T) {
 	data := minimalDocx(t, "Как выбрать шины", "Первый абзац текста.", "Второй абзац.")
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -597,7 +598,7 @@ func TestExtractDocxEndpoint(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
-	var out apihttp.ExtractResponse
+	var out reviewhttp.ExtractResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.Title != "Как выбрать шины" {
 		t.Errorf("title = %q", out.Title)
@@ -608,7 +609,7 @@ func TestExtractDocxEndpoint(t *testing.T) {
 }
 
 func TestExtractDocxBadFile(t *testing.T) {
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("file", "not.docx")
@@ -638,7 +639,7 @@ func TestExtractDocxTable(t *testing.T) {
 	_, _ = w.Write([]byte(doc))
 	_ = zw.Close()
 
-	api := apihttp.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := newAPI(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("file", "brief.docx")
@@ -653,7 +654,7 @@ func TestExtractDocxTable(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
-	var out apihttp.ExtractResponse
+	var out reviewhttp.ExtractResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	want := "Заголовок\nБренд\nКолесо.ру"
 	if out.Text != want {
@@ -661,8 +662,8 @@ func TestExtractDocxTable(t *testing.T) {
 	}
 }
 
-// Методы ниже нужны, чтобы мок удовлетворял полным портам campaign.Store и
-// review.Store: хендлеры их не дергают (прогон ведёт раннер), поэтому заглушки.
+// Методы ниже нужны, чтобы мок удовлетворял полным портам campaignservice.Store и
+// reviewservice.Store: хендлеры их не дергают (прогон ведёт раннер), поэтому заглушки.
 func (m *mockRepo) MarkRunning(context.Context, string) error                     { return nil }
 func (m *mockRepo) SaveProgress(context.Context, string, run.Snapshot) error      { return nil }
 func (m *mockRepo) Complete(context.Context, string, campaign.Outcome) error      { return nil }

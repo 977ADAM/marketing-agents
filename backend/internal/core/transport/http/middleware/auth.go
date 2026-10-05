@@ -1,7 +1,8 @@
-package http
+package middleware
 
 import (
 	"crypto/subtle"
+	response "github.com/977ADAM/marketing-agents/internal/core/transport/http/response"
 	"net/http"
 )
 
@@ -19,7 +20,7 @@ func BasicAuth(user, pass string, next http.Handler) http.Handler {
 		passOK := subtle.ConstantTimeCompare([]byte(p), []byte(pass)) == 1
 		if !ok || !userOK || !passOK {
 			w.Header().Set("WWW-Authenticate", `Basic realm="marketing-agents"`)
-			writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+			response.WriteError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		next.ServeHTTP(w, r)

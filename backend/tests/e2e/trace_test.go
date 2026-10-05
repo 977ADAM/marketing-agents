@@ -7,6 +7,7 @@ import (
 	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	reviewrepo "github.com/977ADAM/marketing-agents/internal/features/review/repository/mariadb"
+	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
 	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
 	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
@@ -18,7 +19,6 @@ import (
 	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
@@ -52,7 +52,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		"какую зимнюю резину": 92398,
 	}))
 
-	orch := orchestrator.New(tracing.NewLLM(fake, rec), orchestrator.Options{
+	orch := campaignservice.NewWorkflow(tracing.NewLLM(fake, rec), campaignservice.Options{
 		CriticMaxIter: 1, ScoreThreshold: 80,
 		Wordstat:         tracing.NewWordstat(src, rec),
 		Recorder:         rec,
@@ -62,7 +62,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	})
 	hub := runner.NewHub(ctx, campaigns, reviews)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner := runner.NewRunner(ctx, campaigns, reviews, orch, 30*time.Second, sloglogger.New(logger), hub)
+	runner := runner.NewRunner(ctx, campaigns, reviews, orch, reviewservice.NewWorkflow(tracing.NewLLM(fake, rec), reviewservice.Options{}), 30*time.Second, sloglogger.New(logger), hub)
 
 	brief := campaign.Brief{
 		Product: "Зимняя резина", Goal: "рост продаж", Audience: "автовладельцы",

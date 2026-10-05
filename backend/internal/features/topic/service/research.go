@@ -1,15 +1,14 @@
-package orchestrator
+package topicservice
 
 import (
 	"context"
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
-	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"sort"
 	"time"
 
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
-	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
 )
 
@@ -28,10 +27,10 @@ const (
 // research собирает темы на поисковом спросе: сеялки → спрос → кластеры → отбор.
 //
 // Числа считает только этот код: модель их не видит и не возвращает, а каждая её
-// цитата проверена по данным (см. topicservice.Semanticist). Если спроса нет совсем или
+// цитата проверена по данным (см. Semanticist). Если спроса нет совсем или
 // подтверждённых тем не хватило, добираем темы от модели с пометкой source=llm —
 // без цифр, потому что цифр по ним нет.
-func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Progress) (campaign.Strategy, corellm.Usage, error) {
+func (o *Workflow) Run(ctx context.Context, b topic.ResearchRequest, p run.Progress) (topic.ResearchResult, corellm.Usage, error) {
 	var total corellm.Usage
 	rp, hasRP := p.(run.ResearchProgress)
 	stage := func(s run.ResearchStage) {
@@ -50,10 +49,10 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 
 	// 1) Сеялки по брифу.
 	stage(run.StageSeeds)
-	seeds, u, err := o.semanticist.Seeds(ctx, b.Briefing(), o.seedCount())
+	seeds, u, err := o.semanticist.Seeds(ctx, b.Briefing, o.seedCount())
 	total = total.Add(u)
 	if err != nil {
-		return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
+		return topic.ResearchResult{}, total, fmt.Errorf("подбор тем: %w", err)
 	}
 	if hasRP {
 		rp.ResearchSeeds(seeds)
@@ -77,7 +76,7 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 		})
 		calls++
 		if err != nil {
-			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: спрос по %q: %w", seed, err)
+			return topic.ResearchResult{}, total, fmt.Errorf("подбор тем: спрос по %q: %w", seed, err)
 		}
 		before := len(counts)
 		collectCounts(counts, top)
@@ -107,10 +106,10 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 	data := phrasesByVolume(counts, o.maxPhrases())
 	var drafts []topic.TopicDraft
 	if len(data) > 0 {
-		drafts, u, err = o.semanticist.Select(ctx, b.Briefing(), data, want)
+		drafts, u, err = o.semanticist.Select(ctx, b.Briefing, data, want)
 		total = total.Add(u)
 		if err != nil {
-			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
+			return topic.ResearchResult{}, total, fmt.Errorf("подбор тем: %w", err)
 		}
 		o.traceDecision(ctx, "selection",
 			fmt.Sprintf("модель собрала %d тем из %d фраз, выбрала %d (нужно %d)",
@@ -170,10 +169,10 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 
 	// 5) Спроса не было вовсе — темы даёт модель «от себя», без цифр.
 	if chosenDraftCount(drafts) == 0 && len(counts) == 0 {
-		fallback, u, err := o.semanticist.Fallback(ctx, b.Briefing(), want, nil)
+		fallback, u, err := o.semanticist.Fallback(ctx, b.Briefing, want, nil)
 		total = total.Add(u)
 		if err != nil {
-			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
+			return topic.ResearchResult{}, total, fmt.Errorf("подбор тем: %w", err)
 		}
 		for i, d := range fallback {
 			cands = append(cands, topic.TopicCandidate{
@@ -187,11 +186,11 @@ func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Pro
 	}
 
 	if chosenCount(cands) == 0 {
-		return campaign.Strategy{}, total, fmt.Errorf(
+		return topic.ResearchResult{}, total, fmt.Errorf(
 			"подбор тем: модель не выбрала ни одной темы (фраз в данных: %d)", len(counts))
 	}
 
-	return campaign.Strategy{
+	return topic.ResearchResult{
 		Topics:          chosenTopics(cands),
 		TopicCandidates: cands,
 		WordstatCalls:   calls,
@@ -211,8 +210,8 @@ func chosenCount(cands []topic.TopicCandidate) int {
 
 // chosenTopics превращает выбранные темы в темы пайплайна, сохраняя порядок
 // решения модели. Ритм запросов становится тезисами статьи.
-func chosenTopics(cands []topic.TopicCandidate) []campaign.Topic {
-	out := make([]campaign.Topic, 0, len(cands))
+func chosenTopics(cands []topic.TopicCandidate) []topic.SelectedTopic {
+	out := make([]topic.SelectedTopic, 0, len(cands))
 	for _, c := range cands {
 		if !c.Selected {
 			continue
@@ -221,7 +220,7 @@ func chosenTopics(cands []topic.TopicCandidate) []campaign.Topic {
 		for _, q := range c.Queries {
 			points = append(points, q.Phrase)
 		}
-		out = append(out, campaign.Topic{Title: c.Title, Angle: c.Goal, Points: points})
+		out = append(out, topic.SelectedTopic{Title: c.Title, Angle: c.Goal, Points: points})
 	}
 	return out
 }
@@ -262,28 +261,28 @@ func monthOf(date string) string {
 	return date
 }
 
-func (o *Orchestrator) seedCount() int {
+func (o *Workflow) seedCount() int {
 	if o.opt.SeedCount > 0 {
 		return o.opt.SeedCount
 	}
-	return topicservice.DefaultSeedCount
+	return DefaultSeedCount
 }
 
-func (o *Orchestrator) numPhrases() int {
+func (o *Workflow) numPhrases() int {
 	if o.opt.NumPhrases > 0 {
 		return o.opt.NumPhrases
 	}
 	return DefaultNumPhrases
 }
 
-func (o *Orchestrator) maxPhrases() int {
+func (o *Workflow) maxPhrases() int {
 	if o.opt.MaxPhrases > 0 {
 		return o.opt.MaxPhrases
 	}
 	return DefaultMaxPhrases
 }
 
-func (o *Orchestrator) maxWordstatCalls() int {
+func (o *Workflow) maxWordstatCalls() int {
 	if o.opt.MaxWordstatCalls > 0 {
 		return o.opt.MaxWordstatCalls
 	}
@@ -394,4 +393,8 @@ func titlesOf(cands []topic.TopicCandidate) []string {
 		}
 	}
 	return out
+}
+
+func (o *Workflow) traceDecision(ctx context.Context, name, summary string, payload any) {
+	o.trace.Event(ctx, trace.Event{Kind: trace.KindDecision, Name: name, Status: trace.StatusOK, Summary: summary, Payload: payload})
 }

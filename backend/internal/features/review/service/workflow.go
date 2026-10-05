@@ -1,10 +1,9 @@
-package orchestrator
+package reviewservice
 
 import (
 	"context"
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
-	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
 	"golang.org/x/sync/errgroup"
 	"sync"
 
@@ -15,7 +14,7 @@ import (
 
 // Review прогоняет готовые тексты через двух агентов (соответствие брифу и
 // корректность текста) параллельно по текстам и возвращает отчёты.
-func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Progress) (review.Result, error) {
+func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progress) (review.Result, error) {
 	if p == nil {
 		p = run.NopProgress{}
 	}
@@ -33,8 +32,8 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Pro
 	}
 	p.TopicsPlanned(titles)
 
-	compliance := reviewservice.NewComplianceChecker(o.llm)
-	quality := reviewservice.NewQualityChecker(o.llm)
+	compliance := NewComplianceChecker(o.llm)
+	quality := NewQualityChecker(o.llm)
 
 	reports := make([]review.TextReport, len(req.Texts))
 	g, gctx := errgroup.WithContext(ctx)
@@ -64,7 +63,7 @@ func (o *Orchestrator) Review(ctx context.Context, req review.Request, p run.Pro
 }
 
 // reviewOne — проверка одного текста двумя агентами с прогрессом.
-func (o *Orchestrator) reviewOne(ctx context.Context, compliance *reviewservice.ComplianceChecker, quality *reviewservice.QualityChecker,
+func (o *Workflow) reviewOne(ctx context.Context, compliance *ComplianceChecker, quality *QualityChecker,
 	briefText string, i int, t review.TextToReview, p run.Progress) (review.TextReport, corellm.Usage, error) {
 	var total corellm.Usage
 
