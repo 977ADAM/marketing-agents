@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	llm "github.com/977ADAM/marketing-agents/internal/adapters/llm/deepseek"
 	sloglogger "github.com/977ADAM/marketing-agents/internal/adapters/logger/slog"
 	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
@@ -129,8 +128,8 @@ func main() {
 
 		Recorder: recorder,
 	})
-	hub := runner.NewHub(baseCtx, campaigns, reviews)
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub)
+	hub := runner.NewHub(baseCtx, campaigns, reviews, sloglogger.New(logger))
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
 	campaignService := campaignservice.NewService(campaigns, runner, cfg.Limits)
 	reviewService := reviewservice.NewService(reviews, runner, cfg.Limits)
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
@@ -156,25 +155,21 @@ func main() {
 	})
 
 	handler := middleware.BasicAuth(cfg.BasicAuthUser, cfg.BasicAuthPass, root)
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: handler}
-
-	go func() {
-		logger.Info("listening", "addr", cfg.HTTPAddr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("serve", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	// graceful shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	srv := server.NewHTTPServer(server.Config{Addr: cfg.HTTPAddr, ShutdownTimeout: cfg.ShutdownGrace}, handler)
+	stop, stopCancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopCancel()
+	logger.Info("listening", "addr", cfg.HTTPAddr)
+	if err := srv.Run(stop); err != nil {
+		logger.Error("serve", "err", err)
+	}
 	logger.Info("shutting down")
-
-	shutCtx, shutCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), cfg.ShutdownGrace)
 	defer shutCancel()
-	_ = srv.Shutdown(shutCtx) // прекращаем приём новых запросов
-	runner.Drain()            // ждём текущие прогоны
-	baseCancel()              // отменяем всё, что не успело
+	if err := runner.Drain(shutCtx); err != nil {
+		logger.Warn("background drain", "err", err)
+		finalCtx, finalCancel := context.WithTimeout(context.Background(), cfg.FinalizeTimeout)
+		defer finalCancel()
+		_ = runner.Drain(finalCtx)
+	}
+	baseCancel()
 }

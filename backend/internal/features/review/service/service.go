@@ -3,11 +3,16 @@ package reviewservice
 import (
 	"context"
 	"github.com/977ADAM/marketing-agents/internal/core/limits"
+	"github.com/977ADAM/marketing-agents/internal/core/run"
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 	"strings"
+	"time"
 )
 
-type Starter interface{ StartReview(string, review.Request) }
+type Starter interface {
+	run.Admission
+	ExecuteReview(context.Context, string, review.Request)
+}
 type Service struct {
 	store   Store
 	starter Starter
@@ -33,11 +38,21 @@ func (s *Service) Create(ctx context.Context, clientID string, req review.Reques
 			return "", limits.Invalid("text #%d is empty or exceeds byte limit", i+1)
 		}
 	}
+	slot, err := s.starter.Reserve(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer slot.Release()
 	id, err := s.store.CreateCheck(ctx, clientID, req.BriefText)
 	if err != nil {
 		return "", err
 	}
-	s.starter.StartReview(id, req)
+	if err := slot.Submit(func(ctx context.Context) { s.starter.ExecuteReview(ctx, id, req) }); err != nil {
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.store.FailCheck(final, id, "runner stopping before submission")
+		return "", err
+	}
 	return id, nil
 }
 func (s *Service) GetCheck(ctx context.Context, id string) (*review.Record, error) {

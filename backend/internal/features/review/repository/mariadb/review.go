@@ -56,8 +56,20 @@ func (rs *Reviews) MarkCheckRunning(ctx context.Context, id string) error {
 
 // SaveCheckProgress сохраняет снимок прогресса проверки (перезаписывает прошлый).
 func (rs *Reviews) SaveCheckProgress(ctx context.Context, id string, snap run.Snapshot) error {
-	b, _ := json.Marshal(snap)
-	return rs.update(ctx, id, map[string]any{"progress": string(b)})
+	if snap.Revision <= 0 {
+		snap.Revision = 1
+	}
+	b, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	query := rs.db.WithContext(ctx).Model(&reviewRow{}).Where("id = ? AND progress_revision < ?", id, snap.Revision)
+	if snap.Phase == run.PhaseDone || snap.Phase == run.PhaseFailed {
+		query = query.Where("status IN ? OR status = ?", []string{"pending", "running"}, string(snap.Phase))
+	} else {
+		query = query.Where("status IN ?", []string{"pending", "running"})
+	}
+	return query.Updates(map[string]any{"progress": string(b), "progress_revision": snap.Revision, "updated_at": time.Now().UTC()}).Error
 }
 
 // CompleteCheck сохраняет результат и переводит проверку в done.
@@ -72,7 +84,7 @@ func (rs *Reviews) CompleteCheck(ctx context.Context, id string, res review.Resu
 
 // FailCheck переводит проверку в failed с текстом ошибки.
 func (rs *Reviews) FailCheck(ctx context.Context, id, msg string) error {
-	return rs.update(ctx, id, map[string]any{"status": "failed", "error": msg})
+	return rs.update(ctx, id, map[string]any{"status": "failed", "progress": gorm.Expr("JSON_SET(COALESCE(progress, '{}'), '$.phase', 'failed')"), "error": msg})
 }
 
 // GetCheck читает проверку вместе с результатом.

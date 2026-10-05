@@ -2,7 +2,9 @@ package runner
 
 import (
 	"context"
+	"github.com/977ADAM/marketing-agents/internal/core/logger"
 	"sync"
+	"time"
 
 	run "github.com/977ADAM/marketing-agents/internal/core/run"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
@@ -47,10 +49,15 @@ type Hub struct {
 	reviews   ReviewProgressStore
 	mu        sync.Mutex
 	runs      map[string]*hubRun
+	logger    corelogger.Logger
 }
 
-func NewHub(baseCtx context.Context, campaigns CampaignProgressStore, reviews ReviewProgressStore) *Hub {
-	return &Hub{baseCtx: baseCtx, campaigns: campaigns, reviews: reviews, runs: map[string]*hubRun{}}
+func NewHub(baseCtx context.Context, campaigns CampaignProgressStore, reviews ReviewProgressStore, loggers ...corelogger.Logger) *Hub {
+	log := corelogger.Nop()
+	if len(loggers) > 0 && loggers[0] != nil {
+		log = loggers[0]
+	}
+	return &Hub{baseCtx: baseCtx, campaigns: campaigns, reviews: reviews, runs: map[string]*hubRun{}, logger: log}
 }
 
 type hubRun struct {
@@ -161,24 +168,34 @@ type tracker struct {
 
 func (t *tracker) update(fn func(s *run.Snapshot)) {
 	t.run.mu.Lock()
+	defer t.run.mu.Unlock()
+	if t.run.done {
+		return
+	}
+	t.updateLocked(fn)
+}
+
+// One lock covers mutation, persistence and publication so updates cannot pass
+// each other or send to a channel after finish closes it.
+func (t *tracker) updateLocked(fn func(s *run.Snapshot)) {
 	fn(&t.run.snap)
+	t.run.snap.Revision++
 	if t.run.snap.Phase != run.PhaseFailed {
 		t.run.snap.Percent = run.Percent(t.run.snap.Phase, t.run.snap.TopicsDone, t.run.snap.TopicTotal)
 	}
 	snap := cloneSnapshot(t.run.snap)
-	subs := make([]chan run.Snapshot, 0, len(t.run.subs))
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.hub.baseCtx), 5*time.Second)
+	defer cancel()
+	var err error
+	if t.run.kind == kindReview {
+		err = t.hub.reviews.SaveCheckProgress(ctx, t.id, snap)
+	} else {
+		err = t.hub.campaigns.SaveProgress(ctx, t.id, snap)
+	}
+	if err != nil {
+		t.hub.logger.Error("save progress", "id", t.id, "revision", snap.Revision, "err", err)
+	}
 	for c := range t.run.subs {
-		subs = append(subs, c)
-	}
-	t.run.mu.Unlock()
-
-	switch t.run.kind {
-	case kindReview:
-		_ = t.hub.reviews.SaveCheckProgress(t.hub.baseCtx, t.id, snap)
-	default:
-		_ = t.hub.campaigns.SaveProgress(t.hub.baseCtx, t.id, snap)
-	}
-	for _, c := range subs {
 		select {
 		case c <- snap:
 		default:
@@ -273,8 +290,12 @@ func (t *tracker) Failed() { t.finish(run.PhaseFailed) }
 // «прогон завершён», а финальную фазу потребитель дочитывает из стора (Subscribe
 // после завершения берёт снимок из БД).
 func (t *tracker) finish(ph run.Phase) {
-	t.update(func(s *run.Snapshot) { s.Phase = ph })
 	t.run.mu.Lock()
+	if t.run.done {
+		t.run.mu.Unlock()
+		return
+	}
+	t.updateLocked(func(s *run.Snapshot) { s.Phase = ph })
 	t.run.done = true
 	for c := range t.run.subs {
 		delete(t.run.subs, c)

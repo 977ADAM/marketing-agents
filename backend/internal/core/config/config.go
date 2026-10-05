@@ -25,11 +25,13 @@ type Config struct {
 	ModelDefault string // сильная модель: стратег и критик
 	ModelFast    string // быстрая/дешёвая модель: копирайтеры
 
-	LLMMaxRetries        int
-	RunTimeout           time.Duration
-	CriticMaxIter        int
-	CriticScoreThreshold int
-	MaxTopics            int // верхний кап на число тем от стратега (контроль стоимости)
+	LLMMaxRetries                  int
+	RunTimeout                     time.Duration
+	RunnerCapacity                 int
+	ShutdownGrace, FinalizeTimeout time.Duration
+	CriticMaxIter                  int
+	CriticScoreThreshold           int
+	MaxTopics                      int // верхний кап на число тем от стратега (контроль стоимости)
 
 	CostPer1KPrompt     float64
 	CostPer1KCompletion float64
@@ -104,8 +106,9 @@ func Load() (*Config, error) {
 		BasicAuthUser: getStr("BASIC_AUTH_USER", ""),
 		BasicAuthPass: getStr("BASIC_AUTH_PASS", ""),
 
-		LLMMaxRetries:        getInt("LLM_MAX_RETRIES", 3),
-		RunTimeout:           getDur("RUN_TIMEOUT", 10*time.Minute),
+		LLMMaxRetries:  getInt("LLM_MAX_RETRIES", 3),
+		RunTimeout:     getDur("RUN_TIMEOUT", 10*time.Minute),
+		RunnerCapacity: getInt("RUNNER_CAPACITY", 64), ShutdownGrace: getDur("SHUTDOWN_GRACE", 30*time.Second), FinalizeTimeout: getDur("FINALIZE_TIMEOUT", 5*time.Second),
 		CriticMaxIter:        getInt("CRITIC_MAX_ITER", 3),
 		CriticScoreThreshold: getInt("CRITIC_SCORE_THRESHOLD", 80),
 		MaxTopics:            getInt("MAX_TOPICS", 5),
@@ -155,6 +158,9 @@ func (c *Config) validate() error {
 
 	if c.LLMMaxRetries < 0 {
 		return fmt.Errorf("LLM_MAX_RETRIES должен быть >= 0, получено %d", c.LLMMaxRetries)
+	}
+	if c.RunnerCapacity < 0 || c.ShutdownGrace < 0 || c.FinalizeTimeout < 0 {
+		return fmt.Errorf("runner capacity and shutdown durations must be positive")
 	}
 	if c.RunTimeout <= 0 {
 		return fmt.Errorf("RUN_TIMEOUT должен быть > 0, получено %s", c.RunTimeout)

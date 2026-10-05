@@ -179,3 +179,42 @@ func TestHubUpdateAfterCancelNoPanic(t *testing.T) {
 	tr.TopicDone(0, 90)
 	tr.Done()
 }
+
+func TestTrackerIgnoresLateProgressAfterFinish(t *testing.T) {
+	ps := newFakePS()
+	hub := runner.NewHub(context.Background(), ps, ps)
+	tr := hub.Tracker("late")
+	tr.Strategizing()
+	tr.Done()
+	tr.TopicWriting(0)
+	tr.Strategizing()
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if ps.saved["late"].Phase != run.PhaseDone {
+		t.Fatalf("terminal overwritten: %+v", ps.saved["late"])
+	}
+}
+
+func TestConcurrentUpdateAndFinish(t *testing.T) {
+	for n := 0; n < 20; n++ {
+		ps := newFakePS()
+		hub := runner.NewHub(context.Background(), ps, ps)
+		tr := hub.Tracker("c")
+		_, _, cancel := hub.Subscribe("c")
+		tr.TopicsPlanned([]string{"T"})
+		var wg sync.WaitGroup
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func() { defer wg.Done(); tr.TopicWriting(0) }()
+		}
+		wg.Add(1)
+		go func() { defer wg.Done(); tr.Done() }()
+		cancel()
+		wg.Wait()
+		ps.mu.Lock()
+		if ps.saved["c"].Phase != run.PhaseDone {
+			t.Error("lost terminal")
+		}
+		ps.mu.Unlock()
+	}
+}

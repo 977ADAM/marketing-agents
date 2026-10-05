@@ -52,10 +52,18 @@ func TestCheckSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CheckSchema: %v", err)
 		}
-		if version != "0002" {
-			t.Errorf("версия схемы = %q, want 0002", version)
+		if version != "0003" {
+			t.Errorf("версия схемы = %q, want 0003", version)
 		}
 	})
 }
 
-func TestSchemaRequiresEveryMigration(t *testing.T){st:=newTestStore(t);if err:=st.db.Exec("DELETE FROM schema_migrations WHERE version='0002'").Error;err!=nil{t.Fatal(err)};if _,err:=schema.CheckSchema(context.Background(),st.db);err==nil{t.Fatal("partial migration set accepted")}}
+func TestSchemaRequiresEveryMigration(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.db.Exec("DELETE FROM schema_migrations WHERE version='0002'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schema.CheckSchema(context.Background(), st.db); err == nil {
+		t.Fatal("partial migration set accepted")
+	}
+}

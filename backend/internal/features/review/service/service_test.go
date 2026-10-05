@@ -3,8 +3,10 @@ package reviewservice_test
 import (
 	"context"
 	"errors"
+	"github.com/977ADAM/marketing-agents/internal/core/run"
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 	service "github.com/977ADAM/marketing-agents/internal/features/review/service"
+	"github.com/977ADAM/marketing-agents/internal/testkit/mock"
 	"strings"
 	"testing"
 )
@@ -25,7 +27,10 @@ type starter struct {
 	req review.Request
 }
 
-func (s *starter) StartReview(id string, req review.Request) { s.id = id; s.req = req }
+func (s *starter) ExecuteReview(_ context.Context, id string, req review.Request) {
+	s.id = id
+	s.req = req
+}
 func TestCreatePersistsAndStartsReview(t *testing.T) {
 	store := &createStore{}
 	exec := &starter{}
@@ -39,7 +44,7 @@ func TestCreatePersistsAndStartsReview(t *testing.T) {
 func TestCreateFailureDoesNotStartReview(t *testing.T) {
 	store := &createStore{err: errors.New("db down")}
 	exec := &starter{}
-	_, err := service.NewService(store, exec).Create(context.Background(), "", review.Request{})
+	_, err := service.NewService(store, exec).Create(context.Background(), "", review.Request{BriefText: "B", Texts: []review.TextToReview{{Body: "T"}}})
 	if err == nil || exec.id != "" {
 		t.Fatalf("err=%v started=%s", err, exec.id)
 	}
@@ -58,3 +63,5 @@ func TestReviewInputLimits(t *testing.T) {
 		}
 	}
 }
+
+func (*starter) Reserve(context.Context) (run.Reservation, error) { return mock.Reservation{}, nil }

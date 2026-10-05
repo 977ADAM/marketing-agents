@@ -53,6 +53,10 @@ func (a *Handler) postReview(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := a.reviews.Create(r.Context(), req.ClientID, review.Request{BriefText: req.Brief, Texts: req.Texts})
 	if err != nil {
+		if errors.Is(err, run.ErrBusy) || errors.Is(err, run.ErrStopping) {
+			response.WriteError(w, http.StatusServiceUnavailable, "busy", "background capacity unavailable")
+			return
+		}
 		var validation *limits.ValidationError
 		if errors.As(err, &validation) {
 			response.WriteError(w, http.StatusBadRequest, "validation", validation.Error())

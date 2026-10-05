@@ -3,11 +3,16 @@ package campaignservice
 import (
 	"context"
 	"github.com/977ADAM/marketing-agents/internal/core/limits"
+	"github.com/977ADAM/marketing-agents/internal/core/run"
 	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	"strings"
+	"time"
 )
 
-type Starter interface{ Start(string, campaign.Brief) }
+type Starter interface {
+	run.Admission
+	ExecuteCampaign(context.Context, string, campaign.Brief)
+}
 type Service struct {
 	store   Store
 	starter Starter
@@ -40,11 +45,21 @@ func (s *Service) Create(ctx context.Context, clientID string, b campaign.Brief)
 			}
 		}
 	}
+	slot, err := s.starter.Reserve(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer slot.Release()
 	id, err := s.store.Create(ctx, clientID, b)
 	if err != nil {
 		return "", err
 	}
-	s.starter.Start(id, b)
+	if err := slot.Submit(func(ctx context.Context) { s.starter.ExecuteCampaign(ctx, id, b) }); err != nil {
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.store.Fail(final, id, "runner stopping before submission")
+		return "", err
+	}
 	return id, nil
 }
 func (s *Service) Get(ctx context.Context, id string) (*campaign.Record, error) {

@@ -9,6 +9,7 @@ import (
 	"errors"
 	middleware "github.com/977ADAM/marketing-agents/internal/core/transport/http/middleware"
 	reviewhttp "github.com/977ADAM/marketing-agents/internal/features/review/transport/http"
+	"github.com/977ADAM/marketing-agents/internal/testkit/mock"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -121,8 +122,8 @@ type mockRunner struct {
 	called chan string
 }
 
-func (r *mockRunner) Start(id string, _ campaign.Brief)       { r.called <- id }
-func (r *mockRunner) StartReview(id string, _ review.Request) { r.called <- id }
+func (r *mockRunner) ExecuteCampaign(_ context.Context, id string, _ campaign.Brief) { r.called <- id }
+func (r *mockRunner) ExecuteReview(_ context.Context, id string, _ review.Request)   { r.called <- id }
 
 // errRepo возвращает ошибку на всех операциях — для проверки 500-веток.
 type errRepo struct{}
@@ -685,3 +686,5 @@ func (errRepo) CompleteCheck(context.Context, string, review.Result) error {
 	return errors.New("boom")
 }
 func (errRepo) FailCheck(context.Context, string, string) error { return errors.New("boom") }
+
+func (*mockRunner) Reserve(context.Context) (run.Reservation, error) { return mock.Reservation{}, nil }

@@ -50,6 +50,7 @@ type TopicProgress struct {
 
 // Snapshot — полный снимок прогресса прогона.
 type Snapshot struct {
+	Revision   int64           `json:"revision"`
 	Phase      Phase           `json:"phase"`
 	Topics     []TopicProgress `json:"topics"`
 	TopicTotal int             `json:"topic_total"`

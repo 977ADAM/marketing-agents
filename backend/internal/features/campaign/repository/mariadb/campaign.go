@@ -74,13 +74,25 @@ func (cs *Campaigns) MarkRunning(ctx context.Context, id string) error {
 
 // SaveProgress сохраняет снимок прогресса прогона (перезаписывает прошлый).
 func (cs *Campaigns) SaveProgress(ctx context.Context, id string, snap run.Snapshot) error {
-	b, _ := json.Marshal(snap)
-	return cs.update(ctx, id, map[string]any{"progress": string(b)})
+	if snap.Revision <= 0 {
+		snap.Revision = 1
+	}
+	b, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	query := cs.db.WithContext(ctx).Model(&campaignRow{}).Where("id = ? AND progress_revision < ?", id, snap.Revision)
+	if snap.Phase == run.PhaseDone || snap.Phase == run.PhaseFailed {
+		query = query.Where("status IN ? OR status = ?", []string{"pending", "running"}, string(snap.Phase))
+	} else {
+		query = query.Where("status IN ?", []string{"pending", "running"})
+	}
+	return query.Updates(map[string]any{"progress": string(b), "progress_revision": snap.Revision, "updated_at": time.Now().UTC()}).Error
 }
 
 // Fail переводит кампанию в failed с текстом ошибки.
 func (cs *Campaigns) Fail(ctx context.Context, id, msg string) error {
-	return cs.update(ctx, id, map[string]any{"status": "failed", "error": msg})
+	return cs.update(ctx, id, map[string]any{"status": "failed", "progress": gorm.Expr("JSON_SET(COALESCE(progress, '{}'), '$.phase', 'failed')"), "error": msg})
 }
 
 // Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
@@ -90,6 +102,7 @@ func (cs *Campaigns) Complete(ctx context.Context, id string, res campaign.Outco
 	return cs.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		values := map[string]any{
 			"status":     "done",
+			"progress":   gorm.Expr("JSON_SET(COALESCE(progress, '{}'), '$.phase', 'done', '$.percent', 100)"),
 			"strategy":   string(stratJSON),
 			"cost_usd":   res.CostUSD,
 			"updated_at": time.Now().UTC(),

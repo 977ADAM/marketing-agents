@@ -60,6 +60,10 @@ func (a *Handler) postCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := a.campaigns.Create(r.Context(), req.ClientID, brief)
 	if err != nil {
+		if errors.Is(err, run.ErrBusy) || errors.Is(err, run.ErrStopping) {
+			response.WriteError(w, http.StatusServiceUnavailable, "busy", "background capacity unavailable")
+			return
+		}
 		var validation *limits.ValidationError
 		if errors.As(err, &validation) {
 			response.WriteError(w, http.StatusBadRequest, "validation", validation.Error())
