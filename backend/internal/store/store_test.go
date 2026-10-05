@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 	"github.com/977ADAM/marketing-agents/internal/store"
@@ -53,7 +52,7 @@ func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
 		}},
 		WordstatCalls: 4,
 	}
-	if err := s.Complete(ctx, id, orchestrator.Result{Strategy: strategy}); err != nil {
+	if err := s.Complete(ctx, id, campaign.Outcome{Strategy: strategy}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
 
@@ -97,7 +96,7 @@ func TestCampaignRoundTrip(t *testing.T) {
 	if err := s.MarkRunning(ctx, id); err != nil {
 		t.Fatalf("MarkRunning: %v", err)
 	}
-	res := orchestrator.Result{
+	res := campaign.Outcome{
 		Strategy:     campaign.Strategy{Positioning: "p", Topics: []campaign.Topic{{Title: "T1"}}},
 		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T1", Title: "A", Body: "B", CTA: "C"}, Review: campaign.Review{Score: 90, Verdict: "accept"}}},
 		CostUSD:      0.12,
@@ -126,7 +125,7 @@ func TestCampaignRoundTrip(t *testing.T) {
 
 func TestGetNotFound(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Get(context.Background(), "00000000-0000-0000-0000-0000000000ff"); err != store.ErrNotFound {
+	if _, err := s.Get(context.Background(), "00000000-0000-0000-0000-0000000000ff"); err != campaign.ErrNotFound {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
@@ -255,7 +254,7 @@ func TestRecoverInterrupted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create done: %v", err)
 	}
-	if err := st.Complete(ctx, doneID, orchestrator.Result{}); err != nil {
+	if err := st.Complete(ctx, doneID, campaign.Outcome{}); err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 
@@ -361,7 +360,7 @@ func TestReviewRoundTrip(t *testing.T) {
 		t.Errorf("ListReviews = %+v", items)
 	}
 
-	if _, err := st.GetReview(ctx, "нет-такой-проверки"); err != store.ErrNotFound {
+	if _, err := st.GetReview(ctx, "нет-такой-проверки"); err != review.ErrNotFound {
 		t.Errorf("GetReview(unknown) err = %v, want ErrNotFound", err)
 	}
 }
@@ -380,7 +379,7 @@ func TestDataSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := first.Complete(ctx, id, orchestrator.Result{
+	if err := first.Complete(ctx, id, campaign.Outcome{
 		Strategy:     campaign.Strategy{Positioning: "p"},
 		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T", Title: "A", Body: "B", CTA: "C"}}},
 		CostUSD:      0.01,

@@ -2,7 +2,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,21 +14,8 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
-
-// Repo — то, что API нужно от стора.
-type Repo interface {
-	Create(ctx context.Context, clientID string, b campaign.Brief) (string, error)
-	Get(ctx context.Context, id string) (*store.Campaign, error)
-	ListRecent(ctx context.Context, limit int) ([]store.CampaignSummary, error)
-	CreateReview(ctx context.Context, clientID, briefText string) (string, error)
-	GetReview(ctx context.Context, id string) (*store.Review, error)
-	ListReviews(ctx context.Context, limit int) ([]store.ReviewSummary, error)
-	// Трасса прогона: лента событий и одно событие с телом.
-	RunEvents(ctx context.Context, runID string, limit int) ([]store.RunEventRow, error)
-	RunEvent(ctx context.Context, runID string, seq int64) (*store.RunEventRow, error)
-}
 
 // Runner запускает фоновый прогон кампании или проверки текстов (асинхронно).
 type Runner interface {
@@ -44,15 +30,19 @@ type Subscriber interface {
 }
 
 type API struct {
-	repo    Repo
-	runner  Runner
-	sub     Subscriber
-	limiter *rate.Limiter
+	campaigns campaign.Store
+	reviews   review.Store
+	traces    trace.Store
+	runner    Runner
+	sub       Subscriber
+	limiter   *rate.Limiter
 }
 
-func New(repo Repo, runner Runner, sub Subscriber, ratePerMin int) *API {
+// New собирает транспорт: порты хранения приходят извне (реализация — internal/store),
+// поэтому транспорт не знает ни про SQL, ни про конкретный стор.
+func New(campaigns campaign.Store, reviews review.Store, traces trace.Store, runner Runner, sub Subscriber, ratePerMin int) *API {
 	lim := rate.NewLimiter(rate.Limit(float64(ratePerMin)/60.0), ratePerMin)
-	return &API{repo: repo, runner: runner, sub: sub, limiter: lim}
+	return &API{campaigns: campaigns, reviews: reviews, traces: traces, runner: runner, sub: sub, limiter: lim}
 }
 
 func (a *API) Handler() http.Handler {
@@ -135,7 +125,7 @@ func (a *API) postCampaign(w http.ResponseWriter, r *http.Request) {
 		Product: req.Product, Goal: req.Goal, Audience: req.Audience, Tone: req.Tone,
 		Region: req.Region, TopicsCount: req.TopicsCount,
 	}
-	id, err := a.repo.Create(r.Context(), req.ClientID, brief)
+	id, err := a.campaigns.Create(r.Context(), req.ClientID, brief)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not create campaign")
 		return
@@ -146,8 +136,8 @@ func (a *API) postCampaign(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) getCampaign(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	c, err := a.repo.Get(r.Context(), id)
-	if err == store.ErrNotFound {
+	c, err := a.campaigns.Get(r.Context(), id)
+	if err == campaign.ErrNotFound {
 		writeError(w, http.StatusNotFound, "not_found", "campaign not found")
 		return
 	}
@@ -168,7 +158,7 @@ func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
 	if limit > 200 {
 		limit = 200
 	}
-	items, err := a.repo.ListRecent(r.Context(), limit)
+	items, err := a.campaigns.ListRecent(r.Context(), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not list campaigns")
 		return
@@ -178,7 +168,7 @@ func (a *API) listCampaigns(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) campaignEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := a.repo.Get(r.Context(), id); err == store.ErrNotFound {
+	if _, err := a.campaigns.Get(r.Context(), id); err == campaign.ErrNotFound {
 		writeError(w, http.StatusNotFound, "not_found", "campaign not found")
 		return
 	} else if err != nil {

@@ -19,31 +19,31 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // мок репозитория и раннера
 type mockRepo struct {
 	mu        sync.Mutex
 	created   string
-	campaigns map[string]*store.Campaign
-	reviews   map[string]*store.Review
-	events    map[string][]store.RunEventRow
+	campaigns map[string]*campaign.Record
+	reviews   map[string]*review.Record
+	events    map[string][]trace.Row
 }
 
 // RunEvents отдаёт ленту событий прогона.
-func (m *mockRepo) RunEvents(_ context.Context, runID string, limit int) ([]store.RunEventRow, error) {
+func (m *mockRepo) RunEvents(_ context.Context, runID string, limit int) ([]trace.Row, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rows := m.events[runID]
 	if limit > 0 && len(rows) > limit {
 		rows = rows[:limit]
 	}
-	return append([]store.RunEventRow(nil), rows...), nil
+	return append([]trace.Row(nil), rows...), nil
 }
 
 // RunEvent отдаёт одно событие по номеру.
-func (m *mockRepo) RunEvent(_ context.Context, runID string, seq int64) (*store.RunEventRow, error) {
+func (m *mockRepo) RunEvent(_ context.Context, runID string, seq int64) (*trace.Row, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, row := range m.events[runID] {
@@ -52,7 +52,7 @@ func (m *mockRepo) RunEvent(_ context.Context, runID string, seq int64) (*store.
 			return &cp, nil
 		}
 	}
-	return nil, store.ErrNotFound
+	return nil, trace.ErrNotFound
 }
 
 func (m *mockRepo) Create(_ context.Context, _ string, b campaign.Brief) (string, error) {
@@ -61,26 +61,26 @@ func (m *mockRepo) Create(_ context.Context, _ string, b campaign.Brief) (string
 	id := "camp-1"
 	m.created = id
 	if m.campaigns == nil {
-		m.campaigns = map[string]*store.Campaign{}
+		m.campaigns = map[string]*campaign.Record{}
 	}
-	m.campaigns[id] = &store.Campaign{ID: id, Status: "pending", Brief: b}
+	m.campaigns[id] = &campaign.Record{ID: id, Status: "pending", Brief: b}
 	return id, nil
 }
-func (m *mockRepo) Get(_ context.Context, id string) (*store.Campaign, error) {
+func (m *mockRepo) Get(_ context.Context, id string) (*campaign.Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c, ok := m.campaigns[id]
 	if !ok {
-		return nil, store.ErrNotFound
+		return nil, campaign.ErrNotFound
 	}
 	return c, nil
 }
-func (m *mockRepo) ListRecent(_ context.Context, limit int) ([]store.CampaignSummary, error) {
+func (m *mockRepo) ListRecent(_ context.Context, limit int) ([]campaign.Summary, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]store.CampaignSummary, 0, len(m.campaigns))
+	out := make([]campaign.Summary, 0, len(m.campaigns))
 	for _, c := range m.campaigns {
-		out = append(out, store.CampaignSummary{ID: c.ID, Status: c.Status, Brief: c.Brief})
+		out = append(out, campaign.Summary{ID: c.ID, Status: c.Status, Brief: c.Brief})
 		if len(out) >= limit {
 			break
 		}
@@ -91,24 +91,24 @@ func (m *mockRepo) CreateReview(_ context.Context, _, briefText string) (string,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := "rev-1"
-	m.reviews = map[string]*store.Review{id: {ID: id, Status: "pending", BriefText: briefText}}
+	m.reviews = map[string]*review.Record{id: {ID: id, Status: "pending", BriefText: briefText}}
 	return id, nil
 }
-func (m *mockRepo) GetReview(_ context.Context, id string) (*store.Review, error) {
+func (m *mockRepo) GetReview(_ context.Context, id string) (*review.Record, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.reviews[id]
 	if !ok {
-		return nil, store.ErrNotFound
+		return nil, review.ErrNotFound
 	}
 	return r, nil
 }
-func (m *mockRepo) ListReviews(_ context.Context, limit int) ([]store.ReviewSummary, error) {
+func (m *mockRepo) ListReviews(_ context.Context, limit int) ([]review.Summary, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]store.ReviewSummary, 0, len(m.reviews))
+	out := make([]review.Summary, 0, len(m.reviews))
 	for _, r := range m.reviews {
-		out = append(out, store.ReviewSummary{ID: r.ID, Status: r.Status, BriefText: r.BriefText})
+		out = append(out, review.Summary{ID: r.ID, Status: r.Status, BriefText: r.BriefText})
 		if len(out) >= limit {
 			break
 		}
@@ -129,32 +129,32 @@ type errRepo struct{}
 func (errRepo) Create(context.Context, string, campaign.Brief) (string, error) {
 	return "", errors.New("boom")
 }
-func (errRepo) Get(context.Context, string) (*store.Campaign, error) {
+func (errRepo) Get(context.Context, string) (*campaign.Record, error) {
 	return nil, errors.New("boom")
 }
-func (errRepo) ListRecent(context.Context, int) ([]store.CampaignSummary, error) {
+func (errRepo) ListRecent(context.Context, int) ([]campaign.Summary, error) {
 	return nil, errors.New("boom")
 }
 func (errRepo) CreateReview(context.Context, string, string) (string, error) {
 	return "", errors.New("boom")
 }
-func (errRepo) GetReview(context.Context, string) (*store.Review, error) {
+func (errRepo) GetReview(context.Context, string) (*review.Record, error) {
 	return nil, errors.New("boom")
 }
-func (errRepo) ListReviews(context.Context, int) ([]store.ReviewSummary, error) {
+func (errRepo) ListReviews(context.Context, int) ([]review.Summary, error) {
 	return nil, errors.New("boom")
 }
-func (errRepo) RunEvents(context.Context, string, int) ([]store.RunEventRow, error) {
+func (errRepo) RunEvents(context.Context, string, int) ([]trace.Row, error) {
 	return nil, errors.New("boom")
 }
-func (errRepo) RunEvent(context.Context, string, int64) (*store.RunEventRow, error) {
+func (errRepo) RunEvent(context.Context, string, int64) (*trace.Row, error) {
 	return nil, errors.New("boom")
 }
 
 func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := httpapi.New(repo, runner, nil, 1000)
+	api := httpapi.New(repo, repo, repo, runner, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -183,7 +183,7 @@ func TestPostCampaignCreatesAndStartsRunner(t *testing.T) {
 func TestPostCampaignPassesRegionAndTopicsCount(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := httpapi.New(repo, runner, nil, 1000)
+	api := httpapi.New(repo, repo, repo, runner, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T","region":"213","topics_count":4}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -217,7 +217,7 @@ func TestPostCampaignValidatesRegionAndTopicsCount(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+			api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 			req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(tc.body))
 			rec := httptest.NewRecorder()
 			api.Handler().ServeHTTP(rec, req)
@@ -234,7 +234,7 @@ func TestPostCampaignValidatesRegionAndTopicsCount(t *testing.T) {
 // Без региона и числа статей бриф остаётся с нулями — подставит конфиг.
 func TestPostCampaignDefaultsRegionAndTopicsCount(t *testing.T) {
 	repo := &mockRepo{}
-	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -251,7 +251,7 @@ func TestPostCampaignDefaultsRegionAndTopicsCount(t *testing.T) {
 }
 
 func TestPostCampaignBadJSON(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{not json`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -261,7 +261,7 @@ func TestPostCampaignBadJSON(t *testing.T) {
 }
 
 func TestPostCampaignRateLimited(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 4)}, nil, 1) // burst 1
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 4)}, nil, 1) // burst 1
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	send := func() int {
 		req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
@@ -278,7 +278,7 @@ func TestPostCampaignRateLimited(t *testing.T) {
 }
 
 func TestPostCampaignRepoError(t *testing.T) {
-	api := httpapi.New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	body := `{"product":"P","goal":"G","audience":"A","tone":"T"}`
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(body))
 	rec := httptest.NewRecorder()
@@ -289,7 +289,7 @@ func TestPostCampaignRepoError(t *testing.T) {
 }
 
 func TestGetCampaignInternalError(t *testing.T) {
-	api := httpapi.New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/x", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -299,7 +299,7 @@ func TestGetCampaignInternalError(t *testing.T) {
 }
 
 func TestListCampaignsInternalError(t *testing.T) {
-	api := httpapi.New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -309,7 +309,7 @@ func TestListCampaignsInternalError(t *testing.T) {
 }
 
 func TestListCampaignsLimitClamp(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns?limit=9999", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -319,7 +319,7 @@ func TestListCampaignsLimitClamp(t *testing.T) {
 }
 
 func TestPostCampaignValidates(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("POST", "/api/campaigns", bytes.NewBufferString(`{"product":""}`))
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -329,7 +329,7 @@ func TestPostCampaignValidates(t *testing.T) {
 }
 
 func TestGetCampaignNotFound(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/missing", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -341,7 +341,7 @@ func TestGetCampaignNotFound(t *testing.T) {
 func TestListCampaigns(t *testing.T) {
 	repo := &mockRepo{}
 	_, _ = repo.Create(context.Background(), "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
-	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)
 	rec := httptest.NewRecorder()
@@ -350,7 +350,7 @@ func TestListCampaigns(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
 	}
-	var items []store.CampaignSummary
+	var items []campaign.Summary
 	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -422,7 +422,7 @@ func (f *fakeSub) SubscribeReview(string) (run.Snapshot, <-chan run.Snapshot, fu
 
 func TestCampaignEventsNotFound(t *testing.T) {
 	repo := &mockRepo{}
-	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)},
+	api := httpapi.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)},
 		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/nope/events", nil)
 	w := httptest.NewRecorder()
@@ -433,10 +433,10 @@ func TestCampaignEventsNotFound(t *testing.T) {
 }
 
 func TestCampaignEventsStream(t *testing.T) {
-	repo := &mockRepo{campaigns: map[string]*store.Campaign{"camp-1": {ID: "camp-1", Status: "running"}}}
+	repo := &mockRepo{campaigns: map[string]*campaign.Record{"camp-1": {ID: "camp-1", Status: "running"}}}
 	ch := make(chan run.Snapshot, 4)
 	sub := &fakeSub{snap: run.Snapshot{Phase: run.PhaseStrategizing, Percent: 5}, ch: ch}
-	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)}, sub, 1000)
+	api := httpapi.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, sub, 1000)
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 
@@ -479,7 +479,7 @@ func TestCampaignEventsStream(t *testing.T) {
 }
 
 func TestCampaignEventsInternalError(t *testing.T) {
-	api := httpapi.New(errRepo{}, &mockRunner{called: make(chan string, 1)},
+	api := httpapi.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)},
 		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/campaigns/x/events", nil)
 	w := httptest.NewRecorder()
@@ -492,7 +492,7 @@ func TestCampaignEventsInternalError(t *testing.T) {
 func TestPostReviewCreatesAndStartsRunner(t *testing.T) {
 	repo := &mockRepo{}
 	runner := &mockRunner{called: make(chan string, 1)}
-	api := httpapi.New(repo, runner, nil, 1000)
+	api := httpapi.New(repo, repo, repo, runner, nil, 1000)
 
 	body := `{"brief":"бриф","texts":[{"title":"T1","body":"текст"}]}`
 	req := httptest.NewRequest("POST", "/api/reviews", bytes.NewBufferString(body))
@@ -518,7 +518,7 @@ func TestPostReviewCreatesAndStartsRunner(t *testing.T) {
 }
 
 func TestPostReviewValidates(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	cases := []string{
 		`{"texts":[{"title":"T","body":"b"}]}`,              // нет брифа
 		`{"brief":"б"}`,                                     // нет текстов
@@ -535,7 +535,7 @@ func TestPostReviewValidates(t *testing.T) {
 }
 
 func TestGetReviewNotFound(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	req := httptest.NewRequest("GET", "/api/reviews/missing", nil)
 	rec := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rec, req)
@@ -545,7 +545,7 @@ func TestGetReviewNotFound(t *testing.T) {
 }
 
 func TestReviewEventsNotFound(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)},
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)},
 		&fakeSub{ch: make(chan run.Snapshot)}, 1000)
 	req := httptest.NewRequest("GET", "/api/reviews/nope/events", nil)
 	rec := httptest.NewRecorder()
@@ -581,7 +581,7 @@ func minimalDocx(t *testing.T, paras ...string) []byte {
 
 func TestExtractDocxEndpoint(t *testing.T) {
 	data := minimalDocx(t, "Как выбрать шины", "Первый абзац текста.", "Второй абзац.")
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
@@ -608,7 +608,7 @@ func TestExtractDocxEndpoint(t *testing.T) {
 }
 
 func TestExtractDocxBadFile(t *testing.T) {
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("file", "not.docx")
@@ -638,7 +638,7 @@ func TestExtractDocxTable(t *testing.T) {
 	_, _ = w.Write([]byte(doc))
 	_ = zw.Close()
 
-	api := httpapi.New(&mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(&mockRepo{}, &mockRepo{}, &mockRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	fw, _ := mw.CreateFormFile("file", "brief.docx")
@@ -660,3 +660,27 @@ func TestExtractDocxTable(t *testing.T) {
 		t.Errorf("text = %q, want %q", out.Text, want)
 	}
 }
+
+// Методы ниже нужны, чтобы мок удовлетворял полным портам campaign.Store и
+// review.Store: хендлеры их не дергают (прогон ведёт раннер), поэтому заглушки.
+func (m *mockRepo) MarkRunning(context.Context, string) error                      { return nil }
+func (m *mockRepo) SaveProgress(context.Context, string, run.Snapshot) error       { return nil }
+func (m *mockRepo) Complete(context.Context, string, campaign.Outcome) error       { return nil }
+func (m *mockRepo) Fail(context.Context, string, string) error                     { return nil }
+func (m *mockRepo) MarkReviewRunning(context.Context, string) error                { return nil }
+func (m *mockRepo) SaveReviewProgress(context.Context, string, run.Snapshot) error { return nil }
+func (m *mockRepo) CompleteReview(context.Context, string, review.Result) error    { return nil }
+func (m *mockRepo) FailReview(context.Context, string, string) error               { return nil }
+
+func (errRepo) MarkRunning(context.Context, string) error                { return errors.New("boom") }
+func (errRepo) SaveProgress(context.Context, string, run.Snapshot) error { return errors.New("boom") }
+func (errRepo) Complete(context.Context, string, campaign.Outcome) error { return errors.New("boom") }
+func (errRepo) Fail(context.Context, string, string) error               { return errors.New("boom") }
+func (errRepo) MarkReviewRunning(context.Context, string) error          { return errors.New("boom") }
+func (errRepo) SaveReviewProgress(context.Context, string, run.Snapshot) error {
+	return errors.New("boom")
+}
+func (errRepo) CompleteReview(context.Context, string, review.Result) error {
+	return errors.New("boom")
+}
+func (errRepo) FailReview(context.Context, string, string) error { return errors.New("boom") }

@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // --- API: трасса прогона ---
@@ -51,7 +53,7 @@ type trajectoryResponse struct {
 func (a *API) campaignTrajectory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectory(w, r, id, func(ctx context.Context) error {
-		_, err := a.repo.Get(ctx, id)
+		_, err := a.campaigns.Get(ctx, id)
 		return err
 	})
 }
@@ -59,7 +61,7 @@ func (a *API) campaignTrajectory(w http.ResponseWriter, r *http.Request) {
 func (a *API) campaignTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectoryEvent(w, r, id, func(ctx context.Context) error {
-		_, err := a.repo.Get(ctx, id)
+		_, err := a.campaigns.Get(ctx, id)
 		return err
 	})
 }
@@ -67,7 +69,7 @@ func (a *API) campaignTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 func (a *API) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectory(w, r, id, func(ctx context.Context) error {
-		_, err := a.repo.GetReview(ctx, id)
+		_, err := a.reviews.GetReview(ctx, id)
 		return err
 	})
 }
@@ -75,7 +77,7 @@ func (a *API) reviewTrajectory(w http.ResponseWriter, r *http.Request) {
 func (a *API) reviewTrajectoryEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a.writeTrajectoryEvent(w, r, id, func(ctx context.Context) error {
-		_, err := a.repo.GetReview(ctx, id)
+		_, err := a.reviews.GetReview(ctx, id)
 		return err
 	})
 }
@@ -98,7 +100,7 @@ func (a *API) writeTrajectory(w http.ResponseWriter, r *http.Request, id string,
 		limit = maxTrajectoryLimit
 	}
 
-	rows, err := a.repo.RunEvents(r.Context(), id, limit)
+	rows, err := a.traces.RunEvents(r.Context(), id, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not load trajectory")
 		return
@@ -127,8 +129,8 @@ func (a *API) writeTrajectoryEvent(w http.ResponseWriter, r *http.Request, id st
 		return
 	}
 
-	row, err := a.repo.RunEvent(r.Context(), id, seq)
-	if errors.Is(err, store.ErrNotFound) {
+	row, err := a.traces.RunEvent(r.Context(), id, seq)
+	if errors.Is(err, trace.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "trajectory event not found")
 		return
 	}
@@ -146,9 +148,10 @@ func (a *API) writeTrajectoryEvent(w http.ResponseWriter, r *http.Request, id st
 	})
 }
 
-// writeRunLookupError разделяет «прогона нет» и «стор сломался».
+// writeRunLookupError разделяет «прогона нет» и «стор сломался». Сентинелы у
+// доменов свои (campaign.ErrNotFound, review.ErrNotFound), поэтому проверяем оба.
 func (a *API) writeRunLookupError(w http.ResponseWriter, err error, what string) {
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, campaign.ErrNotFound) || errors.Is(err, review.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", what+" not found")
 		return
 	}

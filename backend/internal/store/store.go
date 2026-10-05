@@ -15,12 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	_ "modernc.org/sqlite" // регистрирует драйвер "sqlite"
 
 	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/run"
 )
 
@@ -36,8 +34,6 @@ const nowExpr = `strftime('%Y-%m-%d %H:%M:%f','now')`
 // работает busy_timeout, а не падает с SQLITE_BUSY_SNAPSHOT.
 const pragmas = "_txlock=immediate&_pragma=busy_timeout(5000)" +
 	"&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
-
-var ErrNotFound = errors.New("not found")
 
 // DSN собирает URI подключения к файлу БД с нужными pragma.
 func DSN(path string) string {
@@ -132,30 +128,6 @@ func newUUID() string {
 	)
 }
 
-// Campaign — модель строки кампании для API.
-type Campaign struct {
-	ID           string                 `json:"id"`
-	ClientID     string                 `json:"client_id"`
-	Status       string                 `json:"status"`
-	Brief        campaign.Brief         `json:"brief"`
-	Strategy     *campaign.Strategy     `json:"strategy,omitempty"`
-	Deliverables []campaign.Deliverable `json:"deliverables,omitempty"`
-	Progress     *run.Snapshot          `json:"progress,omitempty"`
-	CostUSD      *float64               `json:"cost_usd,omitempty"`
-	Error        string                 `json:"error,omitempty"`
-	CreatedAt    time.Time              `json:"created_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
-}
-
-// CampaignSummary — лёгкая сводка для списка истории (без strategy/deliverables/body).
-type CampaignSummary struct {
-	ID        string         `json:"id"`
-	Status    string         `json:"status"`
-	Brief     campaign.Brief `json:"brief"`
-	CostUSD   *float64       `json:"cost_usd,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-}
-
 // Create вставляет кампанию в статусе pending и возвращает её id.
 func (s *Store) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
 	if clientID == "" {
@@ -185,7 +157,7 @@ func (s *Store) SaveProgress(ctx context.Context, id string, snap run.Snapshot) 
 }
 
 // Complete сохраняет результат и переводит кампанию в done (вместе с deliverables).
-func (s *Store) Complete(ctx context.Context, id string, res orchestrator.Result) error {
+func (s *Store) Complete(ctx context.Context, id string, res campaign.Outcome) error {
 	stratJSON, _ := json.Marshal(res.Strategy)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -245,7 +217,7 @@ func (s *Store) RecoverInterrupted(ctx context.Context) (int64, error) {
 
 // ListRecent возвращает до limit последних кампаний, новые сверху.
 // rowid — тайбрейкер для записей с одинаковым created_at (точность — миллисекунды).
-func (s *Store) ListRecent(ctx context.Context, limit int) ([]CampaignSummary, error) {
+func (s *Store) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, status, brief, cost_usd, created_at
 		 FROM campaigns ORDER BY created_at DESC, rowid DESC LIMIT ?`, limit)
@@ -254,9 +226,9 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]CampaignSummary, e
 	}
 	defer rows.Close()
 
-	out := make([]CampaignSummary, 0, limit)
+	out := make([]campaign.Summary, 0, limit)
 	for rows.Next() {
-		var c CampaignSummary
+		var c campaign.Summary
 		var briefJSON []byte
 		var cost *float64
 		if err := rows.Scan(&c.ID, &c.Status, &briefJSON, &cost, &c.CreatedAt); err != nil {
@@ -270,8 +242,8 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]CampaignSummary, e
 }
 
 // Get читает кампанию вместе с deliverables.
-func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
-	var c Campaign
+func (s *Store) Get(ctx context.Context, id string) (*campaign.Record, error) {
+	var c campaign.Record
 	var briefJSON, stratJSON, progressJSON []byte
 	var cost *float64
 	var errText *string
@@ -280,7 +252,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
 		 FROM campaigns WHERE id=?`, id).
 		Scan(&c.ID, &c.ClientID, &c.Status, &briefJSON, &stratJSON, &cost, &errText, &progressJSON, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, campaign.ErrNotFound
 	}
 	if err != nil {
 		return nil, err

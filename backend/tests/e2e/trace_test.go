@@ -59,7 +59,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	})
 	hub := httpapi.NewHub(ctx, st)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	runner := httpapi.NewRunner(ctx, st, orch, 30*time.Second, logger, hub)
+	runner := httpapi.NewRunner(ctx, st, st, orch, 30*time.Second, logger, hub)
 
 	brief := campaign.Brief{
 		Product: "Зимняя резина", Goal: "рост продаж", Audience: "автовладельцы",
@@ -109,7 +109,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 }
 
 // waitForResult ждёт появления итогового события прогона.
-func waitForResult(t *testing.T, st *store.Store, runID string) []store.RunEventRow {
+func waitForResult(t *testing.T, st *store.Store, runID string) []trace.Row {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(15 * time.Second)

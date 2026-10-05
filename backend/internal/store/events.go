@@ -13,22 +13,6 @@ import (
 // Совпадает с тем, что даёт strftime('%Y-%m-%d %H:%M:%f','now') в схеме.
 const timeLayout = "2006-01-02 15:04:05.000"
 
-// RunEventRow — событие трассы для чтения.
-type RunEventRow struct {
-	Seq              int64
-	At               time.Time
-	Kind             string
-	Name             string
-	Status           string
-	Summary          string
-	DurationMS       int64
-	PromptTokens     int
-	CompletionTokens int
-	Payload          string
-	HasPayload       bool
-	Error            string
-}
-
 // SaveRunEvent сохраняет событие трассы (реализует trace.Sink).
 func (s *Store) SaveRunEvent(ctx context.Context, rec trace.Record) error {
 	_, err := s.db.ExecContext(ctx,
@@ -45,7 +29,7 @@ func (s *Store) SaveRunEvent(ctx context.Context, rec trace.Record) error {
 
 // RunEvents возвращает ленту событий прогона без тел payload: их отдают отдельным
 // запросом, иначе ответ разрастается до мегабайт.
-func (s *Store) RunEvents(ctx context.Context, runID string, limit int) ([]RunEventRow, error) {
+func (s *Store) RunEvents(ctx context.Context, runID string, limit int) ([]trace.Row, error) {
 	if limit <= 0 {
 		limit = 500
 	}
@@ -58,9 +42,9 @@ func (s *Store) RunEvents(ctx context.Context, runID string, limit int) ([]RunEv
 	}
 	defer rows.Close()
 
-	out := make([]RunEventRow, 0, limit)
+	out := make([]trace.Row, 0, limit)
 	for rows.Next() {
-		var ev RunEventRow
+		var ev trace.Row
 		if err := rows.Scan(&ev.Seq, &ev.At, &ev.Kind, &ev.Name, &ev.Status, &ev.DurationMS,
 			&ev.PromptTokens, &ev.CompletionTokens, &ev.Summary, &ev.HasPayload, &ev.Error); err != nil {
 			return nil, err
@@ -71,8 +55,8 @@ func (s *Store) RunEvents(ctx context.Context, runID string, limit int) ([]RunEv
 }
 
 // RunEvent возвращает одно событие прогона вместе с payload.
-func (s *Store) RunEvent(ctx context.Context, runID string, seq int64) (*RunEventRow, error) {
-	var ev RunEventRow
+func (s *Store) RunEvent(ctx context.Context, runID string, seq int64) (*trace.Row, error) {
+	var ev trace.Row
 	var payload, errText sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT seq, at, kind, name, status, duration_ms, prompt_tokens, completion_tokens,
@@ -81,7 +65,7 @@ func (s *Store) RunEvent(ctx context.Context, runID string, seq int64) (*RunEven
 		Scan(&ev.Seq, &ev.At, &ev.Kind, &ev.Name, &ev.Status, &ev.DurationMS,
 			&ev.PromptTokens, &ev.CompletionTokens, &ev.Summary, &payload, &errText)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, trace.ErrNotFound
 	}
 	if err != nil {
 		return nil, err

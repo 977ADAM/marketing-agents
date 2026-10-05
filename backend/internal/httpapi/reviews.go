@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // --- API: проверка готовых текстов ---
@@ -49,7 +48,7 @@ func (a *API) postReview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id, err := a.repo.CreateReview(r.Context(), req.ClientID, req.Brief)
+	id, err := a.reviews.CreateReview(r.Context(), req.ClientID, req.Brief)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not create review")
 		return
@@ -60,8 +59,8 @@ func (a *API) postReview(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) getReview(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	rev, err := a.repo.GetReview(r.Context(), id)
-	if err == store.ErrNotFound {
+	rev, err := a.reviews.GetReview(r.Context(), id)
+	if err == review.ErrNotFound {
 		writeError(w, http.StatusNotFound, "not_found", "review not found")
 		return
 	}
@@ -82,7 +81,7 @@ func (a *API) listReviews(w http.ResponseWriter, r *http.Request) {
 	if limit > 200 {
 		limit = 200
 	}
-	items, err := a.repo.ListReviews(r.Context(), limit)
+	items, err := a.reviews.ListReviews(r.Context(), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "could not list reviews")
 		return
@@ -96,7 +95,7 @@ func (a *API) listReviews(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) reviewEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if _, err := a.repo.GetReview(r.Context(), id); err == store.ErrNotFound {
+	if _, err := a.reviews.GetReview(r.Context(), id); err == review.ErrNotFound {
 		writeError(w, http.StatusNotFound, "not_found", "review not found")
 		return
 	} else if err != nil {

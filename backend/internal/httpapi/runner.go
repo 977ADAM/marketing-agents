@@ -8,13 +8,13 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
-// BackgroundRunner выполняет пайплайн в фоне и пишет результат в стор.
+// BackgroundRunner выполняет пайплайн в фоне и пишет результат в хранилище.
 type BackgroundRunner struct {
-	store      *store.Store
+	campaigns  campaign.Store
+	reviews    review.Store
 	orch       *orchestrator.Orchestrator
 	baseCtx    context.Context
 	runTimeout time.Duration
@@ -23,9 +23,9 @@ type BackgroundRunner struct {
 	wg         chan struct{} // семафор учёта in-flight для graceful shutdown
 }
 
-func NewRunner(baseCtx context.Context, st *store.Store, orch *orchestrator.Orchestrator, timeout time.Duration, logger *slog.Logger, hub *Hub) *BackgroundRunner {
+func NewRunner(baseCtx context.Context, campaigns campaign.Store, reviews review.Store, orch *orchestrator.Orchestrator, timeout time.Duration, logger *slog.Logger, hub *Hub) *BackgroundRunner {
 	return &BackgroundRunner{
-		store: st, orch: orch, baseCtx: baseCtx,
+		campaigns: campaigns, reviews: reviews, orch: orch, baseCtx: baseCtx,
 		runTimeout: timeout, logger: logger, hub: hub,
 		wg: make(chan struct{}, 64),
 	}
@@ -41,7 +41,7 @@ func (r *BackgroundRunner) Start(id string, b campaign.Brief) {
 		ctx = trace.WithRunID(ctx, id)
 
 		tr := r.hub.Tracker(id)
-		if err := r.store.MarkRunning(ctx, id); err != nil {
+		if err := r.campaigns.MarkRunning(ctx, id); err != nil {
 			r.logger.Error("mark running", "id", id, "err", err)
 			tr.Failed()
 			return
@@ -49,13 +49,15 @@ func (r *BackgroundRunner) Start(id string, b campaign.Brief) {
 		res, err := r.orch.Run(ctx, b, tr)
 		if err != nil {
 			r.logger.Error("run failed", "id", id, "err", err)
-			_ = r.store.Fail(context.WithoutCancel(ctx), id, err.Error())
+			_ = r.campaigns.Fail(context.WithoutCancel(ctx), id, err.Error())
 			tr.Failed()
 			return
 		}
-		if err := r.store.Complete(context.WithoutCancel(ctx), id, res); err != nil {
+		if err := r.campaigns.Complete(context.WithoutCancel(ctx), id, campaign.Outcome{
+			Strategy: res.Strategy, Deliverables: res.Deliverables, CostUSD: res.CostUSD,
+		}); err != nil {
 			r.logger.Error("complete", "id", id, "err", err)
-			_ = r.store.Fail(context.WithoutCancel(ctx), id, "complete: "+err.Error())
+			_ = r.campaigns.Fail(context.WithoutCancel(ctx), id, "complete: "+err.Error())
 			tr.Failed()
 			return
 		}
@@ -81,7 +83,7 @@ func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 		ctx = trace.WithRunID(ctx, id)
 
 		tr := r.hub.ReviewTracker(id)
-		if err := r.store.MarkReviewRunning(ctx, id); err != nil {
+		if err := r.reviews.MarkReviewRunning(ctx, id); err != nil {
 			r.logger.Error("mark review running", "id", id, "err", err)
 			tr.Failed()
 			return
@@ -89,13 +91,13 @@ func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 		res, err := r.orch.Review(ctx, req, tr)
 		if err != nil {
 			r.logger.Error("review failed", "id", id, "err", err)
-			_ = r.store.FailReview(context.WithoutCancel(ctx), id, err.Error())
+			_ = r.reviews.FailReview(context.WithoutCancel(ctx), id, err.Error())
 			tr.Failed()
 			return
 		}
-		if err := r.store.CompleteReview(context.WithoutCancel(ctx), id, res); err != nil {
+		if err := r.reviews.CompleteReview(context.WithoutCancel(ctx), id, res); err != nil {
 			r.logger.Error("review complete", "id", id, "err", err)
-			_ = r.store.FailReview(context.WithoutCancel(ctx), id, "complete: "+err.Error())
+			_ = r.reviews.FailReview(context.WithoutCancel(ctx), id, "complete: "+err.Error())
 			tr.Failed()
 			return
 		}

@@ -4,16 +4,17 @@ import (
 	"context"
 	"sync"
 
+	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // ProgressStore — то, что Hub'у нужно от стора (для кампаний и проверок).
 type ProgressStore interface {
 	SaveProgress(ctx context.Context, id string, snap run.Snapshot) error
-	Get(ctx context.Context, id string) (*store.Campaign, error)
+	Get(ctx context.Context, id string) (*campaign.Record, error)
 	SaveReviewProgress(ctx context.Context, id string, snap run.Snapshot) error
-	GetReview(ctx context.Context, id string) (*store.Review, error)
+	GetReview(ctx context.Context, id string) (*review.Record, error)
 }
 
 // CampaignProgress — то, что runner получает от Hub: интерфейс прогресса

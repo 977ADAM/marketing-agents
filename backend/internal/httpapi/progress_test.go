@@ -5,9 +5,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
+	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // fakeProgressStore — стор в памяти для тестов Hub.
@@ -15,16 +16,16 @@ type fakeProgressStore struct {
 	mu      sync.Mutex
 	saved   map[string]run.Snapshot
 	savedRV map[string]run.Snapshot
-	camps   map[string]*store.Campaign
-	revs    map[string]*store.Review
+	camps   map[string]*campaign.Record
+	revs    map[string]*review.Record
 }
 
 func newFakePS() *fakeProgressStore {
 	return &fakeProgressStore{
 		saved:   map[string]run.Snapshot{},
 		savedRV: map[string]run.Snapshot{},
-		camps:   map[string]*store.Campaign{},
-		revs:    map[string]*store.Review{},
+		camps:   map[string]*campaign.Record{},
+		revs:    map[string]*review.Record{},
 	}
 }
 func (f *fakeProgressStore) SaveProgress(_ context.Context, id string, s run.Snapshot) error {
@@ -33,12 +34,12 @@ func (f *fakeProgressStore) SaveProgress(_ context.Context, id string, s run.Sna
 	f.saved[id] = s
 	return nil
 }
-func (f *fakeProgressStore) Get(_ context.Context, id string) (*store.Campaign, error) {
+func (f *fakeProgressStore) Get(_ context.Context, id string) (*campaign.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c, ok := f.camps[id]
 	if !ok {
-		return nil, store.ErrNotFound
+		return nil, campaign.ErrNotFound
 	}
 	return c, nil
 }
@@ -48,12 +49,12 @@ func (f *fakeProgressStore) SaveReviewProgress(_ context.Context, id string, s r
 	f.savedRV[id] = s
 	return nil
 }
-func (f *fakeProgressStore) GetReview(_ context.Context, id string) (*store.Review, error) {
+func (f *fakeProgressStore) GetReview(_ context.Context, id string) (*review.Record, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	r, ok := f.revs[id]
 	if !ok {
-		return nil, store.ErrNotFound
+		return nil, review.ErrNotFound
 	}
 	return r, nil
 }
@@ -134,7 +135,7 @@ func TestTrackerResearchProgress(t *testing.T) {
 
 func TestHubLateSubscriberFromStore(t *testing.T) {
 	ps := newFakePS()
-	ps.camps["done1"] = &store.Campaign{ID: "done1", Status: "done",
+	ps.camps["done1"] = &campaign.Record{ID: "done1", Status: "done",
 		Progress: &run.Snapshot{Phase: run.PhaseDone, Percent: 100}}
 	hub := httpapi.NewHub(context.Background(), ps)
 

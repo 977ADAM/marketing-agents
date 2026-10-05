@@ -82,10 +82,10 @@ func TestRunEventsRoundTrip(t *testing.T) {
 	if _, err := s.RunEvent(ctx, "run-2", 1); err != nil {
 		t.Errorf("своё событие второго прогона должно читаться: %v", err)
 	}
-	if _, err := s.RunEvent(ctx, "run-1", 99); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.RunEvent(ctx, "run-1", 99); !errors.Is(err, trace.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
-	if _, err := s.RunEvent(ctx, "run-2", 2); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.RunEvent(ctx, "run-2", 2); !errors.Is(err, trace.ErrNotFound) {
 		t.Errorf("чужой seq: err = %v, want ErrNotFound", err)
 	}
 }

@@ -115,8 +115,8 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := httpapi.NewHub(baseCtx, st)
-	runner := httpapi.NewRunner(baseCtx, st, orch, cfg.RunTimeout, logger, hub)
-	api := httpapi.New(st, runner, hub, cfg.RateLimitPerMin)
+	runner := httpapi.NewRunner(baseCtx, st, st, orch, cfg.RunTimeout, logger, hub)
+	api := httpapi.New(st, st, st, runner, hub, cfg.RateLimitPerMin)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
 	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и

@@ -5,37 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/run"
 )
-
-// Review — модель строки проверки текстов для API.
-type Review struct {
-	ID        string         `json:"id"`
-	ClientID  string         `json:"client_id"`
-	Status    string         `json:"status"`
-	BriefText string         `json:"brief_text"`
-	Result    *review.Result `json:"result,omitempty"`
-	Progress  *run.Snapshot  `json:"progress,omitempty"`
-	CostUSD   *float64       `json:"cost_usd,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-}
-
-// ReviewSummary — лёгкая сводка для списка истории проверок.
-// BriefTitle — первая строка брифа: заголовок для списка заполняет слой API,
-// чтобы фронт ничего не вычислял сам.
-type ReviewSummary struct {
-	ID         string    `json:"id"`
-	Status     string    `json:"status"`
-	BriefText  string    `json:"brief_text"`
-	BriefTitle string    `json:"brief_title,omitempty"`
-	CostUSD    *float64  `json:"cost_usd,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-}
 
 // CreateReview вставляет проверку в статусе pending и возвращает её id.
 func (s *Store) CreateReview(ctx context.Context, clientID, briefText string) (string, error) {
@@ -81,8 +54,8 @@ func (s *Store) FailReview(ctx context.Context, id, msg string) error {
 }
 
 // GetReview читает проверку вместе с результатом.
-func (s *Store) GetReview(ctx context.Context, id string) (*Review, error) {
-	var r Review
+func (s *Store) GetReview(ctx context.Context, id string) (*review.Record, error) {
+	var r review.Record
 	var resultJSON, progressJSON []byte
 	var cost *float64
 	var errText *string
@@ -91,7 +64,7 @@ func (s *Store) GetReview(ctx context.Context, id string) (*Review, error) {
 		 FROM reviews WHERE id=?`, id).
 		Scan(&r.ID, &r.ClientID, &r.Status, &r.BriefText, &resultJSON, &cost, &errText, &progressJSON, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, review.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -116,7 +89,7 @@ func (s *Store) GetReview(ctx context.Context, id string) (*Review, error) {
 }
 
 // ListReviews возвращает до limit последних проверок, новые сверху.
-func (s *Store) ListReviews(ctx context.Context, limit int) ([]ReviewSummary, error) {
+func (s *Store) ListReviews(ctx context.Context, limit int) ([]review.Summary, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, status, brief_text, cost_usd, created_at
 		 FROM reviews ORDER BY created_at DESC, rowid DESC LIMIT ?`, limit)
@@ -125,9 +98,9 @@ func (s *Store) ListReviews(ctx context.Context, limit int) ([]ReviewSummary, er
 	}
 	defer rows.Close()
 
-	out := make([]ReviewSummary, 0, limit)
+	out := make([]review.Summary, 0, limit)
 	for rows.Next() {
-		var r ReviewSummary
+		var r review.Summary
 		var cost *float64
 		if err := rows.Scan(&r.ID, &r.Status, &r.BriefText, &cost, &r.CreatedAt); err != nil {
 			return nil, err

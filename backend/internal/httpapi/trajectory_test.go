@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
-	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // repoWithTrail — репозиторий с одной кампанией и одним прогоном проверки,
@@ -16,9 +18,9 @@ import (
 func repoWithTrail() *mockRepo {
 	at := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 	return &mockRepo{
-		campaigns: map[string]*store.Campaign{"camp-1": {ID: "camp-1", Status: "done"}},
-		reviews:   map[string]*store.Review{"rev-1": {ID: "rev-1", Status: "done"}},
-		events: map[string][]store.RunEventRow{
+		campaigns: map[string]*campaign.Record{"camp-1": {ID: "camp-1", Status: "done"}},
+		reviews:   map[string]*review.Record{"rev-1": {ID: "rev-1", Status: "done"}},
+		events: map[string][]trace.Row{
 			"camp-1": {
 				{
 					Seq: 1, At: at, Kind: "llm", Name: "semanticist_seeds", Status: "ok",
@@ -51,7 +53,7 @@ func getJSON(t *testing.T, api *httpapi.API, path string) (*httptest.ResponseRec
 }
 
 func TestCampaignTrajectoryFeed(t *testing.T) {
-	api := httpapi.New(repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repoWithTrail(), repoWithTrail(), repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	rec, body := getJSON(t, api, "/api/campaigns/camp-1/trajectory")
 	if rec.Code != http.StatusOK {
@@ -82,7 +84,7 @@ func TestCampaignTrajectoryFeed(t *testing.T) {
 }
 
 func TestCampaignTrajectoryEventDetail(t *testing.T) {
-	api := httpapi.New(repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repoWithTrail(), repoWithTrail(), repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	rec, body := getJSON(t, api, "/api/campaigns/camp-1/trajectory/1")
 	if rec.Code != http.StatusOK {
@@ -101,7 +103,7 @@ func TestCampaignTrajectoryEventDetail(t *testing.T) {
 }
 
 func TestCampaignTrajectoryNotFound(t *testing.T) {
-	api := httpapi.New(repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repoWithTrail(), repoWithTrail(), repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	cases := []string{
 		"/api/campaigns/nope/trajectory",      // кампании нет
@@ -121,7 +123,7 @@ func TestCampaignTrajectoryNotFound(t *testing.T) {
 func TestCampaignTrajectoryEmpty(t *testing.T) {
 	repo := repoWithTrail()
 	repo.events = nil
-	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repo, repo, repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	rec, body := getJSON(t, api, "/api/campaigns/camp-1/trajectory")
 	if rec.Code != http.StatusOK {
@@ -137,7 +139,7 @@ func TestCampaignTrajectoryEmpty(t *testing.T) {
 }
 
 func TestReviewTrajectoryFeed(t *testing.T) {
-	api := httpapi.New(repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repoWithTrail(), repoWithTrail(), repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	rec, body := getJSON(t, api, "/api/reviews/rev-1/trajectory")
 	if rec.Code != http.StatusOK {
@@ -149,7 +151,7 @@ func TestReviewTrajectoryFeed(t *testing.T) {
 }
 
 func TestTrajectoryValidation(t *testing.T) {
-	api := httpapi.New(repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(repoWithTrail(), repoWithTrail(), repoWithTrail(), &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	rec, _ := getJSON(t, api, "/api/campaigns/camp-1/trajectory/abc")
 	if rec.Code != http.StatusBadRequest {
@@ -159,7 +161,7 @@ func TestTrajectoryValidation(t *testing.T) {
 
 // Сбой стора — 500, а не пустая лента: иначе проблема выглядела бы как «событий нет».
 func TestTrajectoryRepoError(t *testing.T) {
-	api := httpapi.New(errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
+	api := httpapi.New(errRepo{}, errRepo{}, errRepo{}, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	// errRepo отдаёт ошибку и на Get, и на RunEvents — проверяем, что не 200.
 	rec, _ := getJSON(t, api, "/api/campaigns/camp-1/trajectory")
