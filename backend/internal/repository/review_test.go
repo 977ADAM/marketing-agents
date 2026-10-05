@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/run"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 )
 
 func TestReviewRoundTrip(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/977ADAM/marketing-agents/internal/trace"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
 
 // Запись трассы прогона. Рекордер необязателен: без него (или в режиме off)

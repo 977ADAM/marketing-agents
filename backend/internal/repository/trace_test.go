@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
-	"github.com/977ADAM/marketing-agents/internal/testdb"
-	"github.com/977ADAM/marketing-agents/internal/trace"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
+	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
 )
 
 func event(runID string, seq int64, at time.Time, payload string) trace.Record {

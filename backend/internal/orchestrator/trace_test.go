@@ -3,14 +3,14 @@ package orchestrator_test
 import (
 	"context"
 	"errors"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
+	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 	"strings"
 	"testing"
-
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/mock"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // captureTrace собирает события трассы для проверок.
@@ -47,18 +47,18 @@ func runCtx() context.Context { return trace.WithRunID(context.Background(), "ru
 func happyCampaignFakes(t *testing.T) *mock.LLM {
 	t.Helper()
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
-	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
+	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
 		 "queries":["какую зимнюю резину"],"selected":true},
 		{"title":"Сколько стоит зимняя резина","goal":"поймать перед покупкой","task":"дать ориентир",
 		 "queries":["купить зимнюю резину"],"selected":true}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":88,"issues":[],"verdict":"accept"}`,
 	}
@@ -142,14 +142,14 @@ func TestRunEmitsDecisionTrail(t *testing.T) {
 // Итерации критика раньше терялись: теперь по каждой есть запись с оценкой.
 func TestRunEmitsCriticIterations(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":50,"issues":["слабый заход","нет цифр"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
@@ -186,7 +186,7 @@ func TestRunEmitsFailedResult(t *testing.T) {
 	src := mock.NewWordstat()
 	src.Err = errors.New("MCP недоступен")
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	rec := &captureTrace{}
 	opt := researchOptions(src, orchestrator.Options{})
@@ -227,7 +227,7 @@ func (s *sinkSpy) names() []string {
 // Без прогона в контексте трасса молчит: события не к чему привязать.
 func TestRunWithoutRunIDWritesNothing(t *testing.T) {
 	sink := &sinkSpy{}
-	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec := traceservice.New(sink, trace.Config{Mode: trace.ModeSummary})
 
 	opt := researchOptions(winterSource(), orchestrator.Options{})
 	opt.Recorder = rec
@@ -244,7 +244,7 @@ func TestRunWithoutRunIDWritesNothing(t *testing.T) {
 // С прогоном в контексте вся цепочка работает: оркестратор → рекордер → хранилище.
 func TestRunWithRunIDWritesTrail(t *testing.T) {
 	sink := &sinkSpy{}
-	rec := trace.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec := traceservice.New(sink, trace.Config{Mode: trace.ModeSummary})
 
 	opt := researchOptions(winterSource(), orchestrator.Options{})
 	opt.Recorder = rec

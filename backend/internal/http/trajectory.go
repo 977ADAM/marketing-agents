@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/trace"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
 
 // --- API: трасса прогона ---

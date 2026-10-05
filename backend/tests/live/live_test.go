@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
+	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
+	wordstat "github.com/977ADAM/marketing-agents/internal/features/topic/source/wordstat"
 )
 
 // TestLiveMCP — дымовой тест против настоящего MCP-сервера. По умолчанию

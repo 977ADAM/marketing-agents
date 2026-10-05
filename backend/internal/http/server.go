@@ -7,10 +7,10 @@ import (
 	"golang.org/x/time/rate"
 	"net/http"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/trace"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
 
 // Runner запускает фоновый прогон кампании или проверки текстов (асинхронно).

@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/testdb"
-	"github.com/977ADAM/marketing-agents/internal/topic"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
+	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
 )
 
 // Стратегия с кандидатами тем и счётчиком обращений к Wordstat переживает

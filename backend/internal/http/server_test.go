@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	apihttp "github.com/977ADAM/marketing-agents/internal/http"
-	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/trace"
 )
 
 // мок репозитория и раннера

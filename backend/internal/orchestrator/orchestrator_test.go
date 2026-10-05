@@ -3,12 +3,13 @@ package orchestrator_test
 import (
 	"context"
 	"fmt"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	"sync"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/mock"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 )
 
 func brief() campaign.Brief {
@@ -18,14 +19,14 @@ func brief() campaign.Brief {
 // fanout: 2 темы, критик сразу accept → 2 deliverables, по одному вызову критика.
 func TestRunFanOutAcceptsImmediately(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]},{"title":"T2","angle":"a","points":["y"]}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"T2","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":88,"issues":[],"verdict":"accept"}`,
 	}
@@ -46,14 +47,14 @@ func TestRunFanOutAcceptsImmediately(t *testing.T) {
 // цикл критика: первый черновик ниже порога → ревизия → второй проходит.
 func TestRunCriticReviseLoop(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
@@ -74,14 +75,14 @@ func TestRunCriticReviseLoop(t *testing.T) {
 // maxIter исчерпан → берём лучший по score черновик.
 func TestRunPicksBestWhenMaxIter(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":70,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
@@ -110,14 +111,14 @@ func TestRunFailsWhenStrategistErrors(t *testing.T) {
 // MaxTopics ограничивает число обрабатываемых тем сверху.
 func TestRunCapsTopics(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1"},{"title":"T2"},{"title":"T3"}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"A1","body":"b","cta":"c"}`,
 		`{"topic":"T2","title":"A2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
@@ -152,14 +153,14 @@ func (r *recordProgress) TopicDone(i, sc int)      { r.add(fmt.Sprintf("done:%d:
 // исчерпан max-iter без accept → второй путь TopicDone (с лучшим score).
 func TestRunEmitsProgressPickBest(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":50,"issues":["x"],"verdict":"revise"}`,
 		`{"score":40,"issues":["y"],"verdict":"revise"}`,
 	}
@@ -182,14 +183,14 @@ func TestRunEmitsProgressPickBest(t *testing.T) {
 
 func TestRunEmitsProgress(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{
 		`{"positioning":"p","topics":[{"title":"T1","angle":"a","points":["x"]}]}`,
 	}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"T1","title":"v1","body":"b","cta":"c"}`,
 		`{"topic":"T1","title":"v2","body":"b","cta":"c"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":50,"issues":["слабо"],"verdict":"revise"}`,
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}

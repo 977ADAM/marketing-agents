@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/review"
+	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 )
 
 // --- API: проверка готовых текстов ---

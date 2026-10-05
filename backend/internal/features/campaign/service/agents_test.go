@@ -1,0 +1,110 @@
+package campaignservice_test
+
+import (
+	"context"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	"testing"
+
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
+)
+
+func testBrief() campaign.Brief {
+	return campaign.Brief{Product: "Эко-бутылка", Goal: "Рост продаж", Audience: "ЗОЖ-аудитория 25-40", Tone: "дружелюбный"}
+}
+
+func TestStrategistReturnsTopics(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses["strategist"] = []string{
+		`{"positioning":"умная гидратация","topics":[{"title":"Зачем пить воду","angle":"польза","points":["а","б"]},{"title":"Эко-выбор","angle":"экология","points":["в"]}]}`,
+	}
+	s := campaignservice.NewStrategist(fake)
+
+	strat, usage, err := s.Run(context.Background(), testBrief())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(strat.Topics) != 2 {
+		t.Fatalf("topics = %d, want 2", len(strat.Topics))
+	}
+	if strat.Positioning == "" {
+		t.Error("positioning empty")
+	}
+	if usage.PromptTokens == 0 {
+		t.Error("usage not captured")
+	}
+}
+
+func TestStrategistRejectsEmptyTopics(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses["strategist"] = []string{`{"positioning":"x","topics":[]}`}
+	s := campaignservice.NewStrategist(fake)
+	if _, _, err := s.Run(context.Background(), testBrief()); err == nil {
+		t.Fatal("expected error on empty topics")
+	}
+}
+
+func TestCopywriterWritesArticle(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses["copywriter"] = []string{
+		`{"topic":"Зачем пить воду","title":"Пей умно","body":"Текст статьи...","cta":"Купить"}`,
+	}
+	cw := campaignservice.NewCopywriter(fake)
+	topic := campaign.Topic{Title: "Зачем пить воду", Angle: "польза", Points: []string{"а"}}
+
+	art, _, err := cw.Run(context.Background(), testBrief(), campaign.Strategy{Positioning: "p"}, topic)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if art.Title == "" || art.Body == "" || art.CTA == "" {
+		t.Errorf("incomplete article: %+v", art)
+	}
+}
+
+func TestCopywriterReviseUsesIssues(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses["copywriter"] = []string{
+		`{"topic":"t","title":"v2","body":"улучшено","cta":"Жми"}`,
+	}
+	cw := campaignservice.NewCopywriter(fake)
+	prev := campaign.Article{Topic: "t", Title: "v1", Body: "слабо", CTA: "Жми"}
+	rev := campaign.Review{Score: 50, Issues: []string{"слабый заход"}, Verdict: "revise"}
+
+	art, _, err := cw.Revise(context.Background(), prev, rev)
+	if err != nil {
+		t.Fatalf("Revise: %v", err)
+	}
+	if art.Title != "v2" {
+		t.Errorf("title = %q, want v2", art.Title)
+	}
+}
+
+func TestCriticScores(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses["critic"] = []string{
+		`{"score":85,"issues":[],"verdict":"accept"}`,
+	}
+	cr := campaignservice.NewCritic(fake)
+	art := campaign.Article{Topic: "t", Title: "T", Body: "B", CTA: "C"}
+
+	rev, _, err := cr.Run(context.Background(), testBrief(), art)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rev.Score != 85 || rev.Verdict != "accept" {
+		t.Errorf("review = %+v", rev)
+	}
+}
+
+func TestCriticClampsScore(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses["critic"] = []string{`{"score":150,"issues":[],"verdict":"accept"}`}
+	cr := campaignservice.NewCritic(fake)
+	rev, _, err := cr.Run(context.Background(), testBrief(), campaign.Article{Title: "T", Body: "B"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rev.Score != 100 {
+		t.Errorf("score = %d, want clamped to 100", rev.Score)
+	}
+}

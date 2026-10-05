@@ -2,22 +2,23 @@ package e2e_test
 
 import (
 	"context"
-	"github.com/977ADAM/marketing-agents/internal/sloglogger"
+	sloglogger "github.com/977ADAM/marketing-agents/internal/adapters/logger/slog"
+	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
+	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
 	"io"
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/mock"
+	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	"github.com/977ADAM/marketing-agents/internal/repository"
-	"github.com/977ADAM/marketing-agents/internal/runner"
-	"github.com/977ADAM/marketing-agents/internal/testdb"
-	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/trace"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
+	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
+	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
 )
 
 // Сквозная проверка трассы: раннер помечает прогон, агенты и инструменты пишут
@@ -31,16 +32,16 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	reviews := mariadb.NewReviews(db)
 	evStore := mariadb.NewEvents(db)
 
-	rec := trace.New(evStore, trace.Config{Mode: trace.ModeSummary})
+	rec := traceservice.New(evStore, trace.Config{Mode: trace.ModeSummary})
 
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"поймать в момент выбора","task":"дать чек-лист",
 		 "queries":["какую зимнюю резину"],"selected":true}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaignservice.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"S","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaignservice.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	src := mock.NewWordstat()
 	src.SetTop("зимняя резина", mock.Seed("зимняя резина", 1028481, map[string]int64{
@@ -48,9 +49,9 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		"какую зимнюю резину": 92398,
 	}))
 
-	orch := orchestrator.New(llm.NewTracing(fake, rec), orchestrator.Options{
+	orch := orchestrator.New(tracing.NewLLM(fake, rec), orchestrator.Options{
 		CriticMaxIter: 1, ScoreThreshold: 80,
-		Wordstat:         wordstat.NewTracing(src, rec),
+		Wordstat:         tracing.NewWordstat(src, rec),
 		Recorder:         rec,
 		SeedCount:        1,
 		MaxWordstatCalls: 5,
@@ -78,7 +79,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 		names[ev.Name]++
 	}
 	for _, want := range []string{
-		topic.RoleSeeds, topic.RoleSelect, campaign.RoleStrategist, campaign.RoleCopywriter,
+		topicservice.RoleSeeds, topicservice.RoleSelect, campaignservice.RoleStrategist, campaignservice.RoleCopywriter,
 		"top_requests", "seeds", "seed_collected", "selection", "topic_decision", "critic", "run",
 	} {
 		if names[want] == 0 {
@@ -88,7 +89,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 
 	// В режиме summary тела не пишутся — это проверяем на событии вызова модели.
 	for _, ev := range rows {
-		if ev.Name != topic.RoleSeeds {
+		if ev.Name != topicservice.RoleSeeds {
 			continue
 		}
 		full, err := evStore.RunEvent(ctx, id, ev.Seq)

@@ -3,13 +3,14 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"github.com/977ADAM/marketing-agents/internal/core/corellm"
+	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	"sort"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/topic"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
 )
 
 // Значения по умолчанию для подбора тем (переопределяются через Options).
@@ -27,7 +28,7 @@ const (
 // research собирает темы на поисковом спросе: сеялки → спрос → кластеры → отбор.
 //
 // Числа считает только этот код: модель их не видит и не возвращает, а каждая её
-// цитата проверена по данным (см. topic.Semanticist). Если спроса нет совсем или
+// цитата проверена по данным (см. topicservice.Semanticist). Если спроса нет совсем или
 // подтверждённых тем не хватило, добираем темы от модели с пометкой source=llm —
 // без цифр, потому что цифр по ним нет.
 func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p run.Progress) (campaign.Strategy, corellm.Usage, error) {
@@ -265,7 +266,7 @@ func (o *Orchestrator) seedCount() int {
 	if o.opt.SeedCount > 0 {
 		return o.opt.SeedCount
 	}
-	return topic.DefaultSeedCount
+	return topicservice.DefaultSeedCount
 }
 
 func (o *Orchestrator) numPhrases() int {

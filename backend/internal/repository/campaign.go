@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/run"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 )
 
 // campaignRow — таблица campaigns. JSON (бриф, стратегия, прогресс) лежит текстом:

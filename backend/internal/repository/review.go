@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/977ADAM/marketing-agents/internal/review"
-	"github.com/977ADAM/marketing-agents/internal/run"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 )
 
 // reviewRow — таблица reviews. Результат и прогресс — JSON текстом;

@@ -3,14 +3,16 @@ package orchestrator_test
 import (
 	"context"
 	"errors"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	"strings"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/mock"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/topic"
+	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 )
 
 // researchProgress — recorder с поддержкой этапа подбора тем.
@@ -90,17 +92,17 @@ func researchOptions(src topic.Source, opt orchestrator.Options) orchestrator.Op
 func TestRunResearchModelDecidesSelection(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
-	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину"]}`}
+	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины: 6 простых правил","goal":"поймать в момент выбора",
 		 "task":"дать чек-лист","intent":"выбор","selected":true,
 		 "queries":["какую зимнюю резину","какая зимняя резина лучше"]},
 		{"title":"Сколько стоит зимняя резина","goal":"поймать перед покупкой","task":"дать ориентир",
 		 "intent":"коммерческий","selected":false,"reject":"объём мал для нашей задачи",
 		 "queries":["купить зимнюю резину"]}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`}
-	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaignservice.RoleStrategist] = []string{`{"positioning":"надёжность зимой","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaignservice.RoleCopywriter] = []string{`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`}
+	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	p := newResearchProgress()
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
@@ -156,16 +158,16 @@ func TestRunResearchModelDecidesSelection(t *testing.T) {
 func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 	src := mock.NewWordstat() // ни одной фразы — спроса нет
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[topic.RoleFallback] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topicservice.RoleFallback] = []string{`{"topics":[
 		{"title":"Как выбрать зимние шины","goal":"g","task":"k","intent":"выбор"},
 		{"title":"Когда менять шины","goal":"g","task":"k","intent":"вопрос"}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{
+	fake.Responses[campaignservice.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaignservice.RoleCopywriter] = []string{
 		`{"topic":"t","title":"A1","body":"b1","cta":"c1"}`,
 		`{"topic":"t","title":"A2","body":"b2","cta":"c2"}`,
 	}
-	fake.Responses[campaign.RoleCritic] = []string{
+	fake.Responses[campaignservice.RoleCritic] = []string{
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 		`{"score":90,"issues":[],"verdict":"accept"}`,
 	}
@@ -175,7 +177,7 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if n := fake.Calls[topic.RoleSelect]; n != 0 {
+	if n := fake.Calls[topicservice.RoleSelect]; n != 0 {
 		t.Errorf("Select вызван %d раз на пустых данных, want 0", n)
 	}
 	if len(res.Strategy.Topics) != 2 {
@@ -195,8 +197,8 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 func TestRunResearchFailsWhenModelSelectsNothing(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"Сколько стоит","goal":"g","task":"k","queries":["купить зимнюю резину"],
 		 "selected":false,"reject":"не наша аудитория"}]}`}
 
@@ -211,13 +213,13 @@ func TestRunResearchFailsWhenModelSelectsNothing(t *testing.T) {
 func TestRunResearchFailsOnInventedCitation(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
-	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"Летние шины","goal":"g","task":"k","queries":["летняя резина"],"selected":true}]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
-	if !errors.Is(err, topic.ErrUnknownQuery) {
+	if !errors.Is(err, topicservice.ErrUnknownQuery) {
 		t.Fatalf("err = %v, want ErrUnknownQuery", err)
 	}
 }
@@ -227,7 +229,7 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 	src := mock.NewWordstat()
 	src.Err = errors.New("wordstat недоступен")
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина"]}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{}))
 	_, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
@@ -240,12 +242,12 @@ func TestRunResearchFailsOnSourceError(t *testing.T) {
 func TestRunResearchRespectsCallLimit(t *testing.T) {
 	src := winterSource()
 	fake := mock.NewLLM()
-	fake.Responses[topic.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","купить зимнюю резину"]}`}
-	fake.Responses[topic.RoleSelect] = []string{`{"topics":[
+	fake.Responses[topicservice.RoleSeeds] = []string{`{"seeds":["зимняя резина","какую зимнюю резину","купить зимнюю резину"]}`}
+	fake.Responses[topicservice.RoleSelect] = []string{`{"topics":[
 		{"title":"T","goal":"g","task":"k","queries":["какую зимнюю резину"],"selected":true}]}`}
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaignservice.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaignservice.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	o := orchestrator.New(fake, researchOptions(src, orchestrator.Options{MaxWordstatCalls: 1}))
 	res, err := o.Run(context.Background(), researchBrief(), newResearchProgress())
@@ -263,9 +265,9 @@ func TestRunResearchRespectsCallLimit(t *testing.T) {
 // Без источника спроса подбор выключен: темы даёт стратег, как раньше.
 func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
 	fake := mock.NewLLM()
-	fake.Responses[campaign.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
-	fake.Responses[campaign.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
-	fake.Responses[campaign.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
+	fake.Responses[campaignservice.RoleStrategist] = []string{`{"positioning":"p","topics":[{"title":"Из стратега","angle":"a","points":["x"]}]}`}
+	fake.Responses[campaignservice.RoleCopywriter] = []string{`{"topic":"t","title":"A","body":"b","cta":"c"}`}
+	fake.Responses[campaignservice.RoleCritic] = []string{`{"score":90,"issues":[],"verdict":"accept"}`}
 
 	o := orchestrator.New(fake, orchestrator.Options{CriticMaxIter: 1, ScoreThreshold: 80, CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 	res, err := o.Run(context.Background(), brief(), newResearchProgress())
@@ -275,7 +277,7 @@ func TestRunWithoutWordstatSkipsResearch(t *testing.T) {
 	if len(res.Strategy.Topics) != 1 || res.Strategy.Topics[0].Title != "Из стратега" {
 		t.Fatalf("темы = %+v, want одну из стратега", res.Strategy.Topics)
 	}
-	if n := fake.Calls[topic.RoleSeeds]; n != 0 {
+	if n := fake.Calls[topicservice.RoleSeeds]; n != 0 {
 		t.Errorf("сеялки вызваны %d раз без Wordstat, want 0", n)
 	}
 }

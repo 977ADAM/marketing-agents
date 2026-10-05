@@ -7,11 +7,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	"github.com/977ADAM/marketing-agents/internal/repository"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/testdb"
+	testdb "github.com/977ADAM/marketing-agents/internal/testkit/testdb"
 )
 
 // testStores — три хранилища поверх одной БД: адаптер разделён по сущностям,

@@ -3,29 +3,31 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/977ADAM/marketing-agents/internal/sloglogger"
+	llm "github.com/977ADAM/marketing-agents/internal/adapters/llm/deepseek"
+	sloglogger "github.com/977ADAM/marketing-agents/internal/adapters/logger/slog"
+	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
+	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
+	config "github.com/977ADAM/marketing-agents/internal/core/config"
+	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
+	wordstat "github.com/977ADAM/marketing-agents/internal/features/topic/source/wordstat"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
+	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
+	apihttp "github.com/977ADAM/marketing-agents/internal/http"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/repository"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/config"
-	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
-	apihttp "github.com/977ADAM/marketing-agents/internal/http"
-	"github.com/977ADAM/marketing-agents/internal/llm"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/repository"
-	"github.com/977ADAM/marketing-agents/internal/runner"
-	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/trace"
-	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("config", "err", err)
@@ -68,7 +70,7 @@ func main() {
 		logger.Error("trace mode", "err", err)
 		os.Exit(1)
 	}
-	recorder := trace.New(events, trace.Config{
+	recorder := traceservice.New(events, trace.Config{
 		Mode:            mode,
 		MaxPayloadBytes: cfg.TraceMaxPayloadBytes,
 		OnError:         func(err error) { logger.Warn("trace", "err", err) },
@@ -88,14 +90,14 @@ func main() {
 
 	baseLLM := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
-	baseLLM.SetRoleModel(campaign.RoleCopywriter, cfg.ModelFast)
-	llmClient := llm.NewTracing(baseLLM, recorder)
+	baseLLM.SetRoleModel(campaignservice.RoleCopywriter, cfg.ModelFast)
+	llmClient := tracing.NewLLM(baseLLM, recorder)
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
 	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
 	var source topic.Source
 	if cfg.WordstatMCPURL != "" {
-		source = wordstat.NewTracing(wordstat.New(wordstat.Options{
+		source = tracing.NewWordstat(wordstat.New(wordstat.Options{
 			URL:  cfg.WordstatMCPURL,
 			User: cfg.WordstatMCPUser,
 			Pass: cfg.WordstatMCPPass,

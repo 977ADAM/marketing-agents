@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/977ADAM/marketing-agents/internal/trace"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
 
 // runEventRow — таблица run_events (трасса прогона). payload заполняется только в

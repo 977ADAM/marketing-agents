@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 )
 
 // validGeoID проверяет geo ID Яндекса: непустая строка из цифр.

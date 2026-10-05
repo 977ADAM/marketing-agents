@@ -4,14 +4,16 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"github.com/977ADAM/marketing-agents/internal/core/corellm"
+	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
+	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
+	topicservice "github.com/977ADAM/marketing-agents/internal/features/topic/service"
 	"golang.org/x/sync/errgroup"
 	"sync"
 
-	"github.com/977ADAM/marketing-agents/internal/campaign"
-	"github.com/977ADAM/marketing-agents/internal/run"
-	"github.com/977ADAM/marketing-agents/internal/topic"
-	"github.com/977ADAM/marketing-agents/internal/trace"
+	run "github.com/977ADAM/marketing-agents/internal/core/run"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
+	topic "github.com/977ADAM/marketing-agents/internal/features/topic/domain"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 )
 
 type Options struct {
@@ -25,7 +27,7 @@ type Options struct {
 	// что подбор тем выключен: темы даёт стратег, как до появления Wordstat.
 	Wordstat topic.Source
 	// Semanticist — агент подбора тем: сеялки, кластеризация, fallback.
-	Semanticist *topic.Semanticist
+	Semanticist *topicservice.Semanticist
 	// SeedCount — сколько сеялок просить у модели (0 — дефолт).
 	SeedCount int
 	// NumPhrases — сколько фраз запрашивать у Wordstat на сеялку (0 — дефолт 50).
@@ -52,10 +54,10 @@ type Result struct {
 
 type Orchestrator struct {
 	llm         corellm.Client
-	strategist  *campaign.Strategist
-	copywriter  *campaign.Copywriter
-	critic      *campaign.Critic
-	semanticist *topic.Semanticist
+	strategist  *campaignservice.Strategist
+	copywriter  *campaignservice.Copywriter
+	critic      *campaignservice.Critic
+	semanticist *topicservice.Semanticist
 	trace       trace.Recorder
 	opt         Options
 }
@@ -63,13 +65,13 @@ type Orchestrator struct {
 func New(c corellm.Client, opt Options) *Orchestrator {
 	semanticist := opt.Semanticist
 	if semanticist == nil {
-		semanticist = topic.NewSemanticist(c)
+		semanticist = topicservice.NewSemanticist(c)
 	}
 	return &Orchestrator{
 		llm:         c,
-		strategist:  campaign.NewStrategist(c),
-		copywriter:  campaign.NewCopywriter(c),
-		critic:      campaign.NewCritic(c),
+		strategist:  campaignservice.NewStrategist(c),
+		copywriter:  campaignservice.NewCopywriter(c),
+		critic:      campaignservice.NewCritic(c),
 		semanticist: semanticist,
 		trace:       trace.OrNop(opt.Recorder),
 		opt:         opt,
