@@ -208,5 +208,5 @@ type Handler struct {
 
 func NewHandler(c CampaignReader, r ReviewReader, q TraceQuery) *Handler { return &Handler{c, r, q} }
 func (h *Handler) Routes() []server.Route {
-	return []server.Route{{"GET /api/campaigns/{id}/trajectory", h.campaignTrajectory}, {"GET /api/campaigns/{id}/trajectory/{seq}", h.campaignTrajectoryEvent}, {"GET /api/reviews/{id}/trajectory", h.reviewTrajectory}, {"GET /api/reviews/{id}/trajectory/{seq}", h.reviewTrajectoryEvent}}
+	return []server.Route{{Pattern: "GET /api/campaigns/{id}/trajectory", Handler: h.campaignTrajectory}, {Pattern: "GET /api/campaigns/{id}/trajectory/{seq}", Handler: h.campaignTrajectoryEvent}, {Pattern: "GET /api/reviews/{id}/trajectory", Handler: h.reviewTrajectory}, {Pattern: "GET /api/reviews/{id}/trajectory/{seq}", Handler: h.reviewTrajectoryEvent}}
 }

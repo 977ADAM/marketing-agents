@@ -44,19 +44,20 @@
 ```
 backend/            Go-сервис (отдельный модуль): API /api/*, /healthz; данные — MariaDB
   cmd/server/       точка входа API (composition root)
-  internal/         ядро (core/corellm, core/corelogger, run, score, trace,
-                    core/repository/mariadb/pool — общее подключение),
-                    домен (campaign, review, topic), сценарии (orchestrator),
-                    транспорт (http), async-прогоны (runner),
-                    адаптеры (llm, wordstat, sloglogger),
-                    хранилище (repository/mariadb на GORM)
-  internal/wordstat клиент Wordstat (MCP) + фикстуры ответов для тестов
-  internal/trace    журнал событий прогона (трасса) и его декораторы
-  internal/testdb   временная база MariaDB для тестов: заводит её на каждый тест
+  internal/core/    общие контракты, config, limits, run, llm; MariaDB pool/schema;
+                    общие HTTP server/middleware/response
+  internal/features/
+    campaign/       domain → service ← repository/mariadb, transport/http
+    review/         domain → service ← repository/mariadb, transport/http
+    topic/          domain, service, source/wordstat (+ testdata)
+    trace/          domain, service, repository/mariadb, transport/http
+  internal/application/runner/  фоновые задачи, admission, leases, progress/SSE
+  internal/adapters/            DeepSeek, slog, tracing, accounting
+  internal/testkit/             mock-клиенты и изолированные тестовые базы
   migrations/       миграции схемы: NNNN_name.sql с секциями -- migrate:up / -- migrate:down (dbmate)
   tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
   .env.example      переменные окружения бэкенда (копируется в .env, в git не попадает)
-  Dockerfile        образ API (миграции применяет сервис migrate на готовом образе dbmate)
+  Dockerfile        образ API и migrate (dbmate + общий helper dburl)
 frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   src/routes/       страницы /, /campaigns/[id], /reviews, /reviews/[id]
   src/routes/api/   прокси /api/* на Go-API (endpoint-роут +server.ts)
@@ -265,7 +266,7 @@ npm test         # юнит-тесты (vitest)
 
 **Тесты и база.** Тестам, которые ходят в БД, нужен сервер MariaDB: адрес задаёт
 `TEST_DATABASE_URL` (например `mysql://root:пароль@127.0.0.1:3306/` — базу в
-адресе указывать не нужно). Каждому тесту `internal/testdb` заводит отдельную
+адресе указывать не нужно). Каждому тесту `internal/testkit/testdb` заводит отдельную
 временную базу, применяет к ней миграции и удаляет её после — та же изоляция, что
 раньше давал файл в `t.TempDir()`. Учёт для тестов — root: временные базы создаёт
 сам тест. `make test-backend` (а также `test-unit` и `test-e2e`) поднимают
@@ -284,7 +285,7 @@ cd frontend && npm test         # vitest: api-клиент, сторы (в т.ч
 (всё Go), `make test` (Go + фронт).
 
 Подбор тем покрыт тестами на **реальных ответах Wordstat**: фикстуры живого MCP
-лежат в `backend/internal/wordstat/testdata` (сырые тела ответов, включая фразу
+лежат в `backend/internal/features/topic/source/wordstat/testdata` (сырые тела ответов, включая фразу
 без спроса и обе формы ошибок), тесты прогона проверяют, что выбор модели
 уважается, объём и головная фраза считаются по данным, отказ модели сохраняется,
 пустой выбор — ошибка, fallback без спроса, лимит обращений и падение на
@@ -324,8 +325,7 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 
 Общее подключение живёт в ядре — `internal/core/repository/mariadb/pool`
 (`gorm.Open` + настройки из DSN + пул); репозитории
-(`internal/repository/mariadb`: `campaign.go`, `review.go`, `trace.go`,
-`schema.go`) получают готовый `*gorm.DB` и работают через модели
+(`internal/features/{campaign,review,trace}/repository/mariadb`) получают готовый `*gorm.DB` и работают через модели
 (`campaignRow`, `reviewRow`, `runEventRow`): `Create`, `First`, `Updates`,
 `Find`, `Transaction`, а проверка схемы — через `Migrator()`.
 
@@ -364,8 +364,8 @@ Svelte-компоненты юнит-тестами не покрыты (их п
 
 Применяет миграции отдельный сервис, а не сервер:
 
-- в compose — сервис `migrate` на готовом образе
-  `ghcr.io/amacneil/dbmate:2.36.0`: адрес собирает из `MARIADB_*` внутри
+- в compose — сервис `migrate`, собранный поверх
+  `ghcr.io/amacneil/dbmate:2.36.0`: helper `dburl` собирает адрес из `MARIADB_*` внутри
   контейнера (секреты остаются в `backend/.env`), ждёт готовности сервера
   (`--wait`) и применяет схему; `backend` ждёт его успешного выхода и на старте
   лишь проверяет, что таблица учёта существует и не пуста, а ключи API миграциям
@@ -475,7 +475,55 @@ MCP-сервер Wordstat (`yandex-wordstat-mcp`, Streamable HTTP + basic-auth),
   модели, поэтому качество отбора зависит от того, насколько она отличит шум от
   темы. Смягчение — фильтр ассоциаций на стороне Wordstat или явная инструкция в
   промпте, задача Фазы 2.
-- **Результат подбора не сохраняется при падении прогона.** Кандидаты и цитаты
-  попадают в БД только при успешном завершении (`strategy` пишется в конце),
-  поэтому сбой на генерации статей теряет уже оплаченный research. Персист
-  промежуточного результата — та же Фаза 2, что и восстановление прогонов.
+- **Старые failed-прогоны без сохранённого входа нельзя продолжить.** Для них
+  retry возвращает `409 resume_unavailable`; создайте новый прогон.
+
+## Слои и устойчивость прогонов
+
+`cmd/server/main.go` собирает repository → service → HTTP transport для каждой
+фичи. Сервисы объявляют потребляемые порты; domain/core не импортируют features,
+application или adapters. Runner координирует сервисы и фоновые задачи.
+
+Новые миграции добавляют revision, creation keys, leases, checkpoints, usage и
+счётчик событий. Перед запуском новой версии выполните `make migrate`;
+сервер откажется стартовать при пропущенной миграции. Старые результаты читаются
+без перезаписи. Rollback удаляет добавленные данные и требует отдельного решения;
+автоматические тесты откатывают только временные базы.
+
+Создание поддерживает `Idempotency-Key` (1–128 печатных ASCII-символов).
+Повтор одинакового входа для клиента/вида возвращает прежний ID; другой вход с
+тем же ключом — `409 idempotency_conflict`. Ключ нужен при повторе запроса после
+неизвестного сетевого исхода. `202` означает принятие фоновой задачи; заполненная
+очередь возвращает `503 busy` до создания записи.
+
+Lease действует 30 секунд и обновляется каждые 10 секунд. Записи проверяют owner
+и attempt; другой процесс не может перезаписать живой прогон. Просроченный lease
+переходит в failed. `POST /api/campaigns/{id}/retry` и `/api/reviews/{id}/retry`
+продолжают failed-прогон с прежним ID и полным сохранённым входом, пропуская
+готовые этапы. GET показывает частичные результаты и `resume_available`.
+
+Лимиты по умолчанию: JSON 2 MiB, 20 проверяемых текстов по 512 KiB, до 5 тем,
+4 параллельных текста; DOCX — 20 MiB архив, 4 MiB XML, 512 KiB текст.
+Настройки: `MAX_JSON_BYTES`, `MAX_REVIEW_TEXTS`, `MAX_TEXT_BYTES`, `MAX_TOPICS`,
+`PARALLEL_TEXTS`, `RUNNER_CAPACITY` (64), `SHUTDOWN_GRACE` (30s),
+`FINALIZE_TIMEOUT` (5s). `GET /api/limits` сообщает лимит тем интерфейсу.
+`RATE_LIMIT_PER_MIN=0` отключает ограничение запросов. Бюджет Wordstat считает
+каждый физический tools/call, включая повторы; initialize учитывается отдельно.
+
+Стоимость оценочная: `MODEL_PRICES_JSON` задаёт для каждого фактического имени
+модели `prompt_per_1k` и `completion_per_1k`. Неизвестная модель даёт
+`cost_known=false`, интерфейс показывает «Оценка недоступна». Без карты тарифов
+используются прежние `COST_PER_1K_PROMPT`/`COST_PER_1K_COMPLETION` как явный fallback.
+Usage сохраняется отдельно для каждого вызова, включая ответ с ошибкой разбора,
+и складывается по всем попыткам без повторного начисления готовых этапов.
+
+История сохраняет массив JSON: `?before_seq=N` возвращает следующую страницу,
+`X-Next-Cursor` — продолжение (по умолчанию 50 записей). Трасса поддерживает
+`?after_seq=N` и возвращает `total`, `next_seq`, `has_more`. Открытая панель
+обновляется каждые 2 секунды во время прогона. В режиме full payload имеет
+оболочку `{data,truncated}`; публичная ошибка не содержит сырой ответ модели.
+
+Проверки: `make verify` (Go + MariaDB, frontend tests/check/build),
+`make test-race` (runner/trace/repository/e2e), `make docker-build`.
+HTTP/SSE smoke и upgrade/rollback входят в тесты и используют временные базы
+и mock-клиенты; платные запросы для этих проверок не нужны.

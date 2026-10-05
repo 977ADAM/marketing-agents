@@ -1,4 +1,4 @@
-// Package httpapi — REST-слой: создание/чтение кампаний, healthz.
+// Package campaignhttp — REST-слой: создание/чтение кампаний, healthz.
 package campaignhttp
 
 import (
@@ -229,11 +229,11 @@ func NewHandler(s CampaignService, sub Subscriber, limiter *middleware.RateLimit
 
 func (h *Handler) Routes() []server.Route {
 	return []server.Route{
-		{"POST /api/campaigns/{id}/retry", h.retry},
-		{"POST /api/campaigns", h.postCampaign},
-		{"GET /api/campaigns", h.listCampaigns},
-		{"GET /api/campaigns/{id}", h.getCampaign},
-		{"GET /api/campaigns/{id}/events", h.campaignEvents},
+		{Pattern: "POST /api/campaigns/{id}/retry", Handler: h.retry},
+		{Pattern: "POST /api/campaigns", Handler: h.postCampaign},
+		{Pattern: "GET /api/campaigns", Handler: h.listCampaigns},
+		{Pattern: "GET /api/campaigns/{id}", Handler: h.getCampaign},
+		{Pattern: "GET /api/campaigns/{id}/events", Handler: h.campaignEvents},
 	}
 }
 

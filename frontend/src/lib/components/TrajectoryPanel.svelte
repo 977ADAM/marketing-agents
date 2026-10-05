@@ -58,6 +58,7 @@
 		<p class="muted">Загружаем трассу…</p>
 	{:else if error || $streamError}
 		<p class="error" role="alert">{error ?? $streamError}</p>
+		<button type="button" disabled={$loading} onclick={() => { error = null; void stream.refresh(); }}>Повторить</button>
 	{:else if !$trajectory || $trajectory.events.length === 0}
 		<p class="muted">
 			Событий нет: трасса выключена (<code>TRACE_MODE=off</code>) или прогон шёл до её появления.

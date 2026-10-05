@@ -259,7 +259,7 @@ func NewHandler(s ReviewService, sub Subscriber, limiter *middleware.RateLimiter
 }
 
 func (h *Handler) Routes() []server.Route {
-	return []server.Route{{"POST /api/reviews/{id}/retry", h.retry}, {"POST /api/reviews", h.postReview}, {"GET /api/reviews", h.listReviews}, {"GET /api/reviews/{id}", h.getReview}, {"GET /api/reviews/{id}/events", h.reviewEvents}, {"POST /api/reviews/extract", h.extractDocx}}
+	return []server.Route{{Pattern: "POST /api/reviews/{id}/retry", Handler: h.retry}, {Pattern: "POST /api/reviews", Handler: h.postReview}, {Pattern: "GET /api/reviews", Handler: h.listReviews}, {Pattern: "GET /api/reviews/{id}", Handler: h.getReview}, {Pattern: "GET /api/reviews/{id}/events", Handler: h.reviewEvents}, {Pattern: "POST /api/reviews/extract", Handler: h.extractDocx}}
 }
 
 type ExtractResponse = extractResponse

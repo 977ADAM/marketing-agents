@@ -85,6 +85,10 @@ test: test-backend test-frontend
 test-backend:
 	$(call run_go_tests,./...)
 
+## test-race: race detector для runner, trace и конкурентных DB проверок
+test-race:
+	$(call run_go_tests,-race ./internal/application/... ./internal/features/trace/... ./tests/repository/... ./tests/e2e/...)
+
 ## test-unit: только юнит-тесты пакетов internal (без сквозных)
 test-unit:
 	$(call run_go_tests,./internal/...)

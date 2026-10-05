@@ -108,7 +108,7 @@ const (
 	pctProducingMax = 95
 )
 
-// Percent — публичная обёртка над computePercent для внешних потребителей (httpapi).
+// Percent — публичная обёртка над computePercent для внешних потребителей (HTTP transport).
 func Percent(ph Phase, done, total int) int { return computePercent(ph, done, total) }
 
 // computePercent — оценка % по фазе и числу готовых тем. Для PhaseFailed

@@ -8,9 +8,7 @@ import (
 
 // Store — хранение проверок текстов: порт у потребителя, реализация — адаптер.
 //
-// Имена методов с суффиксом Check (CreateCheck, GetCheck…) — плата за то, что
-// один адаптер (internal/repository/mariadb) реализует и campaignservice.Store, и reviewservice.Store:
-// одноимённые методы с разными подписями в Go несовместимы.
+// Суффикс Check сохранён для совместимости существующих портов и тестовых клиентов.
 type Store interface {
 	CreateCheck(ctx context.Context, clientID, briefText string) (string, error)
 	MarkCheckRunning(ctx context.Context, id string) error
