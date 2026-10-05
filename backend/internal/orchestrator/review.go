@@ -5,29 +5,17 @@ import (
 	"fmt"
 	"sync"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
-	"golang.org/x/sync/errgroup"
+	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/score"
 )
-
-// ReviewRequest — вход проверки готовых текстов: бриф + тексты.
-type ReviewRequest struct {
-	BriefText string                `json:"brief"`
-	Texts     []agents.TextToReview `json:"texts"`
-}
-
-// ReviewResult — итог проверки: отчёты по текстам, сводка и суммарная стоимость.
-// Passed — сколько текстов прошло (verdict=pass): считает бэкенд, фронт только
-// показывает готовое число.
-type ReviewResult struct {
-	Items   []agents.TextReport `json:"items"`
-	Passed  int                 `json:"passed"`
-	CostUSD float64             `json:"cost_usd"`
-}
 
 // Review прогоняет готовые тексты через двух агентов (соответствие брифу и
 // корректность текста) параллельно по текстам и возвращает отчёты.
-func (o *Orchestrator) Review(ctx context.Context, req ReviewRequest, p Progress) (ReviewResult, error) {
+func (o *Orchestrator) Review(ctx context.Context, req review.Request, p Progress) (review.Result, error) {
 	if p == nil {
 		p = NopProgress{}
 	}
@@ -48,7 +36,7 @@ func (o *Orchestrator) Review(ctx context.Context, req ReviewRequest, p Progress
 	compliance := agents.NewComplianceChecker(o.llm)
 	quality := agents.NewQualityChecker(o.llm)
 
-	reports := make([]agents.TextReport, len(req.Texts))
+	reports := make([]review.TextReport, len(req.Texts))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, t := range req.Texts {
 		i, t := i, t
@@ -63,35 +51,35 @@ func (o *Orchestrator) Review(ctx context.Context, req ReviewRequest, p Progress
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return ReviewResult{}, err
+		return review.Result{}, err
 	}
 
 	passed := 0
 	for _, r := range reports {
-		if r.Verdict == agents.VerdictPass {
+		if r.Verdict == review.VerdictPass {
 			passed++
 		}
 	}
-	return ReviewResult{Items: reports, Passed: passed, CostUSD: o.cost(total)}, nil
+	return review.Result{Items: reports, Passed: passed, CostUSD: o.cost(total)}, nil
 }
 
 // reviewOne — проверка одного текста двумя агентами с прогрессом.
 func (o *Orchestrator) reviewOne(ctx context.Context, compliance *agents.ComplianceChecker, quality *agents.QualityChecker,
-	briefText string, i int, t agents.TextToReview, p Progress) (agents.TextReport, llm.Usage, error) {
+	briefText string, i int, t review.TextToReview, p Progress) (review.TextReport, llm.Usage, error) {
 	var total llm.Usage
 
 	p.TopicWriting(i) // первый агент: соответствие брифу
 	c, u, err := compliance.Run(ctx, briefText, t)
 	total = total.Add(u)
 	if err != nil {
-		return agents.TextReport{}, total, err
+		return review.TextReport{}, total, err
 	}
 
 	p.TopicReviewing(i, 1) // второй агент: корректность текста
 	q, u, err := quality.Run(ctx, t)
 	total = total.Add(u)
 	if err != nil {
-		return agents.TextReport{}, total, err
+		return review.TextReport{}, total, err
 	}
 
 	overall := c.Score
@@ -99,18 +87,18 @@ func (o *Orchestrator) reviewOne(ctx context.Context, compliance *agents.Complia
 		overall = q.Score
 	}
 	p.TopicDone(i, overall)
-	return agents.TextReport{
+	return review.TextReport{
 		Title:      titleOf(t, i),
 		Compliance: c,
 		Quality:    q,
 		Overall:    overall,
-		Verdict:    agents.Verdict(c.Score, q.Score),
-		Severity:   agents.Severity(overall),
+		Verdict:    review.Verdict(c.Score, q.Score),
+		Severity:   score.Severity(overall),
 	}, total, nil
 }
 
 // titleOf — заголовок текста для прогресса; пустой заменяем на «Текст N».
-func titleOf(t agents.TextToReview, i int) string {
+func titleOf(t review.TextToReview, i int) string {
 	if t.Title != "" {
 		return t.Title
 	}

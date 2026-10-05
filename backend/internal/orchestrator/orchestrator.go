@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"sync"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
-	"golang.org/x/sync/errgroup"
 )
 
 type Options struct {
@@ -45,8 +47,8 @@ type Options struct {
 
 // Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость и расход.
 type Result struct {
-	Strategy     agents.Strategy
-	Deliverables []agents.Deliverable
+	Strategy     campaign.Strategy
+	Deliverables []campaign.Deliverable
 	CostUSD      float64
 	// Usage — суммарные токены прогона (трасса показывает их по ролям в событиях,
 	// здесь — общий итог).
@@ -84,7 +86,7 @@ func (o *Orchestrator) canResearch() bool {
 	return o.opt.Wordstat != nil && o.semanticist != nil
 }
 
-func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (res Result, err error) {
+func (o *Orchestrator) Run(ctx context.Context, b campaign.Brief, p Progress) (res Result, err error) {
 	if p == nil {
 		p = NopProgress{}
 	}
@@ -106,7 +108,7 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (res
 
 	// Темы: либо подбор на поисковом спросе, либо стратег как раньше.
 	// Позиционирование в обоих случаях даёт стратег.
-	var strat agents.Strategy
+	var strat campaign.Strategy
 	if o.canResearch() {
 		researched, u, err := o.research(ctx, b, p)
 		if err != nil {
@@ -143,7 +145,7 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (res
 	}
 	p.TopicsPlanned(titles)
 
-	deliverables := make([]agents.Deliverable, len(strat.Topics))
+	deliverables := make([]campaign.Deliverable, len(strat.Topics))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, topic := range strat.Topics {
 		i, topic := i, topic
@@ -169,23 +171,23 @@ func (o *Orchestrator) Run(ctx context.Context, b agents.Brief, p Progress) (res
 }
 
 // produce пишет статью и гоняет цикл критика; usage аккумулируется по всем вызовам.
-func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Strategy, i int, t agents.Topic, p Progress) (agents.Deliverable, llm.Usage, error) {
+func (o *Orchestrator) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p Progress) (campaign.Deliverable, llm.Usage, error) {
 	total := llm.Usage{}
 	p.TopicWriting(i)
 	art, u, err := o.copywriter.Run(ctx, b, s, t)
 	total = total.Add(u)
 	if err != nil {
-		return agents.Deliverable{}, total, err
+		return campaign.Deliverable{}, total, err
 	}
 
-	best := agents.Deliverable{Article: art}
+	best := campaign.Deliverable{Article: art}
 	bestSet := false
 	for iter := 0; iter < o.opt.CriticMaxIter; iter++ {
 		p.TopicReviewing(i, iter+1)
 		rev, u, err := o.critic.Run(ctx, b, art)
 		total = total.Add(u)
 		if err != nil {
-			return agents.Deliverable{}, total, err
+			return campaign.Deliverable{}, total, err
 		}
 		o.traceDecision(ctx, "critic", fmt.Sprintf("«%s»: итерация %d — %d/100, %s, замечаний %d",
 			t.Title, iter+1, rev.Score, verdictNote(rev.Verdict), len(rev.Issues)),
@@ -195,12 +197,12 @@ func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Str
 			})
 
 		if !bestSet || rev.Score > best.Review.Score {
-			best = agents.Deliverable{Article: art, Review: rev}
+			best = campaign.Deliverable{Article: art, Review: rev}
 			bestSet = true
 		}
 		if rev.Verdict == "accept" || rev.Score >= o.opt.ScoreThreshold {
 			p.TopicDone(i, rev.Score)
-			return agents.Deliverable{Article: art, Review: rev}, total, nil
+			return campaign.Deliverable{Article: art, Review: rev}, total, nil
 		}
 		if iter == o.opt.CriticMaxIter-1 {
 			break // больше не доработать — выходим с лучшим
@@ -209,7 +211,7 @@ func (o *Orchestrator) produce(ctx context.Context, b agents.Brief, s agents.Str
 		art, u, err = o.copywriter.Revise(ctx, art, rev)
 		total = total.Add(u)
 		if err != nil {
-			return agents.Deliverable{}, total, err
+			return campaign.Deliverable{}, total, err
 		}
 	}
 	p.TopicDone(i, best.Review.Score)

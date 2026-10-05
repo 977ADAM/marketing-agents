@@ -1,37 +1,17 @@
-// Package agents — LLM-агенты отдела контента и их типизированные I/O.
-package agents
+// Package topic — подбор тем по поисковому спросу: типы, порт источника спроса и
+// правила отбора. Домен: не знает ни про HTTP, ни про SQL, ни про MCP.
+package topic
 
-// Brief — вход пайплайна.
-type Brief struct {
-	Product  string `json:"product"`
-	Goal     string `json:"goal"`
-	Audience string `json:"audience"`
-	Tone     string `json:"tone"`
-	// Region — geo ID Яндекса для подбора тем: 225 — Россия, 1 — Москва и
-	// область, 213 — Москва. Пусто — регион по умолчанию из конфига.
-	Region string `json:"region,omitempty"`
-	// TopicsCount — сколько статей нужно по медиаплану. Идей предлагаем вдвое
-	// больше (см. TOPICS_MULTIPLIER), в генерацию уходят лучшие.
-	TopicsCount int `json:"topics_count,omitempty"`
-}
-
-// Topic — тема статьи, выданная стратегом.
-type Topic struct {
-	Title  string   `json:"title"`
-	Angle  string   `json:"angle"`
-	Points []string `json:"points"`
-}
-
-// Strategy — выход стратега.
-type Strategy struct {
-	Positioning string  `json:"positioning"`
-	Topics      []Topic `json:"topics"`
-	// TopicCandidates — все рассмотренные темы (их вдвое больше, чем статей) с
-	// доказательствами: объёмом, цитатами запросов, сезонностью. В генерацию
-	// уходят только Topics, а здесь остаётся всё, из чего выбирали.
-	TopicCandidates []TopicCandidate `json:"topic_candidates,omitempty"`
-	// WordstatCalls — сколько обращений к Wordstat потребовал подбор тем.
-	WordstatCalls int `json:"wordstat_calls,omitempty"`
+// Briefing — проекция брифа, нужная подбору тем: продукт, цель, аудитория, тон.
+//
+// Сам бриф живёт в домене кампании; если бы подбор принимал его напрямую, а
+// стратегия кампании ссылалась на темы из этого пакета, получился бы цикл
+// импортов campaign ↔ topic. Поэтому у подбора свой вход.
+type Briefing struct {
+	Product  string
+	Goal     string
+	Audience string
+	Tone     string
 }
 
 // Источники темы: подтверждённая спросом или придуманная моделью, когда спроса
@@ -40,6 +20,16 @@ const (
 	SourceWordstat = "wordstat"
 	SourceLLM      = "llm"
 )
+
+// TopicDraft — тема-кандидат от модели. Чисел здесь нет и быть не может:
+// объём, сезонность и источник дописывает код (см. TopicCandidate).
+type TopicDraft struct {
+	Title   string   `json:"title"`
+	Goal    string   `json:"goal"`
+	Task    string   `json:"task"`
+	Queries []string `json:"queries"`
+	Intent  string   `json:"intent,omitempty"`
+}
 
 // PhraseCount — фраза и её частотность: доказательство темы.
 type PhraseCount struct {
@@ -89,27 +79,4 @@ type TopicCandidate struct {
 	// просто не хватило мест). Видно в результате, чтобы не было «её нет и
 	// непонятно почему».
 	Reject string `json:"reject,omitempty"`
-}
-
-// Article — выход копирайтера.
-type Article struct {
-	Topic string `json:"topic"`
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	CTA   string `json:"cta"`
-}
-
-// Review — выход критика. Verdict: "accept" | "revise".
-// Severity — градация score для интерфейса (см. Severity()).
-type Review struct {
-	Score    int      `json:"score"`
-	Issues   []string `json:"issues"`
-	Verdict  string   `json:"verdict"`
-	Severity string   `json:"severity"`
-}
-
-// Deliverable — статья с прикреплённым ревью (итог по теме).
-type Deliverable struct {
-	Article
-	Review Review `json:"review"`
 }

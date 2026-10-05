@@ -7,6 +7,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
 )
 
 // Review: два текста, у каждого два агента (compliance, quality).
@@ -24,7 +25,7 @@ func TestReviewTwoTexts(t *testing.T) {
 	}
 	o := orchestrator.New(fake, orchestrator.Options{CostPer1KPrompt: 1, CostPer1KCompletion: 1})
 
-	req := orchestrator.ReviewRequest{BriefText: "бриф", Texts: []agents.TextToReview{
+	req := review.Request{BriefText: "бриф", Texts: []review.TextToReview{
 		{Title: "Статья 1", Body: "текст 1"},
 		{Title: "Статья 2", Body: "текст 2"},
 	}}
@@ -65,7 +66,7 @@ func TestReviewTitleFallback(t *testing.T) {
 
 	var got []string
 	rec := &recordingProgress{onPlanned: func(titles []string) { got = append(got, titles...) }}
-	req := orchestrator.ReviewRequest{BriefText: "б", Texts: []agents.TextToReview{{Body: "x"}}}
+	req := review.Request{BriefText: "б", Texts: []review.TextToReview{{Body: "x"}}}
 	if _, err := o.Review(context.Background(), req, rec); err != nil {
 		t.Fatalf("Review: %v", err)
 	}

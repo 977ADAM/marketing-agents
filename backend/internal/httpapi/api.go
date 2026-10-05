@@ -10,15 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
-	"github.com/977ADAM/marketing-agents/internal/store"
 	"golang.org/x/time/rate"
+
+	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
 // Repo — то, что API нужно от стора.
 type Repo interface {
-	Create(ctx context.Context, clientID string, b agents.Brief) (string, error)
+	Create(ctx context.Context, clientID string, b campaign.Brief) (string, error)
 	Get(ctx context.Context, id string) (*store.Campaign, error)
 	ListRecent(ctx context.Context, limit int) ([]store.CampaignSummary, error)
 	CreateReview(ctx context.Context, clientID, briefText string) (string, error)
@@ -31,8 +33,8 @@ type Repo interface {
 
 // Runner запускает фоновый прогон кампании или проверки текстов (асинхронно).
 type Runner interface {
-	Start(id string, b agents.Brief)
-	StartReview(id string, req orchestrator.ReviewRequest)
+	Start(id string, b campaign.Brief)
+	StartReview(id string, req review.Request)
 }
 
 // Subscriber — источник снимков прогресса для SSE.
@@ -129,7 +131,7 @@ func (a *API) postCampaign(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation", fmt.Sprintf("topics_count must be between 1 and %d", maxTopicsCount))
 		return
 	}
-	brief := agents.Brief{
+	brief := campaign.Brief{
 		Product: req.Product, Goal: req.Goal, Audience: req.Audience, Tone: req.Tone,
 		Region: req.Region, TopicsCount: req.TopicsCount,
 	}

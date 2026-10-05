@@ -8,20 +8,21 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
 )
 
 // Review — модель строки проверки текстов для API.
 type Review struct {
-	ID        string                     `json:"id"`
-	ClientID  string                     `json:"client_id"`
-	Status    string                     `json:"status"`
-	BriefText string                     `json:"brief_text"`
-	Result    *orchestrator.ReviewResult `json:"result,omitempty"`
-	Progress  *orchestrator.Snapshot     `json:"progress,omitempty"`
-	CostUSD   *float64                   `json:"cost_usd,omitempty"`
-	Error     string                     `json:"error,omitempty"`
-	CreatedAt time.Time                  `json:"created_at"`
-	UpdatedAt time.Time                  `json:"updated_at"`
+	ID        string                 `json:"id"`
+	ClientID  string                 `json:"client_id"`
+	Status    string                 `json:"status"`
+	BriefText string                 `json:"brief_text"`
+	Result    *review.Result         `json:"result,omitempty"`
+	Progress  *orchestrator.Snapshot `json:"progress,omitempty"`
+	CostUSD   *float64               `json:"cost_usd,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
 }
 
 // ReviewSummary — лёгкая сводка для списка истории проверок.
@@ -64,7 +65,7 @@ func (s *Store) SaveReviewProgress(ctx context.Context, id string, snap orchestr
 }
 
 // CompleteReview сохраняет результат и переводит проверку в done.
-func (s *Store) CompleteReview(ctx context.Context, id string, res orchestrator.ReviewResult) error {
+func (s *Store) CompleteReview(ctx context.Context, id string, res review.Result) error {
 	resultJSON, _ := json.Marshal(res)
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE reviews SET status='done', result=?, cost_usd=?, updated_at=`+nowExpr+` WHERE id=?`,
@@ -96,7 +97,7 @@ func (s *Store) GetReview(ctx context.Context, id string) (*Review, error) {
 		return nil, err
 	}
 	if len(resultJSON) > 0 {
-		var res orchestrator.ReviewResult
+		var res review.Result
 		if json.Unmarshal(resultJSON, &res) == nil {
 			r.Result = &res
 		}

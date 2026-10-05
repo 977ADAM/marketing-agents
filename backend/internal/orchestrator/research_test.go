@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -64,7 +66,7 @@ func winterSource() *wordstat.Fake {
 }
 
 // researchBrief — бриф с регионом и числом статей.
-func researchBrief() agents.Brief {
+func researchBrief() campaign.Brief {
 	b := brief()
 	b.Region = "213"
 	b.TopicsCount = 2
@@ -144,7 +146,7 @@ func TestRunResearchUsesWordstatTopics(t *testing.T) {
 		if !c.Selected {
 			t.Errorf("тема %q не отобрана", c.Title)
 		}
-		if c.Source != agents.SourceWordstat {
+		if c.Source != topic.SourceWordstat {
 			t.Errorf("источник темы %q = %q, want wordstat", c.Title, c.Source)
 		}
 	}
@@ -210,7 +212,7 @@ func TestRunResearchFallsBackWhenNoDemand(t *testing.T) {
 		t.Fatalf("тем %d, want 2", len(res.Strategy.Topics))
 	}
 	for _, c := range res.Strategy.TopicCandidates {
-		if c.Source != agents.SourceLLM {
+		if c.Source != topic.SourceLLM {
 			t.Errorf("тема %q: source = %q, want llm", c.Title, c.Source)
 		}
 		if c.Volume != 0 || len(c.Queries) != 0 {

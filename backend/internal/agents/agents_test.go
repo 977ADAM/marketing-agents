@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 )
 
-func testBrief() agents.Brief {
-	return agents.Brief{Product: "Эко-бутылка", Goal: "Рост продаж", Audience: "ЗОЖ-аудитория 25-40", Tone: "дружелюбный"}
+func testBrief() campaign.Brief {
+	return campaign.Brief{Product: "Эко-бутылка", Goal: "Рост продаж", Audience: "ЗОЖ-аудитория 25-40", Tone: "дружелюбный"}
 }
 
 func TestStrategistReturnsTopics(t *testing.T) {
@@ -49,9 +50,9 @@ func TestCopywriterWritesArticle(t *testing.T) {
 		`{"topic":"Зачем пить воду","title":"Пей умно","body":"Текст статьи...","cta":"Купить"}`,
 	}
 	cw := agents.NewCopywriter(fake)
-	topic := agents.Topic{Title: "Зачем пить воду", Angle: "польза", Points: []string{"а"}}
+	topic := campaign.Topic{Title: "Зачем пить воду", Angle: "польза", Points: []string{"а"}}
 
-	art, _, err := cw.Run(context.Background(), testBrief(), agents.Strategy{Positioning: "p"}, topic)
+	art, _, err := cw.Run(context.Background(), testBrief(), campaign.Strategy{Positioning: "p"}, topic)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -66,8 +67,8 @@ func TestCopywriterReviseUsesIssues(t *testing.T) {
 		`{"topic":"t","title":"v2","body":"улучшено","cta":"Жми"}`,
 	}
 	cw := agents.NewCopywriter(fake)
-	prev := agents.Article{Topic: "t", Title: "v1", Body: "слабо", CTA: "Жми"}
-	rev := agents.Review{Score: 50, Issues: []string{"слабый заход"}, Verdict: "revise"}
+	prev := campaign.Article{Topic: "t", Title: "v1", Body: "слабо", CTA: "Жми"}
+	rev := campaign.Review{Score: 50, Issues: []string{"слабый заход"}, Verdict: "revise"}
 
 	art, _, err := cw.Revise(context.Background(), prev, rev)
 	if err != nil {
@@ -84,7 +85,7 @@ func TestCriticScores(t *testing.T) {
 		`{"score":85,"issues":[],"verdict":"accept"}`,
 	}
 	cr := agents.NewCritic(fake)
-	art := agents.Article{Topic: "t", Title: "T", Body: "B", CTA: "C"}
+	art := campaign.Article{Topic: "t", Title: "T", Body: "B", CTA: "C"}
 
 	rev, _, err := cr.Run(context.Background(), testBrief(), art)
 	if err != nil {
@@ -99,7 +100,7 @@ func TestCriticClampsScore(t *testing.T) {
 	fake := llm.NewFake()
 	fake.Responses["critic"] = []string{`{"score":150,"issues":[],"verdict":"accept"}`}
 	cr := agents.NewCritic(fake)
-	rev, _, err := cr.Run(context.Background(), testBrief(), agents.Article{Title: "T", Body: "B"})
+	rev, _, err := cr.Run(context.Background(), testBrief(), campaign.Article{Title: "T", Body: "B"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

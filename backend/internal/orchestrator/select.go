@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -23,12 +24,12 @@ type SelectOptions struct {
 // DraftInput — тема-кандидат от модели вместе с собранными по ней данными.
 // Source: wordstat (есть цитаты и частотности) или llm (тема «от себя», без цифр).
 type DraftInput struct {
-	Draft  agents.TopicDraft
+	Draft  topic.TopicDraft
 	Source string
 	// Queries — цитаты с частотностями из ответов Wordstat.
-	Queries []agents.PhraseCount
+	Queries []topic.PhraseCount
 	// Season — сезонная поправка головной фразы, если dynamics запрашивали.
-	Season *agents.Seasonality
+	Season *topic.Seasonality
 }
 
 // Отклонённые темы помечаем причиной — так в результате видно, почему тема не
@@ -75,7 +76,7 @@ func isTechnical(phrase string) bool {
 
 // SeasonalityOf считает сезонную поправку по ряду dynamics: пик, дно, размах.
 // Seasonal = размах не меньше factor — тогда тему не отсекаем по «летнему» спросу.
-func SeasonalityOf(points []wordstat.DynamicsPoint, factor float64) *agents.Seasonality {
+func SeasonalityOf(points []wordstat.DynamicsPoint, factor float64) *topic.Seasonality {
 	if len(points) == 0 {
 		return nil
 	}
@@ -88,7 +89,7 @@ func SeasonalityOf(points []wordstat.DynamicsPoint, factor float64) *agents.Seas
 			trough = p
 		}
 	}
-	s := &agents.Seasonality{Peak: peak.Count, PeakMonth: monthOf(peak.Date), Trough: trough.Count}
+	s := &topic.Seasonality{Peak: peak.Count, PeakMonth: monthOf(peak.Date), Trough: trough.Count}
 	if trough.Count > 0 {
 		s.Ratio = float64(peak.Count) / float64(trough.Count)
 	}
@@ -115,18 +116,18 @@ func monthOf(date string) string {
 // (замерено 3.4–5.5x на живых данных).
 //
 // Порядок результата: отобранные сверху, далее по убыванию объёма.
-func SelectTopics(inputs []DraftInput, want int, opt SelectOptions) []agents.TopicCandidate {
+func SelectTopics(inputs []DraftInput, want int, opt SelectOptions) []topic.TopicCandidate {
 	if want < 0 {
 		want = 0
 	}
 
-	cands := make([]agents.TopicCandidate, 0, len(inputs))
+	cands := make([]topic.TopicCandidate, 0, len(inputs))
 	for i, in := range inputs {
 		source := in.Source
 		if source == "" {
-			source = agents.SourceWordstat
+			source = topic.SourceWordstat
 		}
-		c := agents.TopicCandidate{
+		c := topic.TopicCandidate{
 			ID:      fmt.Sprintf("t%d", i+1),
 			Title:   in.Draft.Title,
 			Goal:    in.Draft.Goal,
@@ -148,7 +149,7 @@ func SelectTopics(inputs []DraftInput, want int, opt SelectOptions) []agents.Top
 		}
 
 		// Темы без данных (llm) порогом не судим: у них нет цифр по определению.
-		if source == agents.SourceWordstat {
+		if source == topic.SourceWordstat {
 			switch {
 			case isTechnical(c.Head):
 				c.Reject = rejectTechnical
@@ -182,7 +183,7 @@ func SelectTopics(inputs []DraftInput, want int, opt SelectOptions) []agents.Top
 
 // seasonalRescue пропускает тему ниже порога, если её пик за 12 месяцев
 // дотягивает до порога, а размах достаточно велик.
-func seasonalRescue(c agents.TopicCandidate, opt SelectOptions) bool {
+func seasonalRescue(c topic.TopicCandidate, opt SelectOptions) bool {
 	if c.Season == nil || !c.Season.Seasonal {
 		return false
 	}
@@ -191,7 +192,7 @@ func seasonalRescue(c agents.TopicCandidate, opt SelectOptions) bool {
 
 // rankVolume — объём для сортировки: фактический, а для сезонных тем — не меньше
 // сезонного пика.
-func rankVolume(c agents.TopicCandidate) int64 {
+func rankVolume(c topic.TopicCandidate) int64 {
 	if c.Season != nil && c.Season.Seasonal && c.Season.Peak > c.Volume {
 		return c.Season.Peak
 	}
@@ -200,8 +201,8 @@ func rankVolume(c agents.TopicCandidate) int64 {
 
 // SelectedTopics превращает отобранные кандидаты в темы для копирайтеров.
 // Ритм запросов становится тезисами статьи: копирайтер пишет по реальному спросу.
-func SelectedTopics(cands []agents.TopicCandidate) []agents.Topic {
-	out := make([]agents.Topic, 0, len(cands))
+func SelectedTopics(cands []topic.TopicCandidate) []campaign.Topic {
+	out := make([]campaign.Topic, 0, len(cands))
 	for _, c := range cands {
 		if c.Selected {
 			out = append(out, TopicFromCandidate(c))
@@ -211,20 +212,20 @@ func SelectedTopics(cands []agents.TopicCandidate) []agents.Topic {
 }
 
 // TopicFromCandidate отображает кандидата в тему пайплайна.
-func TopicFromCandidate(c agents.TopicCandidate) agents.Topic {
+func TopicFromCandidate(c topic.TopicCandidate) campaign.Topic {
 	points := make([]string, 0, len(c.Queries))
 	for _, q := range c.Queries {
 		points = append(points, q.Phrase)
 	}
-	return agents.Topic{Title: c.Title, Angle: c.Goal, Points: points}
+	return campaign.Topic{Title: c.Title, Angle: c.Goal, Points: points}
 }
 
 // FallbackInputs превращает темы «от себя» в кандидатов без цифр: они попадают
 // в конец списка и добираются только если подтверждённых спросом не хватило.
-func FallbackInputs(drafts []agents.TopicDraft) []DraftInput {
+func FallbackInputs(drafts []topic.TopicDraft) []DraftInput {
 	out := make([]DraftInput, 0, len(drafts))
 	for _, d := range drafts {
-		out = append(out, DraftInput{Draft: d, Source: agents.SourceLLM})
+		out = append(out, DraftInput{Draft: d, Source: topic.SourceLLM})
 	}
 	return out
 }

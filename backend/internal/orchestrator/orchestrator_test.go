@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 )
 
-func brief() agents.Brief {
-	return agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
+func brief() campaign.Brief {
+	return campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
 }
 
 // fanout: 2 темы, критик сразу accept → 2 deliverables, по одному вызову критика.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/llm"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
@@ -60,7 +61,7 @@ func TestRunnerWritesTrajectory(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner := httpapi.NewRunner(ctx, st, orch, 30*time.Second, logger, hub)
 
-	brief := agents.Brief{
+	brief := campaign.Brief{
 		Product: "Зимняя резина", Goal: "рост продаж", Audience: "автовладельцы",
 		Tone: "экспертный", Region: "213", TopicsCount: 1,
 	}

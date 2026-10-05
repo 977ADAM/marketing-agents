@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
@@ -30,7 +31,7 @@ func NewRunner(baseCtx context.Context, st *store.Store, orch *orchestrator.Orch
 	}
 }
 
-func (r *BackgroundRunner) Start(id string, b agents.Brief) {
+func (r *BackgroundRunner) Start(id string, b campaign.Brief) {
 	r.wg <- struct{}{}
 	go func() {
 		defer func() { <-r.wg }()
@@ -71,7 +72,7 @@ func (r *BackgroundRunner) Drain() {
 }
 
 // StartReview запускает фоновую проверку готовых текстов (агенты review).
-func (r *BackgroundRunner) StartReview(id string, req orchestrator.ReviewRequest) {
+func (r *BackgroundRunner) StartReview(id string, req review.Request) {
 	r.wg <- struct{}{}
 	go func() {
 		defer func() { <-r.wg }()

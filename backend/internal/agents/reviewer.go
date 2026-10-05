@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/review"
+	"github.com/977ADAM/marketing-agents/internal/score"
 )
 
 // Роли агентов проверки готовых текстов. По умолчанию обе идут на MODEL_DEFAULT
@@ -13,35 +15,6 @@ const (
 	RoleCompliance = "compliance" // соответствие брифу
 	RoleQuality    = "quality"    // корректность самого текста
 )
-
-// TextToReview — готовая статья, которую проверяют агенты.
-type TextToReview struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-}
-
-// CheckScore — оценка одного агента по одному измерению.
-// Severity — градация score для интерфейса (см. Severity()).
-type CheckScore struct {
-	Score    int      `json:"score"`
-	Issues   []string `json:"issues"`
-	Severity string   `json:"severity"`
-}
-
-// TextReport — итог проверки одного текста. Verdict: "pass" | "fix".
-// Overall — min(compliance, quality): слабое звено решает;
-// Severity — градация Overall для интерфейса.
-type TextReport struct {
-	Title      string     `json:"title"`
-	Compliance CheckScore `json:"compliance"`
-	Quality    CheckScore `json:"quality"`
-	Overall    int        `json:"overall"`
-	Verdict    string     `json:"verdict"`
-	Severity   string     `json:"severity"`
-}
-
-// PassThreshold — оба измерения должны быть не ниже, чтобы текст прошёл.
-const PassThreshold = 80
 
 const complianceSystem = `Ты — редактор, проверяющий соответствие готового текста брифу клиента.
 Сверь текст с брифом по всем пунктам: продукт и его УТП, целевая аудитория, ключевые сообщения,
@@ -65,16 +38,16 @@ type ComplianceChecker struct{ llm llm.Client }
 
 func NewComplianceChecker(c llm.Client) *ComplianceChecker { return &ComplianceChecker{llm: c} }
 
-func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t TextToReview) (CheckScore, llm.Usage, error) {
+func (ch *ComplianceChecker) Run(ctx context.Context, briefText string, t review.TextToReview) (review.CheckScore, llm.Usage, error) {
 	user := fmt.Sprintf("БРИФ:\n%s\n\nТЕКСТ ДЛЯ ПРОВЕРКИ:\nЗаголовок: %s\n\n%s",
 		briefText, t.Title, t.Body)
-	var out CheckScore
+	var out review.CheckScore
 	usage, err := ch.llm.Complete(ctx, RoleCompliance, complianceSystem, user, &out)
 	if err != nil {
-		return CheckScore{}, usage, fmt.Errorf("compliance: %w", err)
+		return review.CheckScore{}, usage, fmt.Errorf("compliance: %w", err)
 	}
 	out.Score = clampScore(out.Score)
-	out.Severity = Severity(out.Score)
+	out.Severity = score.Severity(out.Score)
 	return out, usage, nil
 }
 
@@ -83,15 +56,15 @@ type QualityChecker struct{ llm llm.Client }
 
 func NewQualityChecker(c llm.Client) *QualityChecker { return &QualityChecker{llm: c} }
 
-func (q *QualityChecker) Run(ctx context.Context, t TextToReview) (CheckScore, llm.Usage, error) {
+func (q *QualityChecker) Run(ctx context.Context, t review.TextToReview) (review.CheckScore, llm.Usage, error) {
 	user := fmt.Sprintf("Заголовок: %s\n\n%s", t.Title, t.Body)
-	var out CheckScore
+	var out review.CheckScore
 	usage, err := q.llm.Complete(ctx, RoleQuality, qualitySystem, user, &out)
 	if err != nil {
-		return CheckScore{}, usage, fmt.Errorf("quality: %w", err)
+		return review.CheckScore{}, usage, fmt.Errorf("quality: %w", err)
 	}
 	out.Score = clampScore(out.Score)
-	out.Severity = Severity(out.Score)
+	out.Severity = score.Severity(out.Score)
 	return out, usage, nil
 }
 
@@ -103,18 +76,4 @@ func clampScore(s int) int {
 		return 100
 	}
 	return s
-}
-
-// Решения по одному тексту: pass — можно публиковать, fix — нужна доработка.
-const (
-	VerdictPass = "pass"
-	VerdictFix  = "fix"
-)
-
-// Verdict — проходное решение по одному тексту (оба измерения ≥ PassThreshold).
-func Verdict(compliance, quality int) string {
-	if compliance >= PassThreshold && quality >= PassThreshold {
-		return VerdictPass
-	}
-	return VerdictFix
 }

@@ -7,9 +7,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/store"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 )
 
 // newTestStore открывает отдельную SQLite-БД в t.TempDir(): тесты изолированы
@@ -33,20 +35,20 @@ func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	id, err := s.Create(ctx, "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T", Region: "213", TopicsCount: 2})
+	id, err := s.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T", Region: "213", TopicsCount: 2})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	strategy := agents.Strategy{
+	strategy := campaign.Strategy{
 		Positioning: "позиционирование",
-		Topics:      []agents.Topic{{Title: "Как выбрать зимние шины", Angle: "поймать в момент выбора", Points: []string{"какую зимнюю резину"}}},
-		TopicCandidates: []agents.TopicCandidate{{
+		Topics:      []campaign.Topic{{Title: "Как выбрать зимние шины", Angle: "поймать в момент выбора", Points: []string{"какую зимнюю резину"}}},
+		TopicCandidates: []topic.TopicCandidate{{
 			ID: "t1", Title: "Как выбрать зимние шины", Goal: "поймать", Task: "дать чек-лист",
-			Source: agents.SourceWordstat, Selected: true, Volume: 92398, Head: "какую зимнюю резину",
-			Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
-			Season:  &agents.Seasonality{Peak: 1700930, PeakMonth: "2025-10", Trough: 192109, Ratio: 8.85, Seasonal: true},
+			Source: topic.SourceWordstat, Selected: true, Volume: 92398, Head: "какую зимнюю резину",
+			Queries: []topic.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
+			Season:  &topic.Seasonality{Peak: 1700930, PeakMonth: "2025-10", Trough: 192109, Ratio: 8.85, Seasonal: true},
 		}, {
-			ID: "t2", Title: "Тема от модели", Goal: "g", Task: "t", Source: agents.SourceLLM,
+			ID: "t2", Title: "Тема от модели", Goal: "g", Task: "t", Source: topic.SourceLLM,
 		}},
 		WordstatCalls: 4,
 	}
@@ -65,7 +67,7 @@ func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
 		t.Fatalf("кандидаты не сохранились: %+v", got.Strategy)
 	}
 	first := got.Strategy.TopicCandidates[0]
-	if first.Volume != 92398 || first.Source != agents.SourceWordstat || !first.Selected {
+	if first.Volume != 92398 || first.Source != topic.SourceWordstat || !first.Selected {
 		t.Errorf("кандидат 1 = %+v", first)
 	}
 	if first.Season == nil || first.Season.Peak != 1700930 || !first.Season.Seasonal {
@@ -77,7 +79,7 @@ func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
 	if got.Strategy.WordstatCalls != 4 {
 		t.Errorf("WordstatCalls = %d, want 4", got.Strategy.WordstatCalls)
 	}
-	if got.Strategy.TopicCandidates[1].Source != agents.SourceLLM {
+	if got.Strategy.TopicCandidates[1].Source != topic.SourceLLM {
 		t.Errorf("источник кандидата 2 = %q", got.Strategy.TopicCandidates[1].Source)
 	}
 }
@@ -85,7 +87,7 @@ func TestStrategyWithTopicCandidatesRoundTrip(t *testing.T) {
 func TestCampaignRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	b := agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
+	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
 
 	id, err := s.Create(ctx, "", b)
 	if err != nil {
@@ -95,8 +97,8 @@ func TestCampaignRoundTrip(t *testing.T) {
 		t.Fatalf("MarkRunning: %v", err)
 	}
 	res := orchestrator.Result{
-		Strategy:     agents.Strategy{Positioning: "p", Topics: []agents.Topic{{Title: "T1"}}},
-		Deliverables: []agents.Deliverable{{Article: agents.Article{Topic: "T1", Title: "A", Body: "B", CTA: "C"}, Review: agents.Review{Score: 90, Verdict: "accept"}}},
+		Strategy:     campaign.Strategy{Positioning: "p", Topics: []campaign.Topic{{Title: "T1"}}},
+		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T1", Title: "A", Body: "B", CTA: "C"}, Review: campaign.Review{Score: 90, Verdict: "accept"}}},
 		CostUSD:      0.12,
 	}
 	if err := s.Complete(ctx, id, res); err != nil {
@@ -131,7 +133,7 @@ func TestGetNotFound(t *testing.T) {
 func TestListRecent(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	b := agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
+	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
 
 	id1, err := s.Create(ctx, "", b)
 	if err != nil {
@@ -170,7 +172,7 @@ func TestListRecent(t *testing.T) {
 func TestListRecentLimit(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	b := agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
+	b := campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"}
 	for i := 0; i < 3; i++ {
 		if _, err := s.Create(ctx, "", b); err != nil {
 			t.Fatalf("Create: %v", err)
@@ -188,7 +190,7 @@ func TestListRecentLimit(t *testing.T) {
 func TestProgressRoundTrip(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	id, err := s.Create(ctx, "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
+	id, err := s.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -237,18 +239,18 @@ func TestRecoverInterrupted(t *testing.T) {
 		t.Fatalf("pre-drain: %v", err)
 	}
 
-	pendingID, err := st.Create(ctx, "", agents.Brief{})
+	pendingID, err := st.Create(ctx, "", campaign.Brief{})
 	if err != nil {
 		t.Fatalf("create pending: %v", err)
 	}
-	runningID, err := st.Create(ctx, "", agents.Brief{})
+	runningID, err := st.Create(ctx, "", campaign.Brief{})
 	if err != nil {
 		t.Fatalf("create running: %v", err)
 	}
 	if err := st.MarkRunning(ctx, runningID); err != nil {
 		t.Fatalf("mark running: %v", err)
 	}
-	doneID, err := st.Create(ctx, "", agents.Brief{})
+	doneID, err := st.Create(ctx, "", campaign.Brief{})
 	if err != nil {
 		t.Fatalf("create done: %v", err)
 	}
@@ -315,11 +317,11 @@ func TestReviewRoundTrip(t *testing.T) {
 	if err := st.SaveReviewProgress(ctx, id, snap); err != nil {
 		t.Fatalf("SaveReviewProgress: %v", err)
 	}
-	res := orchestrator.ReviewResult{
-		Items: []agents.TextReport{{
+	res := review.Result{
+		Items: []review.TextReport{{
 			Title:      "Статья",
-			Compliance: agents.CheckScore{Score: 90, Issues: []string{"нет слогана"}},
-			Quality:    agents.CheckScore{Score: 85},
+			Compliance: review.CheckScore{Score: 90, Issues: []string{"нет слогана"}},
+			Quality:    review.CheckScore{Score: 85},
 			Overall:    85,
 			Verdict:    "pass",
 		}},
@@ -373,13 +375,13 @@ func TestDataSurvivesReopen(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	applyMigrations(t, first.DB())
-	id, err := first.Create(ctx, "", agents.Brief{Product: "Эко-бутылка"})
+	id, err := first.Create(ctx, "", campaign.Brief{Product: "Эко-бутылка"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if err := first.Complete(ctx, id, orchestrator.Result{
-		Strategy:     agents.Strategy{Positioning: "p"},
-		Deliverables: []agents.Deliverable{{Article: agents.Article{Topic: "T", Title: "A", Body: "B", CTA: "C"}}},
+		Strategy:     campaign.Strategy{Positioning: "p"},
+		Deliverables: []campaign.Deliverable{{Article: campaign.Article{Topic: "T", Title: "A", Body: "B", CTA: "C"}}},
 		CostUSD:      0.01,
 	}); err != nil {
 		t.Fatalf("Complete: %v", err)
@@ -436,7 +438,7 @@ func TestDSN(t *testing.T) {
 func TestConcurrentProgressWrites(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
-	id, err := st.Create(ctx, "", agents.Brief{Product: "P"})
+	id, err := st.Create(ctx, "", campaign.Brief{Product: "P"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

@@ -17,9 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 	_ "modernc.org/sqlite" // регистрирует драйвер "sqlite"
+
+	"github.com/977ADAM/marketing-agents/internal/campaign"
+	"github.com/977ADAM/marketing-agents/internal/orchestrator"
 )
 
 const DefaultClientID = "00000000-0000-0000-0000-000000000001"
@@ -135,9 +136,9 @@ type Campaign struct {
 	ID           string                 `json:"id"`
 	ClientID     string                 `json:"client_id"`
 	Status       string                 `json:"status"`
-	Brief        agents.Brief           `json:"brief"`
-	Strategy     *agents.Strategy       `json:"strategy,omitempty"`
-	Deliverables []agents.Deliverable   `json:"deliverables,omitempty"`
+	Brief        campaign.Brief         `json:"brief"`
+	Strategy     *campaign.Strategy     `json:"strategy,omitempty"`
+	Deliverables []campaign.Deliverable `json:"deliverables,omitempty"`
 	Progress     *orchestrator.Snapshot `json:"progress,omitempty"`
 	CostUSD      *float64               `json:"cost_usd,omitempty"`
 	Error        string                 `json:"error,omitempty"`
@@ -147,15 +148,15 @@ type Campaign struct {
 
 // CampaignSummary — лёгкая сводка для списка истории (без strategy/deliverables/body).
 type CampaignSummary struct {
-	ID        string       `json:"id"`
-	Status    string       `json:"status"`
-	Brief     agents.Brief `json:"brief"`
-	CostUSD   *float64     `json:"cost_usd,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
+	ID        string         `json:"id"`
+	Status    string         `json:"status"`
+	Brief     campaign.Brief `json:"brief"`
+	CostUSD   *float64       `json:"cost_usd,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 // Create вставляет кампанию в статусе pending и возвращает её id.
-func (s *Store) Create(ctx context.Context, clientID string, b agents.Brief) (string, error) {
+func (s *Store) Create(ctx context.Context, clientID string, b campaign.Brief) (string, error) {
 	if clientID == "" {
 		clientID = DefaultClientID
 	}
@@ -285,7 +286,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
 	}
 	_ = json.Unmarshal(briefJSON, &c.Brief)
 	if len(stratJSON) > 0 {
-		var st agents.Strategy
+		var st campaign.Strategy
 		if json.Unmarshal(stratJSON, &st) == nil {
 			c.Strategy = &st
 		}
@@ -309,7 +310,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Campaign, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var d agents.Deliverable
+		var d campaign.Deliverable
 		var reviewJSON []byte
 		if err := rows.Scan(&d.Topic, &d.Title, &d.Body, &d.CTA, &reviewJSON); err != nil {
 			return nil, err

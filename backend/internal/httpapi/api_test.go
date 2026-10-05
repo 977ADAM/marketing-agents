@@ -15,9 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/httpapi"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
@@ -54,7 +55,7 @@ func (m *mockRepo) RunEvent(_ context.Context, runID string, seq int64) (*store.
 	return nil, store.ErrNotFound
 }
 
-func (m *mockRepo) Create(_ context.Context, _ string, b agents.Brief) (string, error) {
+func (m *mockRepo) Create(_ context.Context, _ string, b campaign.Brief) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := "camp-1"
@@ -119,13 +120,13 @@ type mockRunner struct {
 	called chan string
 }
 
-func (r *mockRunner) Start(id string, _ agents.Brief)                     { r.called <- id }
-func (r *mockRunner) StartReview(id string, _ orchestrator.ReviewRequest) { r.called <- id }
+func (r *mockRunner) Start(id string, _ campaign.Brief)       { r.called <- id }
+func (r *mockRunner) StartReview(id string, _ review.Request) { r.called <- id }
 
 // errRepo возвращает ошибку на всех операциях — для проверки 500-веток.
 type errRepo struct{}
 
-func (errRepo) Create(context.Context, string, agents.Brief) (string, error) {
+func (errRepo) Create(context.Context, string, campaign.Brief) (string, error) {
 	return "", errors.New("boom")
 }
 func (errRepo) Get(context.Context, string) (*store.Campaign, error) {
@@ -339,7 +340,7 @@ func TestGetCampaignNotFound(t *testing.T) {
 
 func TestListCampaigns(t *testing.T) {
 	repo := &mockRepo{}
-	_, _ = repo.Create(context.Background(), "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
+	_, _ = repo.Create(context.Background(), "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
 	api := httpapi.New(repo, &mockRunner{called: make(chan string, 1)}, nil, 1000)
 
 	req := httptest.NewRequest("GET", "/api/campaigns", nil)

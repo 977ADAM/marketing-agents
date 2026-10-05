@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/store"
 	"github.com/977ADAM/marketing-agents/internal/trace"
 )
@@ -103,7 +103,7 @@ func TestDeleteRunEventsBefore(t *testing.T) {
 			t.Fatalf("SaveRunEvent: %v", err)
 		}
 	}
-	id, err := s.Create(ctx, "", agents.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
+	id, err := s.Create(ctx, "", campaign.Brief{Product: "P", Goal: "G", Audience: "A", Tone: "T"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

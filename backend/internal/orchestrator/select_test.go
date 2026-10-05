@@ -3,8 +3,8 @@ package orchestrator_test
 import (
 	"testing"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
 	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -13,8 +13,8 @@ import (
 // «купить зимнюю резину» 289 429, сумма 50 формулировок — 3 487 006.
 var selectOpts = orchestrator.SelectOptions{MinVolume: 300, SeasonalityFactor: 3}
 
-func draft(title, goal string) agents.TopicDraft {
-	return agents.TopicDraft{Title: title, Goal: goal, Task: "задача"}
+func draft(title, goal string) topic.TopicDraft {
+	return topic.TopicDraft{Title: title, Goal: goal, Task: "задача"}
 }
 
 func winterDynamics() []wordstat.DynamicsPoint {
@@ -32,7 +32,7 @@ func winterDynamics() []wordstat.DynamicsPoint {
 func TestSelectTopicsVolumeIsMaxNotSum(t *testing.T) {
 	inputs := []orchestrator.DraftInput{{
 		Draft: draft("Как выбрать зимние шины", "поймать в момент выбора"),
-		Queries: []agents.PhraseCount{
+		Queries: []topic.PhraseCount{
 			{Phrase: "зимняя резина", Count: 1028481},
 			{Phrase: "купить зимнюю резину", Count: 289429},
 			{Phrase: "какую зимнюю резину", Count: 92398},
@@ -57,11 +57,11 @@ func TestSelectTopicsVolumeIsMaxNotSum(t *testing.T) {
 // Размеры и типоразмеры — не темы, даже если спрос по ним большой.
 func TestSelectTopicsDropsTechnicalTopics(t *testing.T) {
 	inputs := []orchestrator.DraftInput{
-		{Draft: draft("Зимняя резина 205 55 16", "размер"), Queries: []agents.PhraseCount{
+		{Draft: draft("Зимняя резина 205 55 16", "размер"), Queries: []topic.PhraseCount{
 			{Phrase: "зимняя резина 205 55 16", Count: 16880},
 			{Phrase: "зимняя резина r16", Count: 35202},
 		}},
-		{Draft: draft("Какую зимнюю резину выбрать", "выбор"), Queries: []agents.PhraseCount{
+		{Draft: draft("Какую зимнюю резину выбрать", "выбор"), Queries: []topic.PhraseCount{
 			{Phrase: "какую зимнюю резину", Count: 92398},
 		}},
 	}
@@ -88,12 +88,12 @@ func TestSelectTopicsDropsTechnicalTopics(t *testing.T) {
 // Порог: тема ниже минимума не идёт в генерацию, но видна с причиной.
 func TestSelectTopicsMinVolume(t *testing.T) {
 	inputs := []orchestrator.DraftInput{
-		{Draft: draft("Сильная тема", "g"), Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}}},
-		{Draft: draft("Слабая тема", "g"), Queries: []agents.PhraseCount{{Phrase: "резина для квадроцикла зима", Count: 120}}},
+		{Draft: draft("Сильная тема", "g"), Queries: []topic.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}}},
+		{Draft: draft("Слабая тема", "g"), Queries: []topic.PhraseCount{{Phrase: "резина для квадроцикла зима", Count: 120}}},
 	}
 
 	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
-	var weak *agents.TopicCandidate
+	var weak *topic.TopicCandidate
 	for i := range cands {
 		if cands[i].Title == "Слабая тема" {
 			weak = &cands[i]
@@ -123,7 +123,7 @@ func TestSelectTopicsSeasonalRescue(t *testing.T) {
 
 	inputs := []orchestrator.DraftInput{{
 		Draft:   draft("Когда менять резину на зимнюю", "сезонный вопрос"),
-		Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 200}},
+		Queries: []topic.PhraseCount{{Phrase: "какую зимнюю резину", Count: 200}},
 		Season:  season,
 	}}
 
@@ -154,7 +154,7 @@ func TestSelectTopicsFlatSeasonalityDoesNotRescue(t *testing.T) {
 	}, selectOpts.SeasonalityFactor)
 	inputs := []orchestrator.DraftInput{{
 		Draft:   draft("Ровный спрос", "g"),
-		Queries: []agents.PhraseCount{{Phrase: "офисная мебель для переговорной", Count: 100}},
+		Queries: []topic.PhraseCount{{Phrase: "офисная мебель для переговорной", Count: 100}},
 		Season:  flat,
 	}}
 
@@ -167,12 +167,12 @@ func TestSelectTopicsFlatSeasonalityDoesNotRescue(t *testing.T) {
 // Отбор N из 2N: сверху по объёму, отобранные идут первыми.
 func TestSelectTopicsPicksTopNOfDouble(t *testing.T) {
 	inputs := []orchestrator.DraftInput{
-		{Draft: draft("Тема A", "g"), Queries: []agents.PhraseCount{{Phrase: "a", Count: 1000}}},
-		{Draft: draft("Тема B", "g"), Queries: []agents.PhraseCount{{Phrase: "b", Count: 5000}}},
-		{Draft: draft("Тема C", "g"), Queries: []agents.PhraseCount{{Phrase: "c", Count: 3000}}},
-		{Draft: draft("Тема D", "g"), Queries: []agents.PhraseCount{{Phrase: "d", Count: 400}}},
-		{Draft: draft("Тема E", "g"), Queries: []agents.PhraseCount{{Phrase: "e", Count: 9000}}},
-		{Draft: draft("Тема F", "g"), Queries: []agents.PhraseCount{{Phrase: "f", Count: 2000}}},
+		{Draft: draft("Тема A", "g"), Queries: []topic.PhraseCount{{Phrase: "a", Count: 1000}}},
+		{Draft: draft("Тема B", "g"), Queries: []topic.PhraseCount{{Phrase: "b", Count: 5000}}},
+		{Draft: draft("Тема C", "g"), Queries: []topic.PhraseCount{{Phrase: "c", Count: 3000}}},
+		{Draft: draft("Тема D", "g"), Queries: []topic.PhraseCount{{Phrase: "d", Count: 400}}},
+		{Draft: draft("Тема E", "g"), Queries: []topic.PhraseCount{{Phrase: "e", Count: 9000}}},
+		{Draft: draft("Тема F", "g"), Queries: []topic.PhraseCount{{Phrase: "f", Count: 2000}}},
 	}
 
 	cands := orchestrator.SelectTopics(inputs, 3, selectOpts)
@@ -204,15 +204,15 @@ func TestSelectTopicsPicksTopNOfDouble(t *testing.T) {
 func TestSelectTopicsFallbackFillsGap(t *testing.T) {
 	inputs := []orchestrator.DraftInput{{
 		Draft:   draft("С подтверждённым спросом", "g"),
-		Queries: []agents.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
+		Queries: []topic.PhraseCount{{Phrase: "какую зимнюю резину", Count: 92398}},
 	}}
-	inputs = append(inputs, orchestrator.FallbackInputs([]agents.TopicDraft{
+	inputs = append(inputs, orchestrator.FallbackInputs([]topic.TopicDraft{
 		draft("Тема от модели 1", "g"),
 		draft("Тема от модели 2", "g"),
 	})...)
 
 	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
-	var selected []agents.TopicCandidate
+	var selected []topic.TopicCandidate
 	for _, c := range cands {
 		if c.Selected {
 			selected = append(selected, c)
@@ -221,10 +221,10 @@ func TestSelectTopicsFallbackFillsGap(t *testing.T) {
 	if len(selected) != 2 {
 		t.Fatalf("отобрано %d тем, want 2", len(selected))
 	}
-	if selected[0].Source != agents.SourceWordstat {
+	if selected[0].Source != topic.SourceWordstat {
 		t.Errorf("первой должна идти тема с данными, получили %q", selected[0].Source)
 	}
-	if selected[1].Source != agents.SourceLLM {
+	if selected[1].Source != topic.SourceLLM {
 		t.Fatalf("второй должна идти тема от модели, получили %q", selected[1].Source)
 	}
 	if selected[1].Volume != 0 || len(selected[1].Queries) != 0 {
@@ -238,14 +238,14 @@ func TestSelectTopicsFallbackFillsGap(t *testing.T) {
 // Когда данных хватает, темы от модели остаются в списке, но не отбираются.
 func TestSelectTopicsFallbackNotUsedWhenEnoughData(t *testing.T) {
 	inputs := []orchestrator.DraftInput{
-		{Draft: draft("A", "g"), Queries: []agents.PhraseCount{{Phrase: "a", Count: 5000}}},
-		{Draft: draft("B", "g"), Queries: []agents.PhraseCount{{Phrase: "b", Count: 4000}}},
+		{Draft: draft("A", "g"), Queries: []topic.PhraseCount{{Phrase: "a", Count: 5000}}},
+		{Draft: draft("B", "g"), Queries: []topic.PhraseCount{{Phrase: "b", Count: 4000}}},
 	}
-	inputs = append(inputs, orchestrator.FallbackInputs([]agents.TopicDraft{draft("Модель", "g")})...)
+	inputs = append(inputs, orchestrator.FallbackInputs([]topic.TopicDraft{draft("Модель", "g")})...)
 
 	cands := orchestrator.SelectTopics(inputs, 2, selectOpts)
 	for _, c := range cands {
-		if c.Source == agents.SourceLLM && c.Selected {
+		if c.Source == topic.SourceLLM && c.Selected {
 			t.Error("тема от модели не должна отбираться, когда данных хватает")
 		}
 	}
@@ -254,7 +254,7 @@ func TestSelectTopicsFallbackNotUsedWhenEnoughData(t *testing.T) {
 func TestSelectedTopicsMapsToPipelineTopics(t *testing.T) {
 	inputs := []orchestrator.DraftInput{{
 		Draft: draft("Как выбрать зимние шины: 6 простых правил", "поймать в момент выбора"),
-		Queries: []agents.PhraseCount{
+		Queries: []topic.PhraseCount{
 			{Phrase: "какую зимнюю резину", Count: 92398},
 			{Phrase: "какая зимняя резина лучше", Count: 34038},
 		},

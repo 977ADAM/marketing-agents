@@ -13,8 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/977ADAM/marketing-agents/internal/agents"
-	"github.com/977ADAM/marketing-agents/internal/orchestrator"
+	"github.com/977ADAM/marketing-agents/internal/review"
 	"github.com/977ADAM/marketing-agents/internal/store"
 )
 
@@ -23,7 +22,7 @@ import (
 type createReviewReq struct {
 	ClientID string                `json:"client_id"`
 	Brief    string                `json:"brief"`
-	Texts    []agents.TextToReview `json:"texts"`
+	Texts    []review.TextToReview `json:"texts"`
 }
 
 func (a *API) postReview(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +54,7 @@ func (a *API) postReview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "could not create review")
 		return
 	}
-	a.runner.StartReview(id, orchestrator.ReviewRequest{BriefText: req.Brief, Texts: req.Texts})
+	a.runner.StartReview(id, review.Request{BriefText: req.Brief, Texts: req.Texts})
 	writeJSON(w, http.StatusAccepted, map[string]string{"id": id, "status": "pending"})
 }
 
@@ -146,7 +145,7 @@ func (a *API) reviewEvents(w http.ResponseWriter, r *http.Request) {
 
 // docxExtractReq лимиты на размер входа/выхода, чтобы не тащить гигабайты.
 const (
-	maxDocxUpload = 20 << 20 // 20 МБ на zip-файл
+	maxDocxUpload = 20 << 20  // 20 МБ на zip-файл
 	maxDocxText   = 512 << 10 // 512 КБ извлечённого текста
 )
 

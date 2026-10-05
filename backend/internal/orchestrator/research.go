@@ -6,7 +6,9 @@ import (
 	"sort"
 
 	"github.com/977ADAM/marketing-agents/internal/agents"
+	"github.com/977ADAM/marketing-agents/internal/campaign"
 	"github.com/977ADAM/marketing-agents/internal/llm"
+	"github.com/977ADAM/marketing-agents/internal/topic"
 	"github.com/977ADAM/marketing-agents/internal/wordstat"
 )
 
@@ -28,7 +30,7 @@ const (
 // цитата проверена по данным (см. agents.Semanticist). Если спроса нет совсем или
 // подтверждённых тем не хватило, добираем темы от модели с пометкой source=llm —
 // без цифр, потому что цифр по ним нет.
-func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress) (agents.Strategy, llm.Usage, error) {
+func (o *Orchestrator) research(ctx context.Context, b campaign.Brief, p Progress) (campaign.Strategy, llm.Usage, error) {
 	var total llm.Usage
 	rp, hasRP := p.(ResearchProgress)
 	stage := func(s ResearchStage) {
@@ -54,7 +56,7 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 	seeds, u, err := o.semanticist.Seeds(ctx, b, o.seedCount())
 	total = total.Add(u)
 	if err != nil {
-		return agents.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
+		return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
 	}
 	if hasRP {
 		rp.ResearchSeeds(seeds)
@@ -78,7 +80,7 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 		})
 		calls++
 		if err != nil {
-			return agents.Strategy{}, total, fmt.Errorf("подбор тем: спрос по %q: %w", seed, err)
+			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: спрос по %q: %w", seed, err)
 		}
 		before := len(counts)
 		collectCounts(counts, top)
@@ -104,13 +106,13 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 
 	// 3) Кластеризация: модели отдаём только сами фразы, без частотностей и без
 	// технического мусора (размеры и типоразмеры — не темы).
-	var drafts []agents.TopicDraft
+	var drafts []topic.TopicDraft
 	if phrases := topPhrases(counts, o.maxPhrases()); len(phrases) > 0 {
 		stage(StageClustering)
 		drafts, u, err = o.semanticist.Cluster(ctx, b, phrases, want*mult)
 		total = total.Add(u)
 		if err != nil {
-			return agents.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
+			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
 		}
 		o.traceDecision(ctx, "clustering",
 			fmt.Sprintf("из %d фраз модель собрала %d тем (просили %d)", len(phrases), len(drafts), want*mult),
@@ -122,7 +124,7 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 	inputs := make([]DraftInput, 0, len(drafts))
 	for _, d := range drafts {
 		queries := queriesOf(d.Queries, counts)
-		var season *agents.Seasonality
+		var season *topic.Seasonality
 		if head := headOf(queries); head != "" && calls < maxCalls {
 			dyn, err := o.opt.Wordstat.Dynamics(ctx, wordstat.DynamicsParams{
 				Phrase:  head,
@@ -138,7 +140,7 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 		}
 		inputs = append(inputs, DraftInput{
 			Draft:   d,
-			Source:  agents.SourceWordstat,
+			Source:  topic.SourceWordstat,
 			Queries: queries,
 			Season:  season,
 		})
@@ -163,7 +165,7 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 		total = total.Add(u)
 		switch {
 		case err != nil && selected == 0:
-			return agents.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
+			return campaign.Strategy{}, total, fmt.Errorf("подбор тем: %w", err)
 		case err == nil:
 			cands = SelectTopics(append(inputs, FallbackInputs(fallback)...), want, o.opt.Select)
 			o.traceDecision(ctx, "fallback",
@@ -175,10 +177,10 @@ func (o *Orchestrator) research(ctx context.Context, b agents.Brief, p Progress)
 	}
 
 	if countSelected(cands) == 0 {
-		return agents.Strategy{}, total, fmt.Errorf("подбор тем: не удалось собрать ни одной темы")
+		return campaign.Strategy{}, total, fmt.Errorf("подбор тем: не удалось собрать ни одной темы")
 	}
 
-	return agents.Strategy{
+	return campaign.Strategy{
 		Topics:          SelectedTopics(cands),
 		TopicCandidates: cands,
 		WordstatCalls:   calls,
@@ -214,7 +216,7 @@ func (o *Orchestrator) maxWordstatCalls() int {
 }
 
 // decisionNote описывает решение по теме для ленты трассы.
-func decisionNote(c agents.TopicCandidate) string {
+func decisionNote(c topic.TopicCandidate) string {
 	switch {
 	case c.Reject != "":
 		return c.Reject
@@ -270,16 +272,16 @@ func topPhrases(counts map[string]int64, limit int) []string {
 }
 
 // queriesOf превращает цитаты темы в пары «фраза → частотность».
-func queriesOf(phrases []string, counts map[string]int64) []agents.PhraseCount {
-	out := make([]agents.PhraseCount, 0, len(phrases))
+func queriesOf(phrases []string, counts map[string]int64) []topic.PhraseCount {
+	out := make([]topic.PhraseCount, 0, len(phrases))
 	for _, p := range phrases {
-		out = append(out, agents.PhraseCount{Phrase: p, Count: counts[p]})
+		out = append(out, topic.PhraseCount{Phrase: p, Count: counts[p]})
 	}
 	return out
 }
 
 // headOf — головная фраза темы: самая частотная из цитат.
-func headOf(queries []agents.PhraseCount) string {
+func headOf(queries []topic.PhraseCount) string {
 	var head string
 	var max int64
 	for _, q := range queries {
@@ -290,7 +292,7 @@ func headOf(queries []agents.PhraseCount) string {
 	return head
 }
 
-func countSelected(cands []agents.TopicCandidate) int {
+func countSelected(cands []topic.TopicCandidate) int {
 	n := 0
 	for _, c := range cands {
 		if c.Selected {
@@ -300,7 +302,7 @@ func countSelected(cands []agents.TopicCandidate) int {
 	return n
 }
 
-func titlesOf(cands []agents.TopicCandidate) []string {
+func titlesOf(cands []topic.TopicCandidate) []string {
 	out := make([]string, 0, len(cands))
 	for _, c := range cands {
 		if c.Title != "" {
