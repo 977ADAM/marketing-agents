@@ -114,7 +114,7 @@ migrate-down:
 # --- локальный запуск (без Docker) ---
 
 ## backend: API на 127.0.0.1:8080 (окружение читается из backend/.env)
-backend: migrate
+backend:
 	cd $(BACKEND) && $(GO) run ./cmd/server
 
 ## frontend: dev-сервер фронта на 127.0.0.1:5173 (/api и /healthz → :8080)
