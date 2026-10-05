@@ -211,6 +211,7 @@ func firstLine(s string) string {
 }
 
 type ReviewService interface {
+	Resume(context.Context, string) (string, error)
 	Create(context.Context, string, review.Request) (string, error)
 	GetCheck(context.Context, string) (*review.Record, error)
 	ListChecks(context.Context, int) ([]review.Summary, error)
@@ -234,7 +235,36 @@ func NewHandler(s ReviewService, sub Subscriber, limiter *middleware.RateLimiter
 }
 
 func (h *Handler) Routes() []server.Route {
-	return []server.Route{{"POST /api/reviews", h.postReview}, {"GET /api/reviews", h.listReviews}, {"GET /api/reviews/{id}", h.getReview}, {"GET /api/reviews/{id}/events", h.reviewEvents}, {"POST /api/reviews/extract", h.extractDocx}}
+	return []server.Route{{"POST /api/reviews/{id}/retry", h.retry}, {"POST /api/reviews", h.postReview}, {"GET /api/reviews", h.listReviews}, {"GET /api/reviews/{id}", h.getReview}, {"GET /api/reviews/{id}/events", h.reviewEvents}, {"POST /api/reviews/extract", h.extractDocx}}
 }
 
 type ExtractResponse = extractResponse
+
+func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
+	if !h.limiter.Allow() {
+		response.WriteError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+		return
+	}
+	id, err := h.reviews.Resume(r.Context(), r.PathValue("id"))
+	if errors.Is(err, run.ErrInvalidState) {
+		response.WriteError(w, http.StatusConflict, "invalid_state", err.Error())
+		return
+	}
+	if errors.Is(err, run.ErrResumeUnavailable) {
+		response.WriteError(w, http.StatusConflict, "resume_unavailable", err.Error())
+		return
+	}
+	if errors.Is(err, run.ErrBusy) || errors.Is(err, run.ErrStopping) {
+		response.WriteError(w, http.StatusServiceUnavailable, "busy", err.Error())
+		return
+	}
+	if errors.Is(err, review.ErrNotFound) {
+		response.WriteError(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "internal", "could not resume run")
+		return
+	}
+	response.WriteJSON(w, http.StatusAccepted, map[string]string{"id": id, "status": "pending"})
+}

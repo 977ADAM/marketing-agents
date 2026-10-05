@@ -76,3 +76,7 @@ describe('runProgress', () => {
 		expect(es.closed).toBe(true);
 	});
 });
+
+it('restarts progress after resuming a failed run and ignores the previous stream',()=>{
+ const {store,es}=setup();es.emitDone(JSON.stringify({...snapshot,phase:'failed'}));store.restart();const fresh=FakeEventSource.last;expect(fresh).not.toBe(es);expect(get(store.terminal)).toBe(false);es.emitDone(JSON.stringify({...snapshot,phase:'done'}));expect(get(store.terminal)).toBe(false);fresh.emitMessage(JSON.stringify(snapshot));expect(get(store.snapshot)?.phase).toBe('producing');store.stop();
+});

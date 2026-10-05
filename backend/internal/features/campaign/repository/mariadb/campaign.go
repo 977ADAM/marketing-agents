@@ -71,7 +71,12 @@ func (cs *Campaigns) Create(ctx context.Context, clientID string, b campaign.Bri
 	id := identity.NewUUID()
 	briefJSON, _ := json.Marshal(b)
 	row := campaignRow{ID: id, ClientID: clientID, Status: "pending", Brief: string(briefJSON)}
-	if err := cs.db.WithContext(ctx).Create(&row).Error; err != nil {
+	if err := cs.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		return shared.SaveInitialCheckpoint(ctx, tx, "campaign", id, b)
+	}); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -209,6 +214,37 @@ func (cs *Campaigns) Get(ctx context.Context, id string) (*campaign.Record, erro
 		_ = json.Unmarshal([]byte(d.Review), &del.Review)
 		c.Deliverables = append(c.Deliverables, del)
 	}
+	found, err := shared.HasInput(ctx, cs.db, "campaign", id)
+	if err != nil {
+		return nil, err
+	}
+	c.ResumeAvailable = c.Status == "failed" && found
+	var saved run.Saved[campaign.Strategy]
+	if ok, err := cs.LoadCheckpoint(ctx, id, "strategy", 0, &saved); err != nil {
+		return nil, err
+	} else if ok && c.Strategy == nil {
+		c.Strategy = &saved.Value
+	}
+	rows, err := shared.CheckpointRows(ctx, cs.db, "campaign", id, "article")
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > 0 {
+		c.Deliverables = nil
+		for _, row := range rows {
+			var d run.Saved[campaign.Deliverable]
+			if err := json.Unmarshal([]byte(row.Payload), &d); err != nil {
+				return nil, err
+			}
+			c.Deliverables = append(c.Deliverables, d.Value)
+		}
+	}
+	var summary run.RunSummary
+	if ok, err := cs.LoadCheckpoint(ctx, id, "summary", 0, &summary); err != nil {
+		return nil, err
+	} else if ok {
+		c.CostUSD = &summary.CostUSD
+	}
 	return &c, nil
 }
 
@@ -235,7 +271,10 @@ func (cs *Campaigns) CreateOnce(ctx context.Context, client, key, hash string, b
 	}
 	data, _ := json.Marshal(b)
 	return shared.CreateOnce(ctx, cs.db, client, "campaign", key, hash, func(tx *gorm.DB, id string) error {
-		return tx.Create(&campaignRow{ID: id, ClientID: client, Status: "pending", Brief: string(data)}).Error
+		if err := tx.Create(&campaignRow{ID: id, ClientID: client, Status: "pending", Brief: string(data)}).Error; err != nil {
+			return err
+		}
+		return shared.SaveInitialCheckpoint(ctx, tx, "campaign", id, b)
 	})
 }
 
@@ -244,4 +283,14 @@ func (cs *Campaigns) AcquireLease(ctx context.Context, id, owner string, ttl tim
 }
 func (cs *Campaigns) RenewLease(ctx context.Context, id, owner string, attempt int64, ttl time.Duration) error {
 	return shared.RenewLease(ctx, cs.db, "campaigns", id, owner, attempt, ttl, cs.now().UTC())
+}
+
+func (cs *Campaigns) LoadCheckpoint(ctx context.Context, id, stage string, pos int, out any) (bool, error) {
+	return shared.LoadCheckpoint(ctx, cs.db, "campaign", id, stage, pos, out)
+}
+func (cs *Campaigns) SaveCheckpoint(ctx context.Context, id, stage string, pos int, data any) error {
+	return shared.SaveCheckpoint(ctx, cs.db, "campaigns", "campaign", id, stage, pos, data, cs.now().UTC())
+}
+func (cs *Campaigns) Requeue(ctx context.Context, id string) error {
+	return shared.Requeue(ctx, cs.db, "campaigns", "campaign", id, cs.now().UTC())
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"golang.org/x/sync/errgroup"
 	"sync"
 
@@ -14,10 +15,11 @@ import (
 
 // Review прогоняет готовые тексты через двух агентов (соответствие брифу и
 // корректность текста) параллельно по текстам и возвращает отчёты.
-func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progress) (review.Result, error) {
+func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progress) (res review.Result, err error) {
 	if p == nil {
 		p = run.NopProgress{}
 	}
+	checkpoints := run.Checkpoints{Store: o.opt.Checkpoints, ID: trace.RunIDFrom(ctx)}
 	var mu sync.Mutex
 	total := corellm.Usage{}
 	addUsage := func(u corellm.Usage) {
@@ -25,6 +27,16 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 		total = total.Add(u)
 		mu.Unlock()
 	}
+
+	defer func() {
+		mu.Lock()
+		usage := total
+		mu.Unlock()
+		res.CostUSD = o.cost(usage)
+		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, Usage: usage}); saveErr != nil && err == nil {
+			err = saveErr
+		}
+	}()
 
 	titles := make([]string, len(req.Texts))
 	for i, t := range req.Texts {
@@ -36,6 +48,7 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 	quality := NewQualityChecker(o.llm)
 
 	reports := make([]review.TextReport, len(req.Texts))
+	res.Items = reports
 	g, gctx := errgroup.WithContext(ctx)
 	parallel := o.opt.ParallelTexts
 	if parallel <= 0 {
@@ -45,17 +58,31 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 	for i, t := range req.Texts {
 		i, t := i, t
 		g.Go(func() error {
+			var saved run.Saved[review.TextReport]
+			found, err := checkpoints.Load(gctx, "text", i, &saved)
+			if err != nil {
+				return err
+			}
+			if found {
+				reports[i] = saved.Value
+				addUsage(saved.Usage)
+				p.TopicDone(i, saved.Value.Overall)
+				return nil
+			}
 			report, u, err := o.reviewOne(gctx, compliance, quality, req.BriefText, i, t, p)
 			addUsage(u)
 			if err != nil {
 				return fmt.Errorf("text %q: %w", titleOf(t, i), err)
+			}
+			if err := checkpoints.Save(gctx, "text", i, run.Saved[review.TextReport]{Value: report, Usage: u}); err != nil {
+				return err
 			}
 			reports[i] = report
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return review.Result{}, err
+		return res, err
 	}
 
 	passed := 0

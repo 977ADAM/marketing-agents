@@ -115,6 +115,7 @@ func main() {
 	}
 
 	orch := campaignservice.NewWorkflow(llmClient, campaignservice.Options{
+		Checkpoints:         campaigns,
 		CriticMaxIter:       cfg.CriticMaxIter,
 		ScoreThreshold:      cfg.CriticScoreThreshold,
 		CostPer1KPrompt:     cfg.CostPer1KPrompt,
@@ -129,7 +130,7 @@ func main() {
 		Recorder: recorder,
 	})
 	hub := runner.NewHub(baseCtx, campaigns, reviews, sloglogger.New(logger))
-	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
+	runner := runner.NewRunner(baseCtx, campaigns, reviews, orch, reviewservice.NewWorkflow(llmClient, reviewservice.Options{Checkpoints: reviews, CostPer1KPrompt: cfg.CostPer1KPrompt, CostPer1KCompletion: cfg.CostPer1KCompletion, ParallelTexts: cfg.Limits.ParallelTexts}), cfg.RunTimeout, sloglogger.New(logger), hub, runner.Options{Capacity: cfg.RunnerCapacity, FinalizeTimeout: cfg.FinalizeTimeout})
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()

@@ -91,6 +91,7 @@ func (rs *Reviews) CompleteCheck(ctx context.Context, id string, res review.Resu
 	resultJSON, _ := json.Marshal(res)
 	return rs.update(ctx, id, map[string]any{
 		"status":   "done",
+		"progress": gorm.Expr("JSON_SET(COALESCE(progress, '{}'), '$.phase', 'done', '$.percent', 100)"),
 		"result":   string(resultJSON),
 		"cost_usd": res.CostUSD,
 	})
@@ -128,6 +129,41 @@ func (rs *Reviews) GetCheck(ctx context.Context, id string) (*review.Record, err
 		var snap run.Snapshot
 		if json.Unmarshal([]byte(*row.Progress), &snap) == nil {
 			r.Progress = &snap
+		}
+	}
+	found, err := shared.HasInput(ctx, rs.db, "review", id)
+	if err != nil {
+		return nil, err
+	}
+	r.ResumeAvailable = r.Status == "failed" && found
+	rows, err := shared.CheckpointRows(ctx, rs.db, "review", id, "text")
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > 0 {
+		result := review.Result{}
+		for _, row := range rows {
+			var d run.Saved[review.TextReport]
+			if err := json.Unmarshal([]byte(row.Payload), &d); err != nil {
+				return nil, err
+			}
+			result.Items = append(result.Items, d.Value)
+			if d.Value.Verdict == review.VerdictPass {
+				result.Passed++
+			}
+		}
+		if r.Result != nil {
+			result.CostUSD = r.Result.CostUSD
+		}
+		r.Result = &result
+	}
+	var summary run.RunSummary
+	if ok, err := rs.LoadCheckpoint(ctx, id, "summary", 0, &summary); err != nil {
+		return nil, err
+	} else if ok {
+		r.CostUSD = &summary.CostUSD
+		if r.Result != nil {
+			r.Result.CostUSD = summary.CostUSD
 		}
 	}
 	return &r, nil
@@ -172,7 +208,10 @@ func (rs *Reviews) CreateOnce(ctx context.Context, client, key, hash string, req
 		client = identity.DefaultClientID
 	}
 	return shared.CreateOnce(ctx, rs.db, client, "review", key, hash, func(tx *gorm.DB, id string) error {
-		return tx.Create(&reviewRow{ID: id, ClientID: client, Status: "pending", BriefText: req.BriefText}).Error
+		if err := tx.Create(&reviewRow{ID: id, ClientID: client, Status: "pending", BriefText: req.BriefText}).Error; err != nil {
+			return err
+		}
+		return shared.SaveInitialCheckpoint(ctx, tx, "review", id, req)
 	})
 }
 
@@ -181,4 +220,28 @@ func (rs *Reviews) AcquireLease(ctx context.Context, id, owner string, ttl time.
 }
 func (rs *Reviews) RenewLease(ctx context.Context, id, owner string, attempt int64, ttl time.Duration) error {
 	return shared.RenewLease(ctx, rs.db, "reviews", id, owner, attempt, ttl, rs.now().UTC())
+}
+
+func (rs *Reviews) CreateReview(ctx context.Context, client string, req review.Request) (string, error) {
+	if client == "" {
+		client = identity.DefaultClientID
+	}
+	id := identity.NewUUID()
+	err := rs.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&reviewRow{ID: id, ClientID: client, Status: "pending", BriefText: req.BriefText}).Error; err != nil {
+			return err
+		}
+		return shared.SaveInitialCheckpoint(ctx, tx, "review", id, req)
+	})
+	return id, err
+}
+
+func (rs *Reviews) LoadCheckpoint(ctx context.Context, id, stage string, pos int, out any) (bool, error) {
+	return shared.LoadCheckpoint(ctx, rs.db, "review", id, stage, pos, out)
+}
+func (rs *Reviews) SaveCheckpoint(ctx context.Context, id, stage string, pos int, data any) error {
+	return shared.SaveCheckpoint(ctx, rs.db, "reviews", "review", id, stage, pos, data, rs.now().UTC())
+}
+func (rs *Reviews) Requeue(ctx context.Context, id string) error {
+	return shared.Requeue(ctx, rs.db, "reviews", "review", id, rs.now().UTC())
 }

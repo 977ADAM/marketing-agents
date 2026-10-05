@@ -24,6 +24,7 @@ export function statusLabel(status: Status, runningLabel?: string): string {
 }
 
 export const PHASE_LABELS: Record<Phase, string> = {
+ pending: 'Ожидание запуска',
 	strategizing: 'Стратегия',
 	researching: 'Подбор тем по спросу',
 	producing: 'Генерация статей',

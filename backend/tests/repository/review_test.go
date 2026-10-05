@@ -60,7 +60,7 @@ func TestReviewRoundTrip(t *testing.T) {
 	if got.CostUSD == nil || *got.CostUSD != 0.05 {
 		t.Errorf("cost = %v", got.CostUSD)
 	}
-	if got.Progress == nil || got.Progress.Percent != 10 {
+	if got.Progress == nil || got.Progress.Percent != 100 || got.Progress.Phase != run.PhaseDone {
 		t.Errorf("progress = %+v", got.Progress)
 	}
 

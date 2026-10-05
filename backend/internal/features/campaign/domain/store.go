@@ -12,17 +12,18 @@ var ErrNotFound = errors.New("campaign not found")
 
 // Record — сохранённая кампания: бриф, стратегия, статьи и состояние прогона.
 type Record struct {
-	ID           string        `json:"id"`
-	ClientID     string        `json:"client_id"`
-	Status       string        `json:"status"`
-	Brief        Brief         `json:"brief"`
-	Strategy     *Strategy     `json:"strategy,omitempty"`
-	Deliverables []Deliverable `json:"deliverables,omitempty"`
-	Progress     *run.Snapshot `json:"progress,omitempty"`
-	CostUSD      *float64      `json:"cost_usd,omitempty"`
-	Error        string        `json:"error,omitempty"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	ResumeAvailable bool          `json:"resume_available"`
+	ID              string        `json:"id"`
+	ClientID        string        `json:"client_id"`
+	Status          string        `json:"status"`
+	Brief           Brief         `json:"brief"`
+	Strategy        *Strategy     `json:"strategy,omitempty"`
+	Deliverables    []Deliverable `json:"deliverables,omitempty"`
+	Progress        *run.Snapshot `json:"progress,omitempty"`
+	CostUSD         *float64      `json:"cost_usd,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
 // Summary — лёгкая сводка для списка истории (без strategy/deliverables/body).

@@ -180,6 +180,7 @@ type createReq struct {
 const maxTopicsCount = 20
 
 type CampaignService interface {
+	Resume(context.Context, string) (string, error)
 	Create(context.Context, string, campaign.Brief) (string, error)
 	Get(context.Context, string) (*campaign.Record, error)
 	ListRecent(context.Context, int) ([]campaign.Summary, error)
@@ -203,5 +204,34 @@ func NewHandler(s CampaignService, sub Subscriber, limiter *middleware.RateLimit
 }
 
 func (h *Handler) Routes() []server.Route {
-	return []server.Route{{"POST /api/campaigns", h.postCampaign}, {"GET /api/campaigns", h.listCampaigns}, {"GET /api/campaigns/{id}", h.getCampaign}, {"GET /api/campaigns/{id}/events", h.campaignEvents}}
+	return []server.Route{{"POST /api/campaigns/{id}/retry", h.retry}, {"POST /api/campaigns", h.postCampaign}, {"GET /api/campaigns", h.listCampaigns}, {"GET /api/campaigns/{id}", h.getCampaign}, {"GET /api/campaigns/{id}/events", h.campaignEvents}}
+}
+
+func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
+	if !h.limiter.Allow() {
+		response.WriteError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+		return
+	}
+	id, err := h.campaigns.Resume(r.Context(), r.PathValue("id"))
+	if errors.Is(err, run.ErrInvalidState) {
+		response.WriteError(w, http.StatusConflict, "invalid_state", err.Error())
+		return
+	}
+	if errors.Is(err, run.ErrResumeUnavailable) {
+		response.WriteError(w, http.StatusConflict, "resume_unavailable", err.Error())
+		return
+	}
+	if errors.Is(err, run.ErrBusy) || errors.Is(err, run.ErrStopping) {
+		response.WriteError(w, http.StatusServiceUnavailable, "busy", err.Error())
+		return
+	}
+	if errors.Is(err, campaign.ErrNotFound) {
+		response.WriteError(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "internal", "could not resume run")
+		return
+	}
+	response.WriteJSON(w, http.StatusAccepted, map[string]string{"id": id, "status": "pending"})
 }

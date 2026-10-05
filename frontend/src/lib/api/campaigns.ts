@@ -17,3 +17,5 @@ export function getCampaign(id: string): Promise<Campaign> {
 export function listCampaigns(): Promise<CampaignSummary[]> {
 	return request<CampaignSummary[]>('campaigns');
 }
+
+export function retryCampaign(id:string):Promise<CreateRunResponse>{return postJSON<CreateRunResponse>(`campaigns/${id}/retry`,{});}

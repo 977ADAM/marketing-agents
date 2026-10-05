@@ -52,8 +52,8 @@ func TestCheckSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CheckSchema: %v", err)
 		}
-		if version != "0005" {
-			t.Errorf("версия схемы = %q, want 0005", version)
+		if version != "0006" {
+			t.Errorf("версия схемы = %q, want 0006", version)
 		}
 	})
 }

@@ -103,6 +103,7 @@ export interface Deliverable {
 }
 
 export interface Campaign {
+ resume_available?:boolean;
 	id: string;
 	client_id: string;
 	status: Status;
@@ -159,6 +160,7 @@ export interface ReviewResult {
 }
 
 export interface ReviewRun {
+ resume_available?:boolean;
 	id: string;
 	client_id: string;
 	status: Status;
@@ -197,7 +199,8 @@ export interface CreateRunResponse {
 
 // --- прогресс прогона (SSE) ---
 
-export type Phase = 'strategizing' | 'researching' | 'producing' | 'done' | 'failed';
+export type Phase =
+ | 'pending' | 'strategizing' | 'researching' | 'producing' | 'done' | 'failed';
 export type TopicState = 'pending' | 'writing' | 'reviewing' | 'revising' | 'done';
 
 export interface TopicProgress {

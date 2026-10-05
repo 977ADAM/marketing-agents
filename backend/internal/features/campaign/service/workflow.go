@@ -41,6 +41,7 @@ type Options struct {
 	// Recorder — журнал событий прогона (nil — трасса не пишется).
 	Recorder      trace.Recorder
 	ParallelTexts int
+	Checkpoints   run.CheckpointStore
 }
 
 // Result — итог прогона: стратегия, статьи с ревью, суммарная стоимость и расход.
@@ -91,6 +92,7 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 	if b.TopicsCount < 0 || (o.opt.MaxTopics > 0 && b.TopicsCount > o.opt.MaxTopics) {
 		return Result{}, limits.Invalid("requested topics exceed configured cap")
 	}
+	checkpoints := run.Checkpoints{Store: o.opt.Checkpoints, ID: trace.RunIDFrom(ctx)}
 	var mu sync.Mutex
 	total := corellm.Usage{}
 	addUsage := func(u corellm.Usage) {
@@ -104,51 +106,85 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 		mu.Lock()
 		res.Usage = total
 		mu.Unlock()
+		res.CostUSD = o.cost(res.Usage)
+		if saveErr := checkpoints.Save(ctx, "summary", 0, run.RunSummary{CostUSD: res.CostUSD, Usage: res.Usage}); saveErr != nil && err == nil {
+			err = saveErr
+		}
 		o.traceResult(ctx, res, err)
 	}()
 
 	// Темы: либо подбор на поисковом спросе, либо стратег как раньше.
 	// Позиционирование в обоих случаях даёт стратег.
 	var strat campaign.Strategy
-	if o.canResearch() {
-		researched, u, err := o.researcher.Run(ctx, topic.ResearchRequest{Briefing: b.Briefing(), Region: b.Region, TopicsCount: b.TopicsCount}, p)
-		if err != nil {
-			return Result{}, err
-		}
-		addUsage(u)
-		strat.TopicCandidates = researched.TopicCandidates
-		strat.WordstatCalls = researched.WordstatCalls
-		for _, t := range researched.Topics {
-			strat.Topics = append(strat.Topics, campaign.Topic{Title: t.Title, Angle: t.Angle, Points: t.Points})
-		}
-
-		p.Strategizing()
-		st, u, err := o.strategist.Run(ctx, b)
-		if err != nil {
-			return Result{}, err
-		}
-		addUsage(u)
-		strat.Positioning = st.Positioning
+	var savedStrategy run.Saved[campaign.Strategy]
+	strategyFound, loadErr := checkpoints.Load(ctx, "strategy", 0, &savedStrategy)
+	if loadErr != nil {
+		return res, loadErr
+	}
+	if strategyFound {
+		strat = savedStrategy.Value
+		addUsage(savedStrategy.Usage)
 	} else {
-		p.Strategizing()
-		st, u, err := o.strategist.Run(ctx, b)
-		if err != nil {
-			return Result{}, err
-		}
-		addUsage(u)
-		strat = st
-	}
+		if o.canResearch() {
+			var researched topic.ResearchResult
+			var u corellm.Usage
+			var research run.Saved[topic.ResearchResult]
+			researchFound, err := checkpoints.Load(ctx, "research", 0, &research)
+			if err != nil {
+				return res, err
+			}
+			if researchFound {
+				researched = research.Value
+				u = research.Usage
+			} else {
+				researched, u, err = o.researcher.Run(ctx, topic.ResearchRequest{Briefing: b.Briefing(), Region: b.Region, TopicsCount: b.TopicsCount}, p)
+				if err == nil {
+					err = checkpoints.Save(ctx, "research", 0, run.Saved[topic.ResearchResult]{Value: researched, Usage: u})
+				}
+			}
+			addUsage(u)
+			if err != nil {
+				return res, err
+			}
+			strat.TopicCandidates = researched.TopicCandidates
+			strat.WordstatCalls = researched.WordstatCalls
+			for _, t := range researched.Topics {
+				strat.Topics = append(strat.Topics, campaign.Topic{Title: t.Title, Angle: t.Angle, Points: t.Points})
+			}
 
-	cap := b.TopicsCount
-	if cap == 0 {
-		cap = o.opt.MaxTopics
+			p.Strategizing()
+			st, u, err := o.strategist.Run(ctx, b)
+			addUsage(u)
+			if err != nil {
+				return res, err
+			}
+			strat.Positioning = st.Positioning
+		} else {
+			p.Strategizing()
+			st, u, err := o.strategist.Run(ctx, b)
+			addUsage(u)
+			if err != nil {
+				return res, err
+			}
+			strat = st
+		}
+
+		cap := b.TopicsCount
+		if cap == 0 {
+			cap = o.opt.MaxTopics
+		}
+		if cap > 0 && len(strat.Topics) > cap {
+			strat.Topics = strat.Topics[:cap]
+		}
+		if b.TopicsCount > 0 && len(strat.Topics) < b.TopicsCount {
+			strat.Warnings = append(strat.Warnings, fmt.Sprintf("Запрошено %d тем, подобрано %d", b.TopicsCount, len(strat.Topics)))
+		}
+
+		if err := checkpoints.Save(ctx, "strategy", 0, run.Saved[campaign.Strategy]{Value: strat, Usage: total}); err != nil {
+			return res, err
+		}
 	}
-	if cap > 0 && len(strat.Topics) > cap {
-		strat.Topics = strat.Topics[:cap]
-	}
-	if b.TopicsCount > 0 && len(strat.Topics) < b.TopicsCount {
-		strat.Warnings = append(strat.Warnings, fmt.Sprintf("Запрошено %d тем, подобрано %d", b.TopicsCount, len(strat.Topics)))
-	}
+	res.Strategy = strat
 
 	titles := make([]string, len(strat.Topics))
 	for i, t := range strat.Topics {
@@ -157,6 +193,7 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 	p.TopicsPlanned(titles)
 
 	deliverables := make([]campaign.Deliverable, len(strat.Topics))
+	res.Deliverables = deliverables
 	g, gctx := errgroup.WithContext(ctx)
 	parallel := o.opt.ParallelTexts
 	if parallel <= 0 {
@@ -166,17 +203,35 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 	for i, topic := range strat.Topics {
 		i, topic := i, topic
 		g.Go(func() error {
+			var saved run.Saved[campaign.Deliverable]
+			found, err := checkpoints.Load(gctx, "article", i, &saved)
+			if err != nil {
+				return err
+			}
+			if found {
+				deliverables[i] = saved.Value
+				addUsage(saved.Usage)
+				score := 0
+				if saved.Value.Review != nil {
+					score = saved.Value.Review.Score
+				}
+				p.TopicDone(i, score)
+				return nil
+			}
 			d, u, err := o.produce(gctx, b, strat, i, topic, p)
 			addUsage(u)
 			if err != nil {
 				return fmt.Errorf("topic %q: %w", topic.Title, err)
+			}
+			if err := checkpoints.Save(gctx, "article", i, run.Saved[campaign.Deliverable]{Value: d, Usage: u}); err != nil {
+				return err
 			}
 			deliverables[i] = d
 			return nil
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return Result{}, err
+		return res, err
 	}
 
 	return Result{

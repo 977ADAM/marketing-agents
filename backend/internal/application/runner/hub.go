@@ -366,6 +366,8 @@ func (t *tracker) finish(ph run.Phase) {
 	}
 	t.run.mu.Unlock()
 	t.hub.mu.Lock()
-	delete(t.hub.runs, t.id)
+	if t.hub.runs[t.id] == t.run {
+		delete(t.hub.runs, t.id)
+	}
 	t.hub.mu.Unlock()
 }

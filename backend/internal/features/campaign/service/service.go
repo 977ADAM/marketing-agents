@@ -99,3 +99,40 @@ func (s *Service) Get(ctx context.Context, id string) (*campaign.Record, error) 
 func (s *Service) ListRecent(ctx context.Context, limit int) ([]campaign.Summary, error) {
 	return s.store.ListRecent(ctx, limit)
 }
+
+func (s *Service) Resume(ctx context.Context, id string) (string, error) {
+	record, err := s.store.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if record.Status != "failed" {
+		return "", run.ErrInvalidState
+	}
+	checkpoints, ok := s.store.(run.ResumeStore)
+	if !ok {
+		return "", run.ErrResumeUnavailable
+	}
+	var input campaign.Brief
+	found, err := checkpoints.LoadCheckpoint(ctx, id, "input", 0, &input)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", run.ErrResumeUnavailable
+	}
+	slot, err := s.starter.Reserve(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer slot.Release()
+	if err := checkpoints.Requeue(ctx, id); err != nil {
+		return "", err
+	}
+	if err := slot.Submit(func(ctx context.Context) { s.starter.ExecuteCampaign(ctx, id, input) }); err != nil {
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.store.Fail(final, id, "runner stopping before retry submission")
+		return "", err
+	}
+	return id, nil
+}

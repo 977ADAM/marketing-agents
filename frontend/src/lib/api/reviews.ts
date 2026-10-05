@@ -40,3 +40,5 @@ export function extractDocx(file: File): Promise<ExtractedDoc> {
 		body: file
 	});
 }
+
+export function retryReview(id:string):Promise<CreateRunResponse>{return postJSON<CreateRunResponse>(`reviews/${id}/retry`,{});}

@@ -1,4 +1,7 @@
 <script lang="ts">
+	import {retryReview} from '#lib/api/reviews.js';
+ import {toast} from '#lib/stores/toast.js';
+ import {errorMessage} from '#lib/api/client.js';
 	import { onDestroy } from 'svelte';
 	import ErrorState from './ErrorState.svelte';
 	import ProgressPanel from './ProgressPanel.svelte';
@@ -26,6 +29,8 @@
 		unsubscribe();
 		run.destroy();
 	});
+ let retrying=$state(false);
+ async function resume(){retrying=true;try{await retryReview(id);run.progress.restart();await run.refresh();await refreshHistory();}catch(err){toast.error(errorMessage(err));}finally{retrying=false;}}
 </script>
 
 {#if $error}
@@ -36,6 +41,9 @@
 	<div class="failed">
 		<h2>Ошибка проверки</h2>
 		<p class="error">{$review.error}</p>
+ {#if $review.resume_available}<button class="btn btn-primary" disabled={retrying} onclick={resume}>{retrying ? 'Запускаем…' : 'Продолжить'}</button>{/if}
+ <p class="muted">Стоимость: {formatCost($review.cost_usd)}</p>
+ {#each $review.result?.items ?? [] as report,i (i)}<ReportCard {report} />{/each}
 	</div>
 {:else if $review?.status === 'done' && $review.result}
 	<div class="result">

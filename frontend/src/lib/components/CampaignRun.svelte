@@ -1,4 +1,7 @@
 <script lang="ts">
+	import {retryCampaign} from '#lib/api/campaigns.js';
+ import {toast} from '#lib/stores/toast.js';
+ import {errorMessage} from '#lib/api/client.js';
 	import { onDestroy } from 'svelte';
 	import ArticleCard from './ArticleCard.svelte';
 	import ErrorState from './ErrorState.svelte';
@@ -28,6 +31,8 @@
 		unsubscribe();
 		run.destroy();
 	});
+ let retrying=$state(false);
+ async function resume(){retrying=true;try{await retryCampaign(id);run.progress.restart();await run.refresh();await refreshHistory();}catch(err){toast.error(errorMessage(err));}finally{retrying=false;}}
 </script>
 
 {#if $error}
@@ -38,6 +43,9 @@
 	<div class="failed">
 		<h2>Ошибка</h2>
 		<p class="error">{$campaign.error}</p>
+ {#if $campaign.resume_available}<button class="btn btn-primary" disabled={retrying} onclick={resume}>{retrying ? 'Запускаем…' : 'Продолжить'}</button>{/if}
+ <p class="muted">Стоимость: {formatCost($campaign.cost_usd)}</p>
+ {#each $campaign.deliverables ?? [] as d,i (i)}<ArticleCard deliverable={d} />{/each}
 	</div>
 {:else if $campaign?.status === 'done'}
 	<div class="result">

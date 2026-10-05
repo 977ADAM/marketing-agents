@@ -70,7 +70,13 @@ func (s *Service) Create(ctx context.Context, clientID string, req review.Reques
 	if once != nil {
 		id, created, err = once.CreateOnce(ctx, clientID, key, hash, req)
 	} else {
-		id, err = s.store.CreateCheck(ctx, clientID, req.BriefText)
+		if input, ok := s.store.(interface {
+			CreateReview(context.Context, string, review.Request) (string, error)
+		}); ok {
+			id, err = input.CreateReview(ctx, clientID, req)
+		} else {
+			id, err = s.store.CreateCheck(ctx, clientID, req.BriefText)
+		}
 	}
 	if err != nil {
 		return "", err
@@ -106,4 +112,41 @@ func firstLine(s string) string {
 		}
 	}
 	return s
+}
+
+func (s *Service) Resume(ctx context.Context, id string) (string, error) {
+	record, err := s.store.GetCheck(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if record.Status != "failed" {
+		return "", run.ErrInvalidState
+	}
+	checkpoints, ok := s.store.(run.ResumeStore)
+	if !ok {
+		return "", run.ErrResumeUnavailable
+	}
+	var input review.Request
+	found, err := checkpoints.LoadCheckpoint(ctx, id, "input", 0, &input)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", run.ErrResumeUnavailable
+	}
+	slot, err := s.starter.Reserve(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer slot.Release()
+	if err := checkpoints.Requeue(ctx, id); err != nil {
+		return "", err
+	}
+	if err := slot.Submit(func(ctx context.Context) { s.starter.ExecuteReview(ctx, id, input) }); err != nil {
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = s.store.FailCheck(final, id, "runner stopping before retry submission")
+		return "", err
+	}
+	return id, nil
 }

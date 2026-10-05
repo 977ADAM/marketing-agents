@@ -1,6 +1,8 @@
 package http_test
 
 import (
+	"context"
+	campaign "github.com/977ADAM/marketing-agents/internal/features/campaign/domain"
 	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
 	reviewrepo "github.com/977ADAM/marketing-agents/internal/features/review/repository/mariadb"
 	tracerepo "github.com/977ADAM/marketing-agents/internal/features/trace/repository/mariadb"
@@ -38,5 +40,38 @@ func TestCreateIdempotencyHTTP(t *testing.T) {
 	}
 	if len(runner.called) != 2 {
 		t.Fatalf("started=%d", len(runner.called))
+	}
+}
+
+func TestRetryStateResponses(t *testing.T) {
+	db, _ := testdb.New(t)
+	ctx := context.Background()
+	campaigns := campaignrepo.NewCampaigns(db)
+	reviews := reviewrepo.NewReviews(db)
+	runner := &mockRunner{called: make(chan string, 4)}
+	api := newAPI(campaigns, reviews, tracerepo.NewEvents(db), runner, nil, 100)
+	id, err := campaigns.Create(ctx, "", campaign.Brief{Product: "P"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = campaigns.Fail(ctx, id, "failed")
+	post := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		api.Handler().ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(`{}`)))
+		return w
+	}
+	if w := post("/api/campaigns/" + id + "/retry"); w.Code != 202 {
+		t.Fatalf("retry=%d %s", w.Code, w.Body)
+	}
+	if w := post("/api/campaigns/" + id + "/retry"); w.Code != 409 || !strings.Contains(w.Body.String(), "invalid_state") {
+		t.Fatalf("running retry=%d %s", w.Code, w.Body)
+	}
+	old, err := reviews.CreateCheck(ctx, "", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = reviews.FailCheck(ctx, old, "failed")
+	if w := post("/api/reviews/" + old + "/retry"); w.Code != 409 || !strings.Contains(w.Body.String(), "resume_unavailable") {
+		t.Fatalf("legacy=%d %s", w.Code, w.Body)
 	}
 }
