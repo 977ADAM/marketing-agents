@@ -1,6 +1,9 @@
 # План: прозрачность агентов в трассе
 
 Spec: `docs/superpowers/specs/2026-10-06-trace-transparency-design.md`.
+Статус: выполнен (2026-10-06). Коммиты: `docs: plan trace transparency work`,
+`feat: make trace full by default`, `feat: capture model reasoning in the run trace`,
+`feat: show agent reasoning in the trace viewer`.
 
 ## Global Constraints
 
@@ -15,54 +18,54 @@ Spec: `docs/superpowers/specs/2026-10-06-trace-transparency-design.md`.
 
 - [x] Живой вызов `deepseek-v4-pro` из `backend/.env` подтвердил `reasoning_content`
       и `reasoning_tokens` в обычном и JSON-режиме (квота: два коротких запроса).
-- [ ] Прочитать spec, свериться с текущим состоянием трассы и вьюера.
+- [x] Прочитать spec, свериться с текущим состоянием трассы и вьюера.
 
 ## Task 1: Дефолт `full`
 
-- [ ] Тесты: пустой `TRACE_MODE` → `full` (config), `ParseMode("")` → `full`; явные
-      `summary`/`off`/`full` не меняются.
-- [ ] Реализовать дефолт в `core/config` и `trace/domain`; обновить `.env.example`.
-- [ ] Предупреждение в лог при старте: `full` без `BASIC_AUTH_USER`.
+- [x] Тесты: пустой `TRACE_MODE` → `full` (config), `ParseMode("")` → `DefaultMode`.
+- [x] Дефолт в `core/config` и `trace/domain` (`DefaultMode`), обновлён `.env.example`.
+- [x] Предупреждение в лог при старте: `full` без `BASIC_AUTH_USER`.
 
 ## Task 2: Размышления модели
 
-- [ ] Тест адаптера DeepSeek (httptest): ответ с `reasoning_content`,
-      `reasoning_tokens`, `finish_reason` → поля `corellm.Usage` заполнены; пустые
-      поля не ломают клиент.
-- [ ] Добавить `Reasoning`, `ReasoningTokens`, `FinishReason` в `corellm.Usage`
-      (аддитивно; `Add` суммирует только токены).
-- [ ] Заполнять поля в `adapters/llm/deepseek`.
+- [x] Тест адаптера DeepSeek: `reasoning_content`, `reasoning_tokens`, `finish_reason`
+      → поля `corellm.Usage`; модель без размышлений не ломает клиент.
+- [x] `Reasoning`, `ReasoningTokens`, `FinishReason` в `corellm.Usage` (аддитивно;
+      `Add` суммирует только токены, как и раньше с `Response`).
+- [x] Заполнение в `adapters/llm/deepseek`; `accounting` не теряет поля на ошибке записи.
 
 ## Task 3: Тело LLM-события
 
-- [ ] Тесты декоратора: payload содержит `reasoning`, `model`, `finish_reason`,
-      `reasoning_tokens`; длинное поле обрезано и перечислено в `truncated_fields`,
-      короткое — нет; `summary` содержит счётчик размышлений.
-- [ ] Перенести `TruncateText`/`TruncatedMark` в `trace/domain`, убрать мёртвый
-      `truncate` из recorder.go, сохранить совместимость `export_test.go`.
-- [ ] Обрезать тела по отдельности (`trace.MaxBodyBytes`) в декораторе; поднять
-      дефолт `TRACE_MAX_PAYLOAD_BYTES` до 256 КиБ.
+- [x] Тесты декоратора: payload содержит `reasoning`, `model`, `finish_reason`,
+      `reasoning_tokens`; длинное поле обрезано и перечислено в `truncated_fields`.
+- [x] `TruncateText`/`TruncatedMark`/`MaxBodyBytes` в `trace/domain`, мёртвый
+      `truncate` из recorder.go убран, `export_test.go` берёт пометку из domain.
+- [x] Обрезка тел по отдельности; дефолт `TRACE_MAX_PAYLOAD_BYTES` — 256 КиБ.
 
 ## Task 4: Читаемый вьюер
 
-- [ ] vitest на `trace-payload.ts`: конверт `{data,truncated}`, `data`-строка
-      (обрезанный конверт), извлечение секций, JSON-ответ как объект против текста.
-- [ ] Реализовать `trace-payload.ts` и переписать вывод деталей в
-      `TrajectoryPanel.svelte`: секции размышлений/промпта/запроса/ответа, метрики
-      события, пометка обрезки, pretty-JSON для остальных видов.
+- [x] vitest на `trace-payload.ts` (9 тестов): конверт `{data,truncated}`, `data`-строка,
+      секции, JSON-ответ против текста, пустое тело.
+- [x] `trace-payload.ts` + переписанный вывод деталей в `TrajectoryPanel.svelte`
+      (секции, метаданные вызова, пометка обрезки); стили секций в `components.css`.
 
 ## Task 5: Этапы в трассе
 
-- [ ] Тесты: прогон кампании оставляет `phase`-события `researching`,
-      `strategizing`, `producing`, `done`; падение — `failed`; проверка текстов —
-      свои этапы.
-- [ ] Эмитить `KindPhase` в workflow кампании и проверки рядом с обновлением
-      прогресса.
+- [x] Тесты: `researching`, `strategizing`, `producing` (по статье), `failed`;
+      этап проверки текстов `reviewing`. Тест-двойники `captureTrace` и `sinkSpy`
+      получили мьютексы — события пишут параллельные статьи (было скрытое гонками
+      место, всплыло на `go test -race`).
+- [x] `KindPhase` эмитится в workflow кампании и проверки. Отличие от spec: этап
+      `done` отдельным событием не пишется — успешный итог и так помечен
+      `result`-событием, дублировать его незачем.
 
 ## Task 6: Документация и проверка
 
-- [ ] README: дефолт `full`, приватность, `reasoning_content`, обрезка по полям,
-      новый дефолт `TRACE_MAX_PAYLOAD_BYTES`.
-- [ ] `cd backend && go test ./...`, `go vet ./...`, `make test-race` для
-      затронутых пакетов, `npm test`, `npm run check`, `npm run build`.
-- [ ] Коммиты по задачам; в финале — `make verify` на живой MariaDB.
+- [x] README: дефолт `full`, приватность и предупреждение о basic-auth,
+      `reasoning_content`, обрезка по полям, новый дефолт `TRACE_MAX_PAYLOAD_BYTES`,
+      форма тела события в API.
+- [x] `make verify` (build + vet + check + Go-тесты на MariaDB + 53 фронтовых теста),
+      `go test -race -count=3 ./tests/workflow/`.
+- [x] Демонстрационный прогон без расходов: поддельный OpenAI-совместимый сервер
+      (`.superpowers/fake-llm.py`) → кампания через реальный API → панель трассы
+      со секцией «Размышления модели»; скриншот `.superpowers/trace.png`.
