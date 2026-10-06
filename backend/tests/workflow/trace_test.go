@@ -9,19 +9,29 @@ import (
 	traceservice "github.com/977ADAM/marketing-agents/internal/features/trace/service"
 
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
-// captureTrace собирает события трассы для проверок.
+// captureTrace собирает события трассы для проверок. Мьютекс обязателен:
+// статьи пишутся параллельно, и события из горутин приходят одновременно.
 type captureTrace struct {
+	mu     sync.Mutex
 	events []trace.Event
 }
 
-func (c *captureTrace) Event(_ context.Context, ev trace.Event) { c.events = append(c.events, ev) }
-func (c *captureTrace) Enabled() bool                           { return true }
+func (c *captureTrace) Event(_ context.Context, ev trace.Event) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, ev)
+}
+func (c *captureTrace) Enabled() bool { return true }
 
 func (c *captureTrace) byName(name string) []trace.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var out []trace.Event
 	for _, ev := range c.events {
 		if ev.Name == name {
@@ -32,6 +42,8 @@ func (c *captureTrace) byName(name string) []trace.Event {
 }
 
 func (c *captureTrace) summaries() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	var b strings.Builder
 	for _, ev := range c.events {
 		b.WriteString(ev.Summary)
@@ -204,19 +216,67 @@ func TestRunEmitsFailedResult(t *testing.T) {
 	if res[0].Status != trace.StatusError || !strings.Contains(res[0].Error, "MCP недоступен") {
 		t.Errorf("итог об ошибке = %+v", res[0])
 	}
+	// Сбой виден и как смена этапа: по ленте понятно, где прогон остановился.
+	failed := rec.byName("failed")
+	if len(failed) != 1 || failed[0].Kind != trace.KindPhase || failed[0].Status != trace.StatusError {
+		t.Errorf("этап failed не записан: %+v", failed)
+	}
 }
 
-// sinkSpy — подменённое хранилище трассы: считает записи.
+// Лента читается как последовательность этапов: смена этапа — отдельное событие,
+// иначе по вызовам модели непонятно, что происходило в прогоне.
+func TestRunEmitsPhaseTrail(t *testing.T) {
+	rec := &captureTrace{}
+	opt := researchOptions(winterSource(), campaignservice.Options{})
+	opt.Recorder = rec
+	o := campaignservice.NewWorkflow(happyCampaignFakes(t), opt)
+
+	if _, err := o.Run(runCtx(), researchBrief(), nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, name := range []string{"researching", "strategizing"} {
+		events := rec.byName(name)
+		if len(events) != 1 || events[0].Kind != trace.KindPhase {
+			t.Errorf("этап %q = %+v", name, events)
+		}
+	}
+	// Тем две — у каждой статьи свой шаг производства.
+	produced := rec.byName("producing")
+	if len(produced) != 2 || produced[0].Kind != trace.KindPhase {
+		t.Fatalf("этап producing = %+v", produced)
+	}
+	for _, ev := range produced {
+		if !strings.Contains(ev.Summary, "статья") {
+			t.Errorf("в этапе нет пояснения: %q", ev.Summary)
+		}
+	}
+}
+
+// sinkSpy — подменённое хранилище трассы: считает записи. Мьютекс обязателен:
+// статьи пишутся параллельно, а события идут через общий рекордер.
 type sinkSpy struct {
+	mu      sync.Mutex
 	records []trace.Record
 }
 
 func (s *sinkSpy) SaveRunEvent(_ context.Context, rec trace.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.records = append(s.records, rec)
 	return nil
 }
 
+// all отдаёт копию записей: читать их из теста безопасно в любой момент.
+func (s *sinkSpy) all() []trace.Record {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]trace.Record(nil), s.records...)
+}
+
 func (s *sinkSpy) names() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := make([]string, 0, len(s.records))
 	for _, rec := range s.records {
 		out = append(out, rec.Name)
@@ -236,7 +296,7 @@ func TestRunWithoutRunIDWritesNothing(t *testing.T) {
 	if _, err := o.Run(context.Background(), researchBrief(), nil); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(sink.records) != 0 {
+	if len(sink.all()) != 0 {
 		t.Errorf("без run_id записей быть не должно, получили %v", sink.names())
 	}
 }
@@ -253,16 +313,23 @@ func TestRunWithRunIDWritesTrail(t *testing.T) {
 	if _, err := o.Run(runCtx(), researchBrief(), nil); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(sink.records) == 0 {
+	records := sink.all()
+	if len(records) == 0 {
 		t.Fatal("ожидались события трассы")
 	}
-	// seq монотонный, а run_id проставлен в каждом событии.
-	for i, r := range sink.records {
+	// Каждое событие привязано к прогону и получает свой номер. Порядок записей в
+	// хранилище может не совпадать с порядком номеров: статьи идут параллельно.
+	seqs := make([]int64, 0, len(records))
+	for _, r := range records {
 		if r.RunID != "run-1" {
 			t.Fatalf("RunID = %q, want run-1", r.RunID)
 		}
-		if r.Seq != int64(i+1) {
-			t.Errorf("seq = %d, want %d", r.Seq, i+1)
+		seqs = append(seqs, r.Seq)
+	}
+	sort.Slice(seqs, func(i, j int) bool { return seqs[i] < seqs[j] })
+	for i, seq := range seqs {
+		if seq != int64(i+1) {
+			t.Errorf("seq[%d] = %d, want %d: номера уникальны и без пропусков", i, seq, i+1)
 		}
 	}
 	names := sink.names()

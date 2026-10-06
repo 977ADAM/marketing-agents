@@ -151,6 +151,7 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 				researched = research.Value
 				u = research.Usage
 			} else {
+				o.tracePhase(ctx, "researching", "подбор тем по поисковому спросу")
 				researched, u, err = o.researcher.Run(ctx, topic.ResearchRequest{Briefing: b.Briefing(), Region: b.Region, TopicsCount: b.TopicsCount}, p)
 				if err == nil {
 					err = checkpoints.Save(ctx, "research", 0, run.Saved[topic.ResearchResult]{Value: researched, Usage: u})
@@ -167,6 +168,7 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 			}
 
 			p.Strategizing()
+			o.tracePhase(ctx, "strategizing", "позиционирование по отобранным темам")
 			st, u, err := o.strategist.Run(ctx, b)
 			addUsage(u)
 			if err != nil {
@@ -175,6 +177,7 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 			strat.Positioning = st.Positioning
 		} else {
 			p.Strategizing()
+			o.tracePhase(ctx, "strategizing", "позиционирование и темы от стратега")
 			st, u, err := o.strategist.Run(ctx, b)
 			addUsage(u)
 			if err != nil {
@@ -258,6 +261,7 @@ func (o *Workflow) Run(ctx context.Context, b campaign.Brief, p run.Progress) (r
 // produce пишет статью и гоняет цикл критика; usage аккумулируется по всем вызовам.
 func (o *Workflow) produce(ctx context.Context, b campaign.Brief, s campaign.Strategy, i int, t campaign.Topic, p run.Progress) (campaign.Deliverable, corellm.Usage, error) {
 	total := corellm.Usage{}
+	o.tracePhase(ctx, "producing", fmt.Sprintf("статья %d из %d: «%s»", i+1, len(s.Topics), t.Title))
 	p.TopicWriting(i)
 	art, u, err := o.copywriter.Run(ctx, b, s, t)
 	total = total.Add(u)

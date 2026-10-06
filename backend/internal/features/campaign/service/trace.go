@@ -28,6 +28,21 @@ func (o *Workflow) traceDecision(ctx context.Context, name, summary string, payl
 	})
 }
 
+// tracePhase пишет смену этапа прогона. Без этих событий лента состоит из
+// вызовов и решений, и по ней не видно, что происходило в прогоне целиком.
+func (o *Workflow) tracePhase(ctx context.Context, name, summary string) {
+	// Этап пишется и при отменённом контексте (например, «failed» в конце
+	// провалившегося прогона), поэтому берём контекст без отмены.
+	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	o.trace.Event(final, trace.Event{
+		Kind:    trace.KindPhase,
+		Name:    name,
+		Status:  trace.StatusOK,
+		Summary: summary,
+	})
+}
+
 // traceResult пишет итог прогона: сколько тем, обращений к Wordstat и денег.
 func (o *Workflow) traceResult(ctx context.Context, res Result, err error) {
 	ev := trace.Event{
@@ -55,6 +70,13 @@ func (o *Workflow) traceResult(ctx context.Context, res Result, err error) {
 	}
 	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	if err != nil {
+		// Сбой — тоже смена этапа: по ленте видно, где прогон остановился.
+		o.trace.Event(final, trace.Event{
+			Kind: trace.KindPhase, Name: "failed", Status: trace.StatusError,
+			Summary: "прогон прерван", Error: err.Error(),
+		})
+	}
 	o.trace.Event(final, ev)
 	trace.FinishRun(o.trace, trace.RunIDFrom(ctx))
 }

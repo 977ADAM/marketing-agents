@@ -3,12 +3,36 @@ package workflow_test
 import (
 	"context"
 	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
+	trace "github.com/977ADAM/marketing-agents/internal/features/trace/domain"
 	"testing"
 
 	review "github.com/977ADAM/marketing-agents/internal/features/review/domain"
 
 	mock "github.com/977ADAM/marketing-agents/internal/testkit/mock"
 )
+
+// Проверка текстов тоже оставляет смену этапа: по ленте видно, что происходило,
+// а не только какие агенты вызывались.
+func TestReviewEmitsPhaseTrail(t *testing.T) {
+	fake := mock.NewLLM()
+	fake.Responses[reviewservice.RoleCompliance] = []string{`{"score":81,"issues":[]}`}
+	fake.Responses[reviewservice.RoleQuality] = []string{`{"score":82,"issues":[]}`}
+	rec := &captureTrace{}
+	o := reviewservice.NewWorkflow(fake, reviewservice.Options{Recorder: rec})
+
+	req := review.Request{BriefText: "б", Texts: []review.TextToReview{{Title: "A", Body: "x"}}}
+	if _, err := o.Review(runCtx(), req, nil); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+
+	phases := rec.byName("reviewing")
+	if len(phases) != 1 || phases[0].Kind != trace.KindPhase {
+		t.Errorf("этап reviewing = %+v", phases)
+	}
+	if len(rec.byName("review")) != 1 {
+		t.Error("итог проверки не записан")
+	}
+}
 
 // Review: два текста, у каждого два агента (compliance, quality).
 // Тексты обрабатываются параллельно, поэтому порядок ответов ролей недетерминирован:

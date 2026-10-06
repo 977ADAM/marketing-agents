@@ -60,6 +60,10 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 		}
 		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
+		if err != nil {
+			// Сбой — тоже смена этапа: по ленте видно, где проверка остановилась.
+			rec.Event(final, trace.Event{Kind: trace.KindPhase, Name: "failed", Status: trace.StatusError, Summary: "проверка прервана", Error: err.Error()})
+		}
 		rec.Event(final, trace.Event{Kind: trace.KindResult, Name: "review", Status: status, Summary: summary, Error: message, PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens, Payload: map[string]any{"items": res.Items, "cost_usd": res.CostUSD, "cost_known": known}})
 		trace.FinishRun(rec, trace.RunIDFrom(ctx))
 
@@ -70,6 +74,12 @@ func (o *Workflow) Review(ctx context.Context, req review.Request, p run.Progres
 		titles[i] = titleOf(t, i)
 	}
 	p.TopicsPlanned(titles)
+	// Этап виден в трассе: без него лента состоит только из вызовов агентов.
+	if rec := trace.OrNop(o.opt.Recorder); rec.Enabled() {
+		final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		rec.Event(final, trace.Event{Kind: trace.KindPhase, Name: "reviewing", Status: trace.StatusOK, Summary: fmt.Sprintf("проверка текстов: %d", len(req.Texts))})
+		cancel()
+	}
 
 	compliance := NewComplianceChecker(o.llm)
 	quality := NewQualityChecker(o.llm)
