@@ -30,6 +30,12 @@ type LLM struct {
 	// Requests — журнал вызовов в порядке обращения.
 	Requests []Request
 	Err      error
+	// Reasoning, ReasoningTokens и FinishReason описывают «мышление» модели:
+	// так же, как настоящий клиент, двойник отдаёт их в Usage. Пустые значения —
+	// модель без размышлений.
+	Reasoning       string
+	ReasoningTokens int
+	FinishReason    string
 }
 
 func NewLLM() *LLM {
@@ -52,7 +58,11 @@ func (f *LLM) Complete(_ context.Context, role, system, user string, out any) (c
 	if err := json.Unmarshal([]byte(queue[n]), out); err != nil {
 		return corellm.Usage{}, err
 	}
-	return corellm.Usage{PromptTokens: 10, CompletionTokens: 10}, nil
+	return corellm.Usage{
+		PromptTokens: 10, CompletionTokens: 10,
+		Response: queue[n], Reasoning: f.Reasoning, ReasoningTokens: f.ReasoningTokens,
+		FinishReason: f.FinishReason,
+	}, nil
 }
 
 // LastRequest возвращает последний зафиксированный вызов.

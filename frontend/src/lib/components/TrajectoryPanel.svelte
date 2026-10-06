@@ -5,6 +5,7 @@
 	import { onDestroy } from 'svelte';
 	import { createTrajectoryStore } from '#lib/stores/trajectory.js';
 	import { TRACE_KIND_LABELS, TRACE_STATUS_LABELS } from '#lib/labels.js';
+	import { buildTraceBody, type TraceBody } from '#lib/trace-payload.js';
 
 	let {
 		kind,
@@ -18,7 +19,7 @@
 	let error = $state<string | null>(null);
 	let opened = $state(false);
 	let alive = true;
-	let details = $state<Record<number, TrajectoryEvent>>({});
+	let bodies = $state<Record<number, TraceBody>>({});
 	let openSeq = $state<number | null>(null);
 	onDestroy(() => { alive = false; stream.destroy(); });
 
@@ -29,10 +30,10 @@
 			return;
 		}
 		openSeq = ev.seq;
-		if (details[ev.seq]) return;
+		if (bodies[ev.seq]) return;
 		try {
 			const full = await getTrajectoryEvent(kind, id, ev.seq);
-			if (alive) details = { ...details, [ev.seq]: full };
+			if (alive) bodies = { ...bodies, [ev.seq]: buildTraceBody(full.payload) };
 		} catch (err) {
 			if (alive) error = errorMessage(err);
 		}
@@ -94,9 +95,38 @@
 					{/if}
 
 					{#if openSeq === ev.seq}
-						<pre class="trace-payload">{details[ev.seq]
-								? JSON.stringify(details[ev.seq].payload, null, 2)
-								: 'Загружаем…'}</pre>
+						{#if bodies[ev.seq]}
+							{@const body = bodies[ev.seq]}
+							<div class="trace-body">
+								{#if body.meta.model || body.meta.finishReason || body.meta.reasoningTokens}
+									<p class="trace-chips">
+										{#if body.meta.model}<span class="trace-chip">{body.meta.model}</span>{/if}
+										{#if body.meta.finishReason}<span class="trace-chip">финал: {body.meta.finishReason}</span>{/if}
+										{#if body.meta.reasoningTokens}<span class="trace-chip">{body.meta.reasoningTokens} токенов размышлений</span>{/if}
+									</p>
+								{/if}
+
+								{#if body.envelopeTruncated}
+									<p class="trace-warn">Тело обрезано бюджетом трассы (TRACE_MAX_PAYLOAD_BYTES) — виден только его фрагмент.</p>
+								{/if}
+
+								{#if body.kind === 'sections'}
+									{#each body.sections as section (section.key)}
+										<details class="trace-section" open={section.open}>
+											<summary>
+												{section.title}
+												{#if section.truncated}<span class="trace-warn"> · обрезано</span>{/if}
+											</summary>
+											<pre class="trace-payload">{section.text}</pre>
+										</details>
+									{/each}
+								{:else}
+									<pre class="trace-payload">{body.json}</pre>
+								{/if}
+							</div>
+						{:else}
+							<p class="muted">Загружаем…</p>
+						{/if}
 					{/if}
 				</li>
 			{/each}
