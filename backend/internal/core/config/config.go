@@ -86,8 +86,9 @@ const (
 	TraceModeFull    = "full"
 )
 
-// DefaultTraceMaxPayloadBytes — лимит одного payload в режиме full.
-const DefaultTraceMaxPayloadBytes = 32 << 10
+// DefaultTraceMaxPayloadBytes — бюджет одного тела события в режиме full: четыре
+// поля LLM-события (system, user, reasoning, response) по 32 КиБ плюс метаданные.
+const DefaultTraceMaxPayloadBytes = 256 << 10
 
 // Load читает env, подставляет дефолты и валидирует обязательные поля.
 func Load() (*Config, error) {
@@ -127,7 +128,7 @@ func Load() (*Config, error) {
 		WordstatRegionDefault:  getStr("WORDSTAT_REGION_DEFAULT", DefaultWordstatRegion),
 		WordstatMaxCallsPerRun: getInt("WORDSTAT_MAX_CALLS_PER_RUN", 60),
 
-		TraceMode:            getStr("TRACE_MODE", TraceModeSummary),
+		TraceMode:            getStr("TRACE_MODE", TraceModeFull),
 		TraceRetentionDays:   getInt("TRACE_RETENTION_DAYS", 30),
 		TraceMaxPayloadBytes: getInt("TRACE_MAX_PAYLOAD_BYTES", DefaultTraceMaxPayloadBytes),
 	}

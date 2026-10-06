@@ -30,7 +30,7 @@ func New(sink trace.Sink, cfg trace.Config) trace.Recorder {
 		cfg.Now = time.Now
 	}
 	if cfg.Mode == "" {
-		cfg.Mode = trace.ModeSummary
+		cfg.Mode = trace.DefaultMode
 	}
 	if sink == nil || cfg.Mode == trace.ModeOff {
 		return trace.Nop{}

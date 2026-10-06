@@ -307,14 +307,14 @@ func TestTraceDefaults(t *testing.T) {
 	setEnv(t)
 
 	cfg := load(t)
-	if cfg.TraceMode != "summary" {
-		t.Errorf("TraceMode = %q, want summary", cfg.TraceMode)
+	if cfg.TraceMode != "full" {
+		t.Errorf("TraceMode = %q, want full (по умолчанию агенты должны быть видны)", cfg.TraceMode)
 	}
 	if cfg.TraceRetentionDays != 30 {
 		t.Errorf("TraceRetentionDays = %d, want 30", cfg.TraceRetentionDays)
 	}
-	if cfg.TraceMaxPayloadBytes != 32768 {
-		t.Errorf("TraceMaxPayloadBytes = %d, want 32768", cfg.TraceMaxPayloadBytes)
+	if cfg.TraceMaxPayloadBytes != 262144 {
+		t.Errorf("TraceMaxPayloadBytes = %d, want 262144", cfg.TraceMaxPayloadBytes)
 	}
 }
 

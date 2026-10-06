@@ -47,7 +47,7 @@ func runCtx(runID string) context.Context {
 
 func TestParseMode(t *testing.T) {
 	cases := map[string]trace.Mode{
-		"":        trace.ModeSummary,
+		"":        trace.DefaultMode,
 		"off":     trace.ModeOff,
 		"summary": trace.ModeSummary,
 		"full":    trace.ModeFull,

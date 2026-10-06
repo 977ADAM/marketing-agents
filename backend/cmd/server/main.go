@@ -87,6 +87,11 @@ func main() {
 	// всё равно надо чистить, иначе БД будет расти без ограничения.
 	logger.Info("trace", "mode", string(mode), "retention_days", cfg.TraceRetentionDays,
 		"max_payload_bytes", cfg.TraceMaxPayloadBytes)
+	// В full тела промптов, размышлений и черновиков лежат в БД открытым текстом.
+	// Открытый доступ к API в этом режиме — осознанный риск, о котором надо знать.
+	if mode == trace.ModeFull && cfg.BasicAuthUser == "" {
+		logger.Warn("TRACE_MODE=full без BASIC_AUTH_USER: тела промптов, размышлений и черновиков сохраняются в БД, доступ к API открыт")
+	}
 	if cfg.TraceRetentionDays > 0 {
 		cutoff := time.Now().AddDate(0, 0, -cfg.TraceRetentionDays)
 		retentionCtx, retentionCancel := context.WithTimeout(baseCtx, 5*time.Second)

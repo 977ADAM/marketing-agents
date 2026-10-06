@@ -41,11 +41,16 @@ const (
 	ModeFull    Mode = "full"
 )
 
-// ParseMode разбирает режим из конфига. Пустая строка — summary.
+// DefaultMode — режим, когда TRACE_MODE не задан: агенты должны быть видны
+// («что и как думали»), поэтому по умолчанию пишутся и тела.
+const DefaultMode = ModeFull
+
+// ParseMode разбирает режим из конфига. Пустая строка — full: прозрачность
+// прогона важнее места в БД, а размер тела всё равно ограничен бюджетом payload.
 func ParseMode(v string) (Mode, error) {
 	switch Mode(strings.ToLower(strings.TrimSpace(v))) {
 	case "":
-		return ModeSummary, nil
+		return DefaultMode, nil
 	case ModeOff:
 		return ModeOff, nil
 	case ModeSummary:
