@@ -32,7 +32,8 @@ func (c *Client) Complete(ctx context.Context, role, system, user string, out an
 		saveErr := llm.RecordUsage(final, entries[i])
 		cancel()
 		if saveErr != nil {
-			return llm.Usage{PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens, Entries: entries}, fmt.Errorf("persist usage: %w", saveErr)
+			u.Entries = entries
+			return u, fmt.Errorf("persist usage: %w", saveErr)
 		}
 	}
 	u.Entries = entries

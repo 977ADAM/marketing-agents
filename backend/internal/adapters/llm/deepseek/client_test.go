@@ -260,3 +260,72 @@ func TestPublicParseErrorDoesNotContainResponse(t *testing.T) {
 		t.Fatalf("response leaked: %v", err)
 	}
 }
+
+// jsonResponseReasoning — ответ модели, которая отдаёт размышления: так отвечает
+// reasoning-режим DeepSeek (reasoning_content + completion_tokens_details).
+func jsonResponseReasoning(model, content, reasoning string, pt, ct, reasoningTokens int, finish string) *http.Response {
+	body := map[string]any{
+		"id":     "x",
+		"object": "chat.completion",
+		"model":  model,
+		"choices": []map[string]any{{
+			"index":         0,
+			"message":       map[string]any{"role": "assistant", "content": content, "reasoning_content": reasoning},
+			"finish_reason": finish,
+		}},
+		"usage": map[string]any{
+			"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": pt + ct,
+			"completion_tokens_details": map[string]any{"reasoning_tokens": reasoningTokens},
+		},
+	}
+	b, _ := json.Marshal(body)
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b))), Header: http.Header{"Content-Type": []string{"application/json"}}}
+}
+
+// Размышления модели — часть результата вызова, иначе трасса их не покажет.
+func TestCompleteCapturesReasoning(t *testing.T) {
+	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponseReasoning("deepseek-v4-pro", `{"score":7}`, "Сначала посчитаю: 2+2=4", 100, 150, 120, "stop"), nil
+	})
+	client := llm.New("key", "https://example.test", "m", 0, &http.Client{Transport: rt})
+
+	var out struct {
+		Score int `json:"score"`
+	}
+	u, err := client.Complete(context.Background(), "critic", "S", "U", &out)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if u.Reasoning != "Сначала посчитаю: 2+2=4" {
+		t.Errorf("Reasoning = %q", u.Reasoning)
+	}
+	if u.ReasoningTokens != 120 {
+		t.Errorf("ReasoningTokens = %d, want 120", u.ReasoningTokens)
+	}
+	if u.FinishReason != "stop" {
+		t.Errorf("FinishReason = %q, want stop", u.FinishReason)
+	}
+	if u.PromptTokens != 100 || u.CompletionTokens != 150 {
+		t.Errorf("usage = %+v", u)
+	}
+	if u.Response != `{"score":7}` {
+		t.Errorf("Response = %q", u.Response)
+	}
+}
+
+// Модель без размышлений — не ошибка: поля просто пустые.
+func TestCompleteWithoutReasoning(t *testing.T) {
+	rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse("m", `{"ok":true}`, 5, 5), nil
+	})
+	client := llm.New("key", "https://example.test", "m", 0, &http.Client{Transport: rt})
+
+	var out struct{ OK bool }
+	u, err := client.Complete(context.Background(), "any", "S", "U", &out)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if u.Reasoning != "" || u.ReasoningTokens != 0 {
+		t.Errorf("ожидались пустые размышления: %+v", u)
+	}
+}

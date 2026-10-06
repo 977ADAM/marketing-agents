@@ -8,16 +8,31 @@ package corellm
 import "context"
 
 // Usage — токены одного вызова, для подсчёта стоимости.
+//
+// Response, Reasoning и FinishReason описывают конкретный вызов (их читает трасса
+// и разбор ответа) и в агрегат Add не переносятся: это содержимое, а не расход.
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
-	Response         string `json:"-"`
-	Entries          []UsageEntry
+	// ReasoningTokens — часть CompletionTokens, потраченная моделью на
+	// размышления; тарифицируется как completion и потому входит в общий счёт.
+	ReasoningTokens int
+	Response        string `json:"-"`
+	// Reasoning — сырые размышления модели (reasoning_content), если провайдер
+	// их отдаёт: без них трасса показывает ответ, но не ход мысли.
+	Reasoning    string `json:"-"`
+	FinishReason string `json:"-"`
+	Entries      []UsageEntry
 }
 
 // Add складывает расход двух вызовов.
 func (u Usage) Add(o Usage) Usage {
-	return Usage{PromptTokens: u.PromptTokens + o.PromptTokens, CompletionTokens: u.CompletionTokens + o.CompletionTokens, Entries: append(append([]UsageEntry(nil), u.Entries...), o.Entries...)}
+	return Usage{
+		PromptTokens:     u.PromptTokens + o.PromptTokens,
+		CompletionTokens: u.CompletionTokens + o.CompletionTokens,
+		ReasoningTokens:  u.ReasoningTokens + o.ReasoningTokens,
+		Entries:          append(append([]UsageEntry(nil), u.Entries...), o.Entries...),
+	}
 }
 
 // Client — один вызов с JSON-ответом, разобранным в out. role задаёт модель

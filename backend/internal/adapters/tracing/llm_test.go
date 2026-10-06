@@ -98,3 +98,71 @@ func TestTracingClientWithoutRecorderStillWorks(t *testing.T) {
 		t.Fatalf("Complete: %v", err)
 	}
 }
+
+// Размышления модели — то, ради чего трасса включается: они должны попадать в
+// тело события вместе со счётчиком, а не теряться.
+func TestTracingClientRecordsReasoning(t *testing.T) {
+	rec := &llmCaptureRecorder{}
+	usage := corellm.Usage{
+		PromptTokens: 100, CompletionTokens: 150, ReasoningTokens: 120,
+		Response: `{"score":7}`, Reasoning: "Сначала посчитаю: 2+2=4", FinishReason: "stop",
+	}
+	client := tracing.NewLLM(&stubLLM{usage: usage, model: "deepseek-v4-pro"}, rec)
+
+	if _, err := client.Complete(context.Background(), "critic", "система", "вопрос", &struct{}{}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	ev := rec.events[0]
+	payload, ok := ev.Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload = %#v", ev.Payload)
+	}
+	if payload["reasoning"] != "Сначала посчитаю: 2+2=4" {
+		t.Errorf("размышления потерялись: %#v", payload)
+	}
+	if payload["finish_reason"] != "stop" {
+		t.Errorf("finish_reason = %#v", payload["finish_reason"])
+	}
+	if payload["reasoning_tokens"] != 120 {
+		t.Errorf("reasoning_tokens = %#v", payload["reasoning_tokens"])
+	}
+	if payload["response"] != `{"score":7}` {
+		t.Errorf("response = %#v", payload["response"])
+	}
+	if _, cut := payload["truncated_fields"]; cut {
+		t.Errorf("короткие поля не должны помечаться обрезкой: %#v", payload)
+	}
+	if !strings.Contains(ev.Summary, "размышления") || !strings.Contains(ev.Summary, "120") {
+		t.Errorf("summary = %q, want упоминание размышлений", ev.Summary)
+	}
+}
+
+// Длинное поле обрезается само, но не вытесняет остальные: ответ остаётся целым.
+func TestTracingClientTruncatesLongBodiesSeparately(t *testing.T) {
+	long := strings.Repeat("я", trace.MaxBodyBytes+100)
+	rec := &llmCaptureRecorder{}
+	usage := corellm.Usage{Response: "короткий ответ", Reasoning: long}
+	client := tracing.NewLLM(&stubLLM{usage: usage}, rec)
+
+	if _, err := client.Complete(context.Background(), "strategist", "с", "u", &struct{}{}); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	payload, ok := rec.events[0].Payload.(map[string]any)
+	if !ok {
+		t.Fatalf("payload = %#v", rec.events[0].Payload)
+	}
+	got, _ := payload["reasoning"].(string)
+	if len(got) > trace.MaxBodyBytes {
+		t.Errorf("размышления не обрезаны: %d байт", len(got))
+	}
+	if !strings.HasSuffix(got, trace.TruncatedMark) {
+		t.Errorf("нет пометки об обрезке: %q", got[len(got)-20:])
+	}
+	fields, _ := payload["truncated_fields"].([]string)
+	if len(fields) != 1 || fields[0] != "reasoning" {
+		t.Errorf("truncated_fields = %#v, want [reasoning]", payload["truncated_fields"])
+	}
+	if payload["response"] != "короткий ответ" {
+		t.Errorf("короткий ответ пострадал: %#v", payload["response"])
+	}
+}

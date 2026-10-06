@@ -130,16 +130,3 @@ func (r *recorder) encodePayload(payload any) (string, error) {
 	return string(envelope(strings.ToValidUTF8(text[:low], ""), true)), nil
 }
 func (r *recorder) FinishRun(id string) { r.mu.Lock(); delete(r.seq, id); r.mu.Unlock() }
-
-// truncateMark — пометка об обрезке: по ней видно, что payload неполный.
-const truncateMark = "…(обрезано)"
-
-// truncate обрезает строку по лимиту, не ломая UTF-8.
-func truncate(s string, limit int) string {
-	if limit <= 0 || len(s) <= limit {
-		return s
-	}
-	cut := s[:limit]
-	cut = strings.ToValidUTF8(cut, "")
-	return cut + truncateMark
-}

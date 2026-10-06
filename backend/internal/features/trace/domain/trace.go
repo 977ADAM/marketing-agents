@@ -150,9 +150,31 @@ type Config struct {
 	OnError func(error)
 }
 
-// DefaultMaxPayloadBytes — лимит payload по умолчанию: бриф и черновик статьи
-// целиком не нужны, а мегабайты в БД не нужны тем более.
-const DefaultMaxPayloadBytes = 32 << 10
+// DefaultMaxPayloadBytes — бюджет тела одного события по умолчанию. Он рассчитан
+// на четыре текстовых поля LLM-события (system, user, reasoning, response) по
+// MaxBodyBytes каждое: иначе длинный промпт вытеснил бы размышления и ответ.
+const DefaultMaxPayloadBytes = 256 << 10
+
+// MaxBodyBytes — сколько байт одного текста (промпт, размышления, ответ)
+// попадает в трассу. Обрезка по полям, а не по событию целиком: при обрезке
+// конвертом теряется всё, что не поместилось, включая ответ модели.
+const MaxBodyBytes = 32 << 10
+
+// TruncatedMark — пометка об обрезке: по ней видно, что текст неполный.
+const TruncatedMark = "…(обрезано)"
+
+// TruncateText обрезает текст до limit байт, не ломая UTF-8, и сообщает, была ли
+// обрезка. limit <= 0 — без ограничения. Пометка входит в лимит.
+func TruncateText(s string, limit int) (string, bool) {
+	if limit <= 0 || len(s) <= limit {
+		return s, false
+	}
+	cut := limit - len(TruncatedMark)
+	if cut < 0 {
+		cut = 0
+	}
+	return strings.ToValidUTF8(s[:cut], "") + TruncatedMark, true
+}
 
 // SequencedSink allocates and persists an event atomically across processes.
 type SequencedSink interface {

@@ -69,11 +69,18 @@ func (c *OpenAIClient) Complete(ctx context.Context, role, system, user string, 
 		model = req.Model
 	}
 	usage := corellm.Usage{PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens, Entries: []corellm.UsageEntry{{Model: model, Role: role, PromptTokens: resp.Usage.PromptTokens, CompletionTokens: resp.Usage.CompletionTokens}}}
+	// Размышления: reasoning-модели отдают их отдельным полем и считают в
+	// completion_tokens_details. Поле необязательное — у обычных моделей пусто.
+	if d := resp.Usage.CompletionTokensDetails; d != nil {
+		usage.ReasoningTokens = d.ReasoningTokens
+	}
 	if len(resp.Choices) == 0 {
 		return usage, errors.New("llm: empty choices")
 	}
 	content := resp.Choices[0].Message.Content
 	usage.Response = content
+	usage.Reasoning = resp.Choices[0].Message.ReasoningContent
+	usage.FinishReason = string(resp.Choices[0].FinishReason)
 
 	if err := decodeJSON(content, out); err != nil {
 		return usage, fmt.Errorf("llm: parse JSON response")

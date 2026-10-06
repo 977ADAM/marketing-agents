@@ -22,4 +22,15 @@ func TestTruncatedPayloadRemainsValidJSON(t *testing.T) {
 	}
 }
 
-func TestFinishReleasesLocalSequence(t *testing.T){sink:=&fakeSink{};rec:=service.New(sink,trace.Config{Mode:trace.ModeSummary});rec.Event(runCtx("finished"),trace.Event{Name:"run"});if service.ActiveRuns(rec)!=1{t.Fatal("local state missing")};trace.FinishRun(rec,"finished");if service.ActiveRuns(rec)!=0{t.Fatal("local state retained")}}
+func TestFinishReleasesLocalSequence(t *testing.T) {
+	sink := &fakeSink{}
+	rec := service.New(sink, trace.Config{Mode: trace.ModeSummary})
+	rec.Event(runCtx("finished"), trace.Event{Name: "run"})
+	if service.ActiveRuns(rec) != 1 {
+		t.Fatal("local state missing")
+	}
+	trace.FinishRun(rec, "finished")
+	if service.ActiveRuns(rec) != 0 {
+		t.Fatal("local state retained")
+	}
+}
