@@ -265,6 +265,8 @@ Expected: FAIL — пакета нет.
 
 Декодирование тела (лимит JSON — общий `limits`), вызов `Ask` с колбэком, который пишет кадр `delta` и вызывает `Flush`; после — кадр `brief` (бриф + `missing` + `status`) и `done`; ошибка → кадр `error` с текстом публичного сообщения (сырой ответ модели не утекает), затем `done`. Лимитер — как у соседних хендлеров.
 
+Валидационные ошибки сервиса приходят как `*limits.ValidationError`, у которого код — это текст ошибки (`empty_history`, `history_too_long`) и нет отдельного поля кода. Хендлер распознаёт их через `errors.As` и отдаёт `response.WriteError(w, http.StatusBadRequest, err.Error(), <русское сообщение>)`: код — сообщение сервиса, текст — понятная пользователю фраза из словаря хендлера. Все прочие ошибки — `500`, как у соседних хендлеров.
+
 - [ ] **Step 4: Убедиться, что тесты проходят**
 
 Run: `cd backend && GOCACHE=/tmp/marketing-agents-gocache go test ./internal/features/brief/... -v`
@@ -380,7 +382,7 @@ git commit -m "feat(chat): разбор SSE, клиент интервью и с
 
 - [ ] **Step 1: Написать `BriefSummary.svelte`**
 
-Read-only сводка: поля `product`, `goal`, `audience`, `tone`, `region`, `topics_count`; список `missing` (когда непуст — предупреждение о пробелах); кнопка «Запустить кампанию». Она вызывает `createCampaign(brief)` (внутри уже есть `Idempotency-Key`), кладёт id в стор и запускает `refreshHistory()`; на ошибке — `toast.error(errorMessage(err))` и текст ошибки у кнопки. Пока идёт стрим — кнопка недоступна.
+Read-only сводка: поля `product`, `goal`, `audience`, `tone`, `region`, `topics_count`; список `missing` (когда непуст — предупреждение о пробелах); кнопка «Запустить кампанию». `missing` приходит **машинными ключами** (`product`, `goal`, `audience`, `tone`) — компонент переводит их в русские подписи собственным словарём, неизвестный ключ показывается как есть. Кнопка вызывает `createCampaign(brief)` (внутри уже есть `Idempotency-Key`), кладёт id в стор и запускает `refreshHistory()`; на ошибке — `toast.error(errorMessage(err))` и текст ошибки у кнопки. Пока идёт стрим — кнопка недоступна.
 
 - [ ] **Step 2: Написать `ChatThread.svelte`**
 
