@@ -346,7 +346,7 @@ git commit -m "feat(brief): роль interviewer со скилом campaign-cont
 
 - [ ] **Step 2: Убедиться, что тесты падают**
 
-Run: `cd frontend && npm test -- --run sse briefs interview`
+Run: `cd frontend && npm test -- sse briefs interview`
 Expected: FAIL — модулей нет.
 
 - [ ] **Step 3: Реализовать модули**
