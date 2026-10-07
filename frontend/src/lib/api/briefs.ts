@@ -18,6 +18,30 @@ export interface InterviewHandlers {
 	onDone?: () => void;
 }
 
+/** Пустой черновик: четыре обязательных поля, с которых начинается диалог. */
+export function emptyBriefDraft(): BriefDraft {
+	return { product: '', goal: '', audience: '', tone: '' };
+}
+
+/**
+ * Терпимо разбирает черновик брифа — одним и тем же способом и для кадра
+ * `brief`, и для записи из localStorage. Не-строки и мусор в полях
+ * отбрасываются, поэтому в BriefDraft не попадают undefined. null означает, что
+ * значение вообще не объект: вызывающий сам решает, чем заменить черновик
+ * (кадр без полезной нагрузки прежнее состояние не затирает).
+ */
+export function readBriefDraft(value: unknown): BriefDraft | null {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+	const draft = emptyBriefDraft();
+	const raw = value as Record<string, unknown>;
+	for (const field of ['product', 'goal', 'audience', 'tone'] as const) {
+		if (typeof raw[field] === 'string') draft[field] = raw[field];
+	}
+	if (typeof raw.region === 'string' && raw.region !== '') draft.region = raw.region;
+	if (typeof raw.topics_count === 'number' && Number.isFinite(raw.topics_count)) draft.topics_count = raw.topics_count;
+	return draft;
+}
+
 /**
  * Ведёт один ход интервью. Сетевые и потоковые сбои не бросаются наружу, а
  * уходят в onError: вызывающему (стору) важно показать ошибку в ленте, а не
@@ -86,13 +110,18 @@ function handleFrame(frame: unknown, handlers: InterviewHandlers): void {
 		case 'delta':
 			if (typeof value.text === 'string') handlers.onDelta?.(value.text);
 			return;
-		case 'brief':
+		case 'brief': {
+			// Кадр разбирается так же терпимо, как запись из хранилища: битые поля
+			// не должны подменять уже собранный черновик мусором.
+			const brief = readBriefDraft(value.brief);
+			if (!brief) return; // кадр без объекта черновика: прежний не трогаем
 			handlers.onBrief?.(
-				(value.brief ?? {}) as BriefDraft,
+				brief,
 				Array.isArray(value.missing) ? value.missing.filter((key): key is string => typeof key === 'string') : [],
 				value.status === 'ready' ? 'ready' : 'needs_input'
 			);
 			return;
+		}
 		case 'error':
 			handlers.onError?.(typeof value.message === 'string' ? value.message : 'не удалось получить ответ интервьюера');
 			return;

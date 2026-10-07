@@ -73,6 +73,43 @@ describe('streamInterview', () => {
 		expect(onBrief).toHaveBeenCalledWith(brief, ['tone'], 'needs_input');
 	});
 
+	it('битый кадр brief не затирает черновик: без объекта черновика кадр пропускается', async () => {
+		stubFetch(
+			sseResponse([
+				`data: ${JSON.stringify({ type: 'brief', brief: 'мусор', missing: 'нет', status: 42 })}\n\n`,
+				'data: {"type":"done"}\n\n'
+			])
+		);
+		const onBrief = vi.fn();
+
+		await streamInterview(messages, draft, { onBrief });
+
+		expect(onBrief).not.toHaveBeenCalled();
+	});
+
+	it('отбрасывает нестроковые поля кадра brief так же, как восстановление из хранилища', async () => {
+		stubFetch(
+			sseResponse([
+				`data: ${JSON.stringify({
+					type: 'brief',
+					brief: { product: 42, goal: 'рост', audience: null, tone: '', region: 7, topics_count: 'много' },
+					missing: ['product', 'audience', 'tone'],
+					status: 'needs_input'
+				})}\n\n`,
+				'data: {"type":"done"}\n\n'
+			])
+		);
+		const onBrief = vi.fn();
+
+		await streamInterview(messages, draft, { onBrief });
+
+		expect(onBrief).toHaveBeenCalledWith(
+			{ product: '', goal: 'рост', audience: '', tone: '' },
+			['product', 'audience', 'tone'],
+			'needs_input'
+		);
+	});
+
 	it('вызывает onError на кадре error', async () => {
 		stubFetch(
 			sseResponse([

@@ -6,7 +6,7 @@
 // поэтому стор хранит его между запросами и восстанавливает при перезагрузке.
 
 import { derived, get, writable, type Readable, type Writable } from 'svelte/store';
-import { streamInterview } from '#lib/api/briefs.js';
+import { emptyBriefDraft, readBriefDraft, streamInterview } from '#lib/api/briefs.js';
 import { errorMessage } from '#lib/api/client.js';
 import type { Brief, BriefDraft, InterviewMessage, InterviewStatus } from '#lib/api/types.js';
 
@@ -19,9 +19,25 @@ export const MAX_MESSAGES = 20;
 /** Признак переросшей истории: запрос не уходит, лента показывает фразу. */
 export const OVER_LIMIT_MESSAGE = `история диалога доросла до ${MAX_MESSAGES} сообщений — начните новый диалог`;
 
+/** Хранилище не приняло запись: история может пропасть после перезагрузки. */
+export const STORAGE_WARNING_MESSAGE =
+	'не удалось сохранить историю: в хранилище не хватает места — после перезагрузки она может пропасть';
+
+/** Обязательные поля брифа: тот же список и порядок, что на сервере. */
+const REQUIRED_FIELDS = ['product', 'goal', 'audience', 'tone'] as const;
+
 /** Пустой черновик: с него начинается диалог и им же заканчивается сброс. */
 export function emptyDraft(): BriefDraft {
-	return { product: '', goal: '', audience: '', tone: '' };
+	return emptyBriefDraft();
+}
+
+/**
+ * Пробелы черновика по обязательным полям. То же правило, что у сервиса
+ * (`strings.TrimSpace(s) != ""`), — иначе после перезагрузки интерфейс показал бы
+ * не тот статус, что сервер, и запуск прошёл бы без предупреждения.
+ */
+function missingFields(draft: BriefDraft): string[] {
+	return REQUIRED_FIELDS.filter((field) => (draft[field] ?? '').trim() === '');
 }
 
 export interface InterviewStore {
@@ -37,6 +53,8 @@ export interface InterviewStore {
 	campaignId: Writable<string | undefined>;
 	/** История доросла до лимита: новый ход отправить нельзя. */
 	tooLong: Readable<boolean>;
+	/** Хранилище не приняло запись: часть ленты может пропасть после перезагрузки. */
+	storageWarning: Writable<string | null>;
 	send(text: string): Promise<void>;
 	retry(): Promise<void>;
 	reset(): void;
@@ -49,28 +67,37 @@ interface StoredInterview {
 	messages: InterviewMessage[];
 	draft: BriefDraft;
 	campaignId?: string;
+	/** Ошибка последнего хода: по ней после перезагрузки видна кнопка «Повторить». */
+	error?: string;
 }
 
-/** Читает состояние из хранилища, терпимо к битой записи и мусору в полях. */
-function readState(storage: Storage | undefined): StoredInterview {
-	const empty: StoredInterview = { messages: [], draft: emptyDraft() };
-	if (!storage) return empty;
+/**
+ * Читает состояние из хранилища, терпимо к битой записи и мусору в полях.
+ * undefined — записи нет (или она битая): тогда состояние ещё неизвестно и его
+ * нельзя выводить из пустого черновика.
+ */
+function readState(storage: Storage | undefined): StoredInterview | undefined {
+	if (!storage) return undefined;
 	let raw: string | null = null;
 	try {
 		raw = storage.getItem(INTERVIEW_KEY);
 	} catch {
-		return empty; // приватный режим: хранилище недоступно
+		return undefined; // приватный режим: хранилище недоступно
 	}
-	if (!raw) return empty;
+	if (!raw) return undefined;
 	try {
-		const parsed = JSON.parse(raw) as { messages?: unknown; draft?: unknown; campaignId?: unknown } | null;
+		const parsed = JSON.parse(raw) as
+			| { messages?: unknown; draft?: unknown; campaignId?: unknown; error?: unknown }
+			| null;
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined;
 		return {
-			messages: readMessages(parsed?.messages),
-			draft: readDraft(parsed?.draft),
-			campaignId: typeof parsed?.campaignId === 'string' ? parsed.campaignId : undefined
+			messages: readMessages(parsed.messages),
+			draft: readDraft(parsed.draft),
+			campaignId: typeof parsed.campaignId === 'string' ? parsed.campaignId : undefined,
+			error: typeof parsed.error === 'string' && parsed.error !== '' ? parsed.error : undefined
 		};
 	} catch {
-		return empty;
+		return undefined;
 	}
 }
 
@@ -88,15 +115,7 @@ function readMessages(value: unknown): InterviewMessage[] {
 }
 
 function readDraft(value: unknown): BriefDraft {
-	const draft = emptyDraft();
-	if (typeof value !== 'object' || value === null) return draft;
-	const raw = value as Record<string, unknown>;
-	for (const field of ['product', 'goal', 'audience', 'tone'] as const) {
-		if (typeof raw[field] === 'string') draft[field] = raw[field];
-	}
-	if (typeof raw.region === 'string' && raw.region !== '') draft.region = raw.region;
-	if (typeof raw.topics_count === 'number' && Number.isFinite(raw.topics_count)) draft.topics_count = raw.topics_count;
-	return draft;
+	return readBriefDraft(value) ?? emptyDraft();
 }
 
 /**
@@ -105,46 +124,98 @@ function readDraft(value: unknown): BriefDraft {
  */
 export function createInterview(storage?: Storage): InterviewStore {
 	const restored = readState(storage);
-	const messages = writable<InterviewMessage[]>(restored.messages);
-	const draft = writable<BriefDraft>(restored.draft);
-	const missing = writable<string[]>([]);
-	const status = writable<InterviewStatus | null>(null);
+	// Пробелы и статус восстанавливаем по черновику: сервер их не пересчитает,
+	// пока не пройдёт следующий ход, а запуск кампании должен предупреждать о
+	// пробелах сразу после перезагрузки. Без записи в хранилище статус неизвестен.
+	const restoredMissing = restored ? missingFields(restored.draft) : [];
+	const messages = writable<InterviewMessage[]>(restored?.messages ?? []);
+	const draft = writable<BriefDraft>(restored?.draft ?? emptyDraft());
+	const missing = writable<string[]>(restoredMissing);
+	const status = writable<InterviewStatus | null>(
+		restored ? (restoredMissing.length === 0 ? 'ready' : 'needs_input') : null
+	);
 	const streaming = writable(false);
-	const error = writable<string | null>(null);
-	const campaignId = writable<string | undefined>(restored.campaignId);
+	const error = writable<string | null>(restored?.error ?? null);
+	const campaignId = writable<string | undefined>(restored?.campaignId);
+	const storageWarning = writable<string | null>(null);
 
 	let muted = false; // идёт reset: промежуточные состояния писать не нужно
+	let writing = false; // идёт запись: messages.set внутри persist не должен её зациклить
 	let generation = 0; // защита от ответа устаревшего хода
 	let active: AbortController | undefined;
 
-	/** Пишет состояние в хранилище; при переполнении квоты вытесняет старые реплики. */
+	/**
+	 * Сколько реплик с конца обязано остаться при вытеснении: текущий ход целиком
+	 * (последняя реплика пользователя и всё, что после неё), иначе — последняя
+	 * реплика. Ниже этой границы лента опустеть не может.
+	 */
+	function turnFloor(list: InterviewMessage[]): number {
+		for (let i = list.length - 1; i >= 0; i--) {
+			if (list[i].role === 'user') return list.length - i;
+		}
+		return list.length === 0 ? 0 : 1;
+	}
+
+	/**
+	 * Пишет состояние в хранилище. При переполнении квоты вытесняет самые старые
+	 * реплики, но не ниже текущего хода: иначе квота срезала бы только что
+	 * законченный вопрос с ответом или пустую реплику посреди хода, и все
+	 * следующие дельты пропали бы. Если не помещается даже текущий ход, стор не
+	 * трогаем (видимая лента остаётся целой) и показываем предупреждение.
+	 */
 	function persist(): void {
-		if (muted || !storage) return;
-		for (;;) {
-			const snapshot: StoredInterview = { messages: get(messages), draft: get(draft) };
-			const id = get(campaignId);
-			if (id) snapshot.campaignId = id;
-			try {
-				storage.setItem(INTERVIEW_KEY, JSON.stringify(snapshot));
-				return;
-			} catch {
-				// Квоты не хватило: выбрасываем самую старую реплику и пробуем снова.
-				const current = get(messages);
-				if (current.length === 0) return; // вытеснять больше нечего
-				messages.set(current.slice(1));
+		if (muted || writing || !storage) return;
+		writing = true;
+		try {
+			const visible = get(messages);
+			const floor = turnFloor(visible);
+			let keep = visible.length;
+			for (;;) {
+				const kept = keep === visible.length ? visible : visible.slice(visible.length - keep);
+				const snapshot: StoredInterview = { messages: kept, draft: get(draft) };
+				const id = get(campaignId);
+				if (id) snapshot.campaignId = id;
+				const lastError = get(error);
+				if (lastError) snapshot.error = lastError;
+				try {
+					storage.setItem(INTERVIEW_KEY, JSON.stringify(snapshot));
+					// Вытеснение переносим в стор только после удачной записи: иначе
+					// неудачная запись оставила бы ленту пустее, чем она была.
+					if (keep !== visible.length) messages.set(kept);
+					storageWarning.set(null);
+					return;
+				} catch {
+					if (keep <= floor) {
+						storageWarning.set(STORAGE_WARNING_MESSAGE);
+						return;
+					}
+					keep -= 1;
+				}
 			}
+		} finally {
+			writing = false;
 		}
 	}
 
+	// Стор только что создан: subscribe синхронно отдаёт текущее значение, и
+	// запись на этом «первом» кадре была бы записью на импорте (для синглтона) —
+	// при почти полной квоте она срезала бы восстановленную ленту до первого
+	// показа. Поэтому первый (конструкторский) кадр каждой подписки пропускаем.
+	let ready = false;
 	// Лента не пишется на каждую дельту: иначе localStorage получал бы запись на
 	// каждый токен. Полное состояние сохраняет runTurn по концу хода.
 	messages.subscribe(() => {
-		if (!get(streaming)) persist();
+		if (ready && !get(streaming)) persist();
 	});
 	// Черновик и кампания меняются редко — пишем сразу, в том числе когда id
 	// кампании кладёт страница: иначе перезагрузка потеряет прогон.
-	draft.subscribe(() => persist());
-	campaignId.subscribe(() => persist());
+	draft.subscribe(() => {
+		if (ready) persist();
+	});
+	campaignId.subscribe(() => {
+		if (ready) persist();
+	});
+	ready = true;
 
 	/** Дописывает фрагмент в текущую реплику ассистента. */
 	function appendDelta(text: string): void {
@@ -228,6 +299,7 @@ export function createInterview(storage?: Storage): InterviewStore {
 		error.set(null);
 		streaming.set(false);
 		campaignId.set(undefined);
+		storageWarning.set(null);
 		muted = false;
 		try {
 			storage?.removeItem(INTERVIEW_KEY);
@@ -258,6 +330,7 @@ export function createInterview(storage?: Storage): InterviewStore {
 		error,
 		campaignId,
 		tooLong: derived(messages, (list) => list.length >= MAX_MESSAGES),
+		storageWarning,
 		send,
 		retry,
 		reset,
