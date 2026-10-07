@@ -312,8 +312,10 @@ if !ok {
 	logger.Error("brief", "err", "клиент модели не поддерживает стриминг")
 	os.Exit(1)
 }
-api.RegisterRoutes(briefhttp.NewHandler(briefservice.New(briefservice.Options{Stream: stream, Log: sloglogger.New(logger)}), limiter).Routes()...)
+api.RegisterRoutes(briefhttp.NewHandler(briefservice.New(briefservice.Options{Stream: stream, Log: sloglogger.New(logger)}), limiter, cfg.Limits).Routes()...)
 ```
+
+`cfg.Limits` передаётся так же, как в соседних хендлерах кампаний и проверок: иначе `MAX_JSON_BYTES` из конфигурации молча не действовал бы на этот эндпоинт, и он остался бы единственным маршрутом с телом JSON на дефолтных лимитах.
 
 Отказ старта здесь — страховка на случай, если кто-то поменяет цепочку декораторов и стрим перестанет доходить до внешнего слоя; тест `TestInterviewerSkillIsProse` проверяет ту же цепочку.
 
