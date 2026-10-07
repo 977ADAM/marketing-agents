@@ -8,4 +8,7 @@
 
 /frontend/node_modules/
 
+# пилоты на реальных материалах клиентов: в git не попадают
+/pilot/
+
 .DS_Store
