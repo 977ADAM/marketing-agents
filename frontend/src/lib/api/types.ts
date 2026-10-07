@@ -257,3 +257,50 @@ export interface Trajectory {
 	total: number;
 	events: TrajectoryEvent[];
 }
+
+// --- интервью по брифу (SSE) ---
+
+/** Черновик брифа, который интервьюер собирает по ходу разговора. */
+export interface BriefDraft {
+	product: string;
+	goal: string;
+	audience: string;
+	tone: string;
+	/** geo ID Яндекса числом в строке: так его отдаёт и принимает бэкенд. */
+	region?: string;
+	topics_count?: number;
+}
+
+/** Одна реплика диалога: и в теле запроса, и в ленте. */
+export interface InterviewMessage {
+	role: 'user' | 'assistant';
+	content: string;
+}
+
+/** Готовность брифа: считает сервер по четырём обязательным полям. */
+export type InterviewStatus = 'ready' | 'needs_input';
+
+export interface InterviewDeltaFrame {
+	type: 'delta';
+	text: string;
+}
+
+export interface InterviewBriefFrame {
+	type: 'brief';
+	brief: BriefDraft;
+	/** Машинные ключи незаполненных полей: product, goal, audience, tone. */
+	missing: string[];
+	status: InterviewStatus;
+}
+
+export interface InterviewErrorFrame {
+	type: 'error';
+	message: string;
+}
+
+export interface InterviewDoneFrame {
+	type: 'done';
+}
+
+/** Кадр потока интервью — публичный контракт эндпоинта. */
+export type InterviewFrame = InterviewDeltaFrame | InterviewBriefFrame | InterviewErrorFrame | InterviewDoneFrame;
