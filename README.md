@@ -70,6 +70,8 @@ frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   Dockerfile        образ фронта: сборка + Node-сервер SvelteKit
 docker-compose.yml  стек: mariadb (внутренний) + backend (внутренний) + frontend
                     (публикуется на 127.0.0.1:8080) и одноразовый сервис migrate
+marketing-skills/   автономный пакет скилов для нативных кампаний (v0.1): 4 скила,
+                    README пакета и поведенческая проверка evals/; не часть сервиса
 ```
 
 Go-команды запускаются из `backend/`, фронтовые — из `frontend/`.
