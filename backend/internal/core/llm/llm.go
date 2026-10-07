@@ -40,3 +40,9 @@ func (u Usage) Add(o Usage) Usage {
 type Client interface {
 	Complete(ctx context.Context, role, system, user string, out any) (Usage, error)
 }
+
+// Streamer — необязательная возможность клиента отдавать ответ по фрагментам.
+// Нужна чату брифа: пользователь должен видеть текст до конца генерации.
+type Streamer interface {
+	CompleteStream(ctx context.Context, role, system, user string, onDelta func(string)) (Usage, error)
+}
