@@ -450,38 +450,57 @@ git commit -m "feat(skills): карта ролей и сборка промпт�
 - Modify: `marketing-skills/skills/campaign-context/SKILL.md`, `.../campaign-plan/SKILL.md`, `.../native-article/SKILL.md`, `.../article-review/SKILL.md`
 - Modify: `marketing-skills/README.md`
 - Modify: `README.md`
+- Modify: `Makefile` (цель `sync-skills` становится полным зеркалом)
 
 **Interfaces:**
 - Consumes: цель `make sync-skills` (Task 1), тест на дрейф (Task 3).
 - Produces: ничего.
 
-- [ ] **Step 1: Поднять версию скилов до 0.2.0**
+- [ ] **Step 1: Сделать `make sync-skills` полным зеркалом**
+
+Тест на дрейф сверяет наборы скилов, поэтому при удалении скила из пакета устаревшая копия должна исчезать, а не оставаться навсегда. В `Makefile` перед циклом копирования добавить очистку каталога копий:
+
+```make
+sync-skills:
+	@rm -rf $(BACKEND)/internal/adapters/skills/prompts
+	@for d in marketing-skills/skills/*/; do \
+		name=$$(basename $$d); \
+		mkdir -p $(BACKEND)/internal/adapters/skills/prompts/$$name; \
+		cp $$d/SKILL.md $(BACKEND)/internal/adapters/skills/prompts/$$name/SKILL.md; \
+	done
+	@echo "скилы синхронизированы: $(BACKEND)/internal/adapters/skills/prompts"
+```
+
+Run: `make sync-skills && find backend/internal/adapters/skills/prompts -type f | wc -l`
+Expected: `4`; повторный запуск не меняет набор, а удаление каталога скила из пакета убирает и его копию.
+
+- [ ] **Step 2: Поднять версию скилов до 0.2.0**
 
 Во всех четырёх `marketing-skills/skills/*/SKILL.md` заменить в frontmatter `version: 0.1.0` на `version: 0.2.0`.
 
-- [ ] **Step 2: Синхронизировать копии**
+- [ ] **Step 3: Синхронизировать копии**
 
 Run: `make sync-skills && cd backend && go test ./internal/adapters/skills/ -run TestEmbeddedCopiesMatchPackage -v`
 Expected: PASS; без синхронизации тест на дрейф падал бы.
 
-- [ ] **Step 3: Обновить README пакета**
+- [ ] **Step 4: Обновить README пакета**
 
 В `marketing-skills/README.md`: заголовок и вводный абзац — версия v0.2; добавить раздел «Использование в сервисе» с фактами: три скила (`campaign-plan`, `native-article`, `article-review`) подставляются в промпты агентов Go-сервиса через `backend/internal/adapters/skills`, копии синхронизируются целью `make sync-skills`, а `campaign-context` в сервисе пока не используется (нет агента нормализации брифа). Фразу «Интеграция с Go backend, изменение интерфейса и подключение MCP не входят в эту версию пакета» заменить на актуальную: интеграция с backend ограничена промптами, API/UI и MCP по-прежнему не входят.
 
-- [ ] **Step 4: Обновить корневой README**
+- [ ] **Step 5: Обновить корневой README**
 
 В `README.md`:
 - в блоке структуры в строке `internal/adapters/` добавить `skills` (промпты ролей из пакета `marketing-skills`);
 - в строке про `marketing-skills/` указать, что три скила применяются к промптам агентов;
 - в разделе «Слои и устойчивость прогонов» добавить абзац: промпты агентов собираются адаптером `internal/adapters/skills` как `тело SKILL.md + оговорка + JSON-контракт роли`; копии синхронизируются `make sync-skills` и защищены тестом на дрейф; промпт растёт примерно на 900–1300 токенов на вызов, что видно в трассе и в стоимости прогона.
 
-- [ ] **Step 5: Проверить и закоммитить**
+- [ ] **Step 6: Проверить и закоммитить**
 
 Run: `cd backend && go test ./internal/adapters/skills/ ./cmd/server/ && cd .. && git diff --stat`
-Expected: тесты проходят, в diff — четыре `SKILL.md` пакета, три копии, два README.
+Expected: тесты проходят, в diff — четыре `SKILL.md` пакета, четыре копии, `Makefile` и два README.
 
 ```bash
-git add marketing-skills README.md backend/internal/adapters/skills/prompts
+git add marketing-skills README.md Makefile backend/internal/adapters/skills/prompts
 git commit -m "docs: версия пакета 0.2 и связь скилов с промптами сервиса"
 ```
 
