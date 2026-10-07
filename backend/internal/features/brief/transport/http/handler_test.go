@@ -26,6 +26,11 @@ import (
 // поэтому тесты проверяют и состав маршрутов, и сам хендлер.
 const interviewRoute = "POST /api/briefs/interview"
 
+// modelErrorMessage — публичная фраза о сбое модели: та же, что в константе
+// handler.go. Снаружи пакета её не видно, поэтому литерал дублируется — тест
+// обязан заметить расхождение с контрактом.
+const modelErrorMessage = "не удалось получить ответ интервьюера"
+
 // fakeService — подмена сервиса интервью: тест задаёт поведение одного хода.
 type fakeService struct {
 	ask func(context.Context, []brief.Message, brief.Draft, func(string)) (brief.Result, corellm.Usage, error)
@@ -154,7 +159,7 @@ func TestInterviewStreamsFrames(t *testing.T) {
 		t.Errorf("история, переданная сервису = %+v, ожидалась одна реплика «Нужна кампания»", gotMsgs)
 	}
 	if gotPrev != (brief.Draft{}) {
-		t.Errorf("прежний черновик = %+v, ожидался пустой: клиент присылает только историю", gotPrev)
+		t.Errorf("прежний черновик = %+v, ожидался пустой: в теле запроса нет draft", gotPrev)
 	}
 
 	want := []frame{
@@ -181,6 +186,52 @@ func TestInterviewStreamsFrames(t *testing.T) {
 		if f.Type == "delta" && strings.ContainsAny(f.Text, "{}") {
 			t.Errorf("в кадре delta служебный JSON: %q", f.Text)
 		}
+	}
+}
+
+// TestInterviewPassesDraftAsPrev — черновик из тела уходит в Ask параметром prev:
+// сервер состояния не хранит, прежний бриф присылает клиент. Без draft (или с
+// пустым объектом) prev — нулевой черновик, то есть первый ход работает как раньше.
+func TestInterviewPassesDraftAsPrev(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want brief.Draft
+	}{
+		{
+			name: "черновик из тела",
+			body: `{"messages":[{"role":"user","content":"Продолжаем"}],"draft":{"product":"Кружка"}}`,
+			want: brief.Draft{Product: "Кружка"},
+		},
+		{
+			name: "тело без draft",
+			body: `{"messages":[{"role":"user","content":"Продолжаем"}]}`,
+			want: brief.Draft{},
+		},
+		{
+			name: "пустой draft",
+			body: `{"messages":[{"role":"user","content":"Продолжаем"}],"draft":{}}`,
+			want: brief.Draft{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPrev brief.Draft
+			svc := &fakeService{ask: func(_ context.Context, _ []brief.Message, prev brief.Draft, _ func(string)) (brief.Result, corellm.Usage, error) {
+				gotPrev = prev
+				return brief.Result{Status: brief.StatusNeedsInput}, corellm.Usage{}, nil
+			}}
+
+			rec := httptest.NewRecorder()
+			interviewHandler(t, newHandler(svc))(rec, newInterviewRequest(t, tc.body))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("статус = %d, ожидался %d (тело: %s)", rec.Code, http.StatusOK, rec.Body.String())
+			}
+			if gotPrev != tc.want {
+				t.Errorf("prev = %+v, ожидался ровно %+v", gotPrev, tc.want)
+			}
+		})
 	}
 }
 
@@ -232,8 +283,8 @@ func TestInterviewStreamsErrorFrame(t *testing.T) {
 	if frames[0].Type != "delta" || frames[0].Text != "При" {
 		t.Errorf("первый кадр = %+v, ожидался delta «При»", frames[0])
 	}
-	if frames[1].Type != "error" || frames[1].Message == "" {
-		t.Errorf("второй кадр = %+v, ожидался error с публичным сообщением", frames[1])
+	if frames[1].Type != "error" || frames[1].Message != modelErrorMessage {
+		t.Errorf("второй кадр = %+v, ожидался error с публичной фразой %q", frames[1], modelErrorMessage)
 	}
 	if frames[2].Type != "done" {
 		t.Errorf("последний кадр = %+v, ожидался done: поток закрывается", frames[2])
@@ -245,6 +296,36 @@ func TestInterviewStreamsErrorFrame(t *testing.T) {
 	for _, leak := range []string{"секретный ответ", "модель ответила 500"} {
 		if strings.Contains(rec.Body.String(), leak) {
 			t.Errorf("в поток утёк текст ошибки: %q", leak)
+		}
+	}
+}
+
+// TestInterviewModelErrorBeforeFirstFrame — сбой модели без единой дельты: кадров
+// ещё не было, заголовки потока не отправлены, поэтому наружу уходит обычный
+// JSON 500, а не SSE-поток со статусом 200.
+func TestInterviewModelErrorBeforeFirstFrame(t *testing.T) {
+	svc := &fakeService{ask: func(_ context.Context, _ []brief.Message, _ brief.Draft, _ func(string)) (brief.Result, corellm.Usage, error) {
+		return brief.Result{}, corellm.Usage{}, errors.New("модель ответила 500: секретный ответ")
+	}}
+
+	rec := httptest.NewRecorder()
+	interviewHandler(t, newHandler(svc))(rec, newInterviewRequest(t,
+		`{"messages":[{"role":"user","content":"Привет"}]}`))
+
+	if ct := rec.Header().Get("Content-Type"); strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("Content-Type = %q: без единого кадра поток начинаться не должен", ct)
+	}
+	if rec.Flushed {
+		t.Error("ответ сброшен как поток, хотя кадров не было")
+	}
+	assertErrorJSON(t, rec, http.StatusInternalServerError, "internal")
+	if strings.Contains(rec.Body.String(), "data: ") {
+		t.Errorf("в JSON-ответе SSE-кадр: %s", rec.Body.String())
+	}
+	// Сырой ответ модели и текст ошибки наружу не уходят.
+	for _, leak := range []string{"секретный ответ", "модель ответила 500"} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Errorf("в ответ утёк текст ошибки: %q", leak)
 		}
 	}
 }

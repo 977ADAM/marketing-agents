@@ -72,10 +72,15 @@ func (h *Handler) Routes() []server.Route {
 	}
 }
 
-// interviewReq — тело запроса: только история диалога. Черновик брифа сервис
-// собирает из ответа модели, поэтому клиент присылает лишь реплики.
+// interviewReq — тело запроса: история диалога и необязательный черновик.
+//
+// Сервер состояния не хранит: черновик, полученный в предыдущем кадре brief,
+// присылает обратно клиент. Сервис не собирает бриф из одного ответа модели —
+// он накладывает разобранный хвост на prev по непустым полям и возвращает prev
+// без изменений, если хвоста нет или он битый.
 type interviewReq struct {
 	Messages []brief.Message `json:"messages"`
+	Draft    brief.Draft     `json:"draft"`
 }
 
 // interview ведёт один ход интервью и отдаёт его потоком кадров.
@@ -97,7 +102,9 @@ func (h *Handler) interview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream := &sseStream{w: w, flusher: flusher}
-	res, _, err := h.interviews.Ask(r.Context(), req.Messages, brief.Draft{}, stream.delta)
+	// Прежний черновик приходит в теле; отсутствующий или пустой draft — это
+	// нулевой черновик, поэтому первый ход работает как раньше.
+	res, _, err := h.interviews.Ask(r.Context(), req.Messages, req.Draft, stream.delta)
 	if err != nil {
 		var validation *limits.ValidationError
 		// Валидация происходит до вызова модели, поэтому заголовки ещё не
@@ -163,6 +170,13 @@ func (s *sseStream) delta(text string) {
 // frame сериализует кадр и сразу сбрасывает буфер, чтобы браузер видел
 // фрагменты по мере генерации.
 func (s *sseStream) frame(v any) {
+	// Сериализуем до отправки заголовков: если кадр не собрался, поток ещё не
+	// начат и наружу можно вернуть обычный JSON, а не пустой поток со статусом 200.
+	b, err := json.Marshal(v)
+	if err != nil {
+		// Кадр не сериализуется — пропускаем: ронять поток из-за этого нельзя.
+		return
+	}
 	if !s.started {
 		h := s.w.Header()
 		h.Set("Content-Type", "text/event-stream")
@@ -170,11 +184,6 @@ func (s *sseStream) frame(v any) {
 		h.Set("Connection", "keep-alive")
 		h.Set("X-Accel-Buffering", "no") // не буферизировать SSE за nginx
 		s.started = true
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		// Кадр не сериализуется — пропускаем: ронять поток из-за этого нельзя.
-		return
 	}
 	fmt.Fprintf(s.w, "data: %s\n\n", b)
 	s.flusher.Flush()
