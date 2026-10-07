@@ -197,7 +197,10 @@ func main() {
 	api.RegisterRoutes(campaignhttp.NewHandler(campaignService, hub, limiter, cfg.Limits).Routes()...)
 	api.RegisterRoutes(reviewhttp.NewHandler(reviewService, hub, limiter, cfg.Limits).Routes()...)
 	api.RegisterRoutes(tracehttp.NewHandler(campaignService, reviewService, traceservice.NewQuery(events)).Routes()...)
-	api.RegisterRoutes(briefhttp.NewHandler(briefservice.New(briefservice.Options{Stream: stream, Log: sloglogger.New(logger)}), limiter).Routes()...)
+	// Лимиты передаются так же, как соседним маршрутам кампаний и проверок:
+	// иначе MAX_JSON_BYTES из конфигурации молча не действовал бы на этот
+	// эндпоинт, и он остался бы единственным маршрутом с телом JSON на дефолтах.
+	api.RegisterRoutes(briefhttp.NewHandler(briefservice.New(briefservice.Options{Stream: stream, Log: sloglogger.New(logger)}), limiter, cfg.Limits).Routes()...)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
 	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и
