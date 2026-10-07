@@ -48,11 +48,12 @@ deps-backend:
 
 ## sync-skills: зеркалировать скилы пакета marketing-skills во встроенные копии бэкенда
 sync-skills:
-	@rm -rf $(BACKEND)/internal/adapters/skills/prompts
+	@test -d marketing-skills/skills || { echo "нет каталога marketing-skills/skills — проверь checkout"; exit 1; }
+	@rm -rf "$(BACKEND)/internal/adapters/skills/prompts"
 	@for d in marketing-skills/skills/*/; do \
 		name=$$(basename $$d); \
-		mkdir -p $(BACKEND)/internal/adapters/skills/prompts/$$name; \
-		cp $$d/SKILL.md $(BACKEND)/internal/adapters/skills/prompts/$$name/SKILL.md; \
+		mkdir -p "$(BACKEND)/internal/adapters/skills/prompts/$$name"; \
+		cp $$d/SKILL.md "$(BACKEND)/internal/adapters/skills/prompts/$$name/SKILL.md"; \
 	done
 	@echo "скилы синхронизированы: $(BACKEND)/internal/adapters/skills/prompts"
 

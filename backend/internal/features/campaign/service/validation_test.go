@@ -142,6 +142,9 @@ func TestCancelledRunStillWritesResultTrace(t *testing.T) {
 	if err == nil {
 		t.Fatal("ожидалась ошибка отменённого прогона")
 	}
+	if len(sink.records) == 0 {
+		t.Fatal("трасса пуста: итоговая запись провалившегося прогона не сохранена")
+	}
 	last := sink.records[len(sink.records)-1]
 	if last.Kind != trace.KindResult || last.RunID != "timeout" || last.Status != trace.StatusError {
 		t.Fatalf("последняя запись не итог провалившегося прогона: %+v", last)

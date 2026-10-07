@@ -35,7 +35,10 @@ func TestCompleteComposesSkillBeforeContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	skill, _ := skills.Prompt("native-article")
+	skill, err := skills.Prompt("native-article")
+	if err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
 	if !strings.HasPrefix(fake.gotSystem, skill) {
 		t.Error("промпт не начинается с текста скила")
 	}
@@ -73,7 +76,10 @@ func TestCompleteAddsSkillExactlyOnce(t *testing.T) {
 	if _, err := c.Complete(context.Background(), "copywriter", contract, "бриф", &struct{}{}); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	skill, _ := skills.Prompt("native-article")
+	skill, err := skills.Prompt("native-article")
+	if err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
 	if got := strings.Count(fake.gotSystem, skill); got != 1 {
 		t.Errorf("текст скила встречается %d раз, want 1", got)
 	}
@@ -108,8 +114,46 @@ func TestCompletePropagatesUsageErrorAndOut(t *testing.T) {
 	if fake.gotOut != any(&out) {
 		t.Errorf("out не прокинут: got %p, want %p", fake.gotOut, &out)
 	}
-	skill, _ := skills.Prompt("native-article")
+	skill, err := skills.Prompt("native-article")
+	if err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
 	if !strings.HasPrefix(fake.gotSystem, skill) {
 		t.Error("промпт не составлен при ошибке провайдера")
+	}
+}
+
+func TestNewRejectsNilInner(t *testing.T) {
+	_, err := skills.New(nil, skills.Options{})
+	if err == nil {
+		t.Fatal("ожидалась ошибка на nil внутренний клиент")
+	}
+}
+
+// modelFakeClient — внутренний клиент, который умеет называть модель роли.
+type modelFakeClient struct {
+	fakeClient
+	model string
+}
+
+func (m *modelFakeClient) ModelFor(string) string { return m.model }
+
+func TestModelForDelegatesToInner(t *testing.T) {
+	c, err := skills.New(&modelFakeClient{model: "deepseek-chat"}, skills.Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := c.ModelFor("copywriter"); got != "deepseek-chat" {
+		t.Errorf("ModelFor = %q, want %q", got, "deepseek-chat")
+	}
+}
+
+func TestModelForEmptyWhenInnerCannotNameModel(t *testing.T) {
+	c, err := skills.New(&fakeClient{}, skills.Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := c.ModelFor("copywriter"); got != "" {
+		t.Errorf("ModelFor = %q, want пустую строку", got)
 	}
 }

@@ -38,6 +38,9 @@ type Client struct {
 // New создаёт декоратор поверх inner и заранее читает тексты всех скилов, чтобы
 // ошибка конфигурации всплыла при старте, а не на первом вызове модели.
 func New(inner corellm.Client, opts Options) (*Client, error) {
+	if inner == nil {
+		return nil, fmt.Errorf("skills: внутренний клиент не задан")
+	}
 	c := &Client{inner: inner, prompts: make(map[string]string, len(opts.Bindings))}
 	// Роли обходим по порядку: при нескольких плохих байндах ошибка стабильна.
 	roles := make([]string, 0, len(opts.Bindings))
@@ -63,4 +66,19 @@ func (c *Client) Complete(ctx context.Context, role, system, user string, out an
 		system = text + "\n\n" + contractCaveat + "\n\n" + system
 	}
 	return c.inner.Complete(ctx, role, system, user, out)
+}
+
+// modelNamer — необязательная возможность клиента сообщить модель роли.
+type modelNamer interface {
+	ModelFor(role string) string
+}
+
+// ModelFor повторяет необязательный интерфейс внутреннего клиента: учёт расходов
+// выше по цепочке спрашивает модель у декоратора, и без проброса имя модели
+// терялось бы в синтетической записи usage. Клиент без ModelFor даёт "".
+func (c *Client) ModelFor(role string) string {
+	if n, ok := c.inner.(modelNamer); ok {
+		return n.ModelFor(role)
+	}
+	return ""
 }

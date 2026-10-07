@@ -14,7 +14,7 @@ func TestPromptReturnsEmbeddedSkillVerbatim(t *testing.T) {
 		t.Fatalf("Prompt: %v", err)
 	}
 	if !strings.HasPrefix(got, "---") {
-		t.Errorf("frontmatter потерян: %q", got[:20])
+		t.Errorf("frontmatter потерян: %q", got)
 	}
 	if !strings.Contains(got, "name: native-article") {
 		t.Error("в тексте нет имени скила из frontmatter")

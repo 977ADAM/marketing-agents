@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/977ADAM/marketing-agents/internal/adapters/skills"
-	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
 	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	reviewservice "github.com/977ADAM/marketing-agents/internal/features/review/service"
@@ -42,10 +41,9 @@ func (nopClient) Complete(context.Context, string, string, string, any) (corellm
 	return corellm.Usage{}, nil
 }
 
-type captureClient struct{ system string }
+type captureClient struct{}
 
-func (c *captureClient) Complete(_ context.Context, _, system, _ string, _ any) (corellm.Usage, error) {
-	c.system = system
+func (c *captureClient) Complete(_ context.Context, _, _, _ string, _ any) (corellm.Usage, error) {
 	return corellm.Usage{}, nil
 }
 
@@ -57,12 +55,11 @@ func (r *captureRecorder) Enabled() bool { return true }
 
 func TestSkillsWrapOutsideTracing(t *testing.T) {
 	rec := &captureRecorder{}
-	c, err := skills.New(tracing.NewLLM(&captureClient{}, rec),
-		skills.Options{Bindings: map[string]string{"copywriter": "native-article"}})
+	c, err := newLLMClient(&captureClient{}, rec)
 	if err != nil {
-		t.Fatalf("skills.New: %v", err)
+		t.Fatalf("newLLMClient: %v", err)
 	}
-	_, err = c.Complete(context.Background(), "copywriter", "КОНТРАКТ", "бриф", &struct{}{})
+	_, err = c.Complete(context.Background(), campaignservice.RoleCopywriter, "КОНТРАКТ", "бриф", &struct{}{})
 	if err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
