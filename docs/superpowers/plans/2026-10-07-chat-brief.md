@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Не меняется:** домен кампании и `Brief`, JSON-контракты девяти агентов, схема БД и миграции, `POST /api/campaigns` и его идемпотентность, страницы `/campaigns/[id]` и `/reviews`, промпты остальных ролей, существующий нестриминговый `Complete`, прокси `frontend/src/routes/api/[...path]/+server.ts`.
-- **Эндпоинт:** `POST /api/briefs/interview`, тело `{messages:[{role,content}]}`, `Accept: text/event-stream`. Кадры: `{"type":"delta","text":…}`, `{"type":"brief","brief":{…},"missing":[…],"status":"ready"|"needs_input"}`, `{"type":"error","message":…}`, `{"type":"done"}` — формат `data: {…}\n\n`.
+- **Эндпоинт:** `POST /api/briefs/interview`, тело `{messages:[{role,content}], draft?}`, `Accept: text/event-stream`. Кадры: `{"type":"delta","text":…}`, `{"type":"brief","brief":{…},"missing":[…],"status":"ready"|"needs_input"}`, `{"type":"error","message":…}`, `{"type":"done"}` — формат `data: {…}\n\n`. `draft` — черновик из предыдущего кадра `brief`, который клиент присылает обратно; сервер состояния не хранит, поэтому без него слияние по непустым полям и `missing`/`status` считались бы от пустого брифа.
 - **Лимиты:** 20 сообщений и 32 КиБ суммарного текста истории (жёстко, на сервере); «не больше трёх уточнений» — только инструкция в промпте.
 - **Бриф:** поля `product`, `goal`, `audience`, `tone`, `region`, `topics_count`. Обязательные для `ready` — первые четыре; `missing` и `status` считает **сервис**, а не модель. Хвостовой JSON **сливается по непустым полям** с прежним брифом.
 - **Роль `interviewer`** — десятая привязка в `cmd/server/skills.go` → `campaign-context`. Роль **прозаическая**: декоратор скилов подставляет для неё короткую оговорку вместо контрактной (см. Task 2).
@@ -250,6 +250,7 @@ git commit -m "feat(brief): сервис интервью с разбором х
 `handler_test.go`, `package http_test`, сервис подменён интерфейсом с фейком:
 
 - `TestInterviewStreamsFrames` — ответ `200`, `Content-Type: text/event-stream`, кадры по порядку `delta` (`При`), `delta` (`вет`), `brief` (с `missing`/`status`), `done`; хвост JSON в кадры не попал.
+- `TestInterviewPassesDraftAsPrev` — тело с `draft:{product:"Кружка"}`: фейковый сервис получил ровно этот черновик в параметре `prev`; тело без `draft` — нулевой черновик.
 - `TestInterviewRejectsEmptyHistory` — пустой `messages` → `400` с кодом `empty_history`.
 - `TestInterviewRejectsTooLongHistory` — 21 сообщение → `400` с кодом `history_too_long`.
 - `TestInterviewStreamsErrorFrame` — сервис вернул ошибку посреди работы → кадры `delta…`, затем `error`, поток закрыт, статус `200` (заголовки уже отправлены).
@@ -263,7 +264,7 @@ Expected: FAIL — пакета нет.
 
 - [ ] **Step 3: Реализовать хендлер**
 
-Декодирование тела (лимит JSON — общий `limits`), вызов `Ask` с колбэком, который пишет кадр `delta` и вызывает `Flush`; после — кадр `brief` (бриф + `missing` + `status`) и `done`; ошибка → кадр `error` с текстом публичного сообщения (сырой ответ модели не утекает), затем `done`. Лимитер — как у соседних хендлеров.
+Декодирование тела (лимит JSON — общий `limits`) вместе с необязательным `draft`, который уходит в `Ask` параметром `prev` (пусто → нулевой черновик: сервер состояния не хранит, прежний бриф присылает клиент). Вызов `Ask` с колбэком, который пишет кадр `delta` и вызывает `Flush`; после — кадр `brief` (бриф + `missing` + `status`) и `done`; ошибка → кадр `error` с текстом публичного сообщения (сырой ответ модели не утекает), затем `done`. Лимитер — как у соседних хендлеров.
 
 Валидационные ошибки сервиса приходят как `*limits.ValidationError`, у которого код — это текст ошибки (`empty_history`, `history_too_long`) и нет отдельного поля кода. Хендлер распознаёт их через `errors.As` и отдаёт `response.WriteError(w, http.StatusBadRequest, err.Error(), <русское сообщение>)`: код — сообщение сервиса, текст — понятная пользователю фраза из словаря хендлера. Все прочие ошибки — `500`, как у соседних хендлеров.
 
@@ -338,13 +339,13 @@ git commit -m "feat(brief): роль interviewer со скилом campaign-cont
 
 **Interfaces:**
 - Consumes: `#lib/api/client.js` (`apiUrl`, `errorMessage`), типы из `#lib/api/types.js`.
-- Produces: `parseSSE(chunk: string, carry: string): {frames: unknown[]; carry: string}`; `streamInterview(messages, handlers, signal?)`; фабрика `createInterview(storage?: Storage)` и модульный синглтон `interview` с writable-сторами `messages`, `draft`, `missing`, `status`, `streaming`, `error`, `campaignId` и действиями `send(text)`, `retry()`, `reset()`, `brief()` (конвертация `Draft` → `Brief` для запуска).
+- Produces: `parseSSE(chunk: string, carry: string): {frames: unknown[]; carry: string}`; `streamInterview(messages, draft, handlers, signal?)`; фабрика `createInterview(storage?: Storage)` и модульный синглтон `interview` с writable-сторами `messages`, `draft`, `missing`, `status`, `streaming`, `error`, `campaignId` и действиями `send(text)`, `retry()`, `reset()`, `brief()` (конвертация `Draft` → `Brief` для запуска). Каждый запрос несёт текущий `draft` — сервер ничего не хранит.
 
 - [ ] **Step 1: Написать падающие тесты**
 
 - `sse.test.ts`: кадр, разрезанный между чанками, склеивается; многострочный `data:` собирается в одну строку через `\n`; хвостовой огрызок без `\n\n` остаётся в `carry` и дополняется следующим чанком; мусорные строки (комментарии `:`) игнорируются; битый JSON в кадре не роняет парсер, а пропускается.
-- `briefs.test.ts`: `streamInterview` на фейковом `fetch` с `ReadableStream` вызывает `onDelta` по кадрам `delta`, `onBrief` на кадре `brief`, `onDone` на `done`, `onError` на кадре `error` и на сетевой ошибке; запрос уходит методом POST с `Accept: text/event-stream` и телом `{messages}`.
-- `interview.test.ts` (через `createInterview(fakeStorage)`, чтобы тесты не делили общий `localStorage`): `send` добавляет реплику пользователя и накапливает дельты в реплику ассистента; кадр `brief` обновляет `draft`/`missing`/`status`; ошибка оставляет накопленный текст и выставляет `error`; `reset` очищает ленту; состояние восстанавливается из `fakeStorage`; при переполнении квоты самые старые сообщения вытесняются; после 20 сообщений `send` не отправляет запрос и выставляет признак переросшей истории.
+- `briefs.test.ts`: `streamInterview` на фейковом `fetch` с `ReadableStream` вызывает `onDelta` по кадрам `delta`, `onBrief` на кадре `brief`, `onDone` на `done`, `onError` на кадре `error` и на сетевой ошибке; запрос уходит методом POST с `Accept: text/event-stream` и телом `{messages, draft}` — черновик из аргумента попадает в тело.
+- `interview.test.ts` (через `createInterview(fakeStorage)`, чтобы тесты не делили общий `localStorage`): `send` добавляет реплику пользователя и накапливает дельты в реплику ассистента; кадр `brief` обновляет `draft`/`missing`/`status` и **следующий запрос уходит с этим черновиком** (проверка, что состояние не теряется между ходами); ошибка оставляет накопленный текст и выставляет `error`; `reset` очищает ленту; состояние восстанавливается из `fakeStorage`; при переполнении квоты самые старые сообщения вытесняются; после 20 сообщений `send` не отправляет запрос и выставляет признак переросшей истории.
 
 - [ ] **Step 2: Убедиться, что тесты падают**
 
@@ -455,6 +456,8 @@ curl -N -sS -XPOST localhost:8080/api/briefs/interview -H 'Content-Type: applica
   -d '{"messages":[{"role":"user","content":"Хочу кампанию для термокружки «Север», аудитория — велокоммьютеры, цель — переход в карточку"}]}'
 ```
 Expected: кадры `delta` приходят **по мере генерации** (видно по паузам и постепенному тексту), затем `brief` с непустым `draft` и списком `missing`, затем `done`; в тексте дельт нет хвостового JSON и маркера.
+
+Второй ход — тот же запрос с добавленными сообщениями **и с `draft` из первого кадра `brief`**: поля, названные в первом ходу, должны сохраниться, а `missing` — не вырасти до всех четырёх. Это проверка того, что клиент присылает черновик и сервер сливает хвост поверх него.
 
 - [ ] **Step 4: Проверить стрим через прокси фронта**
 
