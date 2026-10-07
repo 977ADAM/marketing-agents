@@ -15,7 +15,7 @@
 - **Не меняется:** JSON-контракты агентов (`{"positioning","topics"}`, `{"topic","title","body","cta"}`, `{"score","issues","verdict"}`, `{"score","issues"}`), домен, схема БД и миграции, API, фронт, число вызовов LLM на прогон, валидация ответов, учёт токенов и цен.
 - **Порядок декораторов:** `accounting.New(skills.New(tracing.NewLLM(baseLLM, recorder)))` — скилы снаружи трассы, иначе в трассе останется промпт без скила.
 - **Карта ролей (9):** `strategist`, `semanticist_seeds`, `semanticist_cluster`, `semanticist_select`, `semanticist_fallback` → `campaign-plan`; `copywriter` → `native-article`; `critic`, `compliance`, `quality` → `article-review`. `campaign-context` не применяется.
-- **Копии скилов:** `backend/internal/adapters/skills/prompts/<name>/SKILL.md`, коммитятся в git, правятся только через `make sync-skills` (источник — `marketing-skills/skills/`).
+- **Копии скилов:** `backend/internal/adapters/skills/prompts/<name>/SKILL.md`, коммитятся в git, правятся только через `make sync-skills` (источник — `marketing-skills/skills/`). Копируются **все четыре** каталога пакета, включая `campaign-context`: `make sync-skills` — полное зеркало, а карта ролей использует три скила.
 - **Зависимости:** пакет `internal/adapters/skills` не импортирует `internal/features/...`; карта ролей собирается в `cmd/server`.
 - **Новых переменных окружения нет**, скилы всегда включены; откат — откат коммита.
 - **Стиль проекта:** юнит-тесты — black-box (`package skills_test`, `package main`), комментарии и пользовательские тексты по-русски, ошибки возвращаются значениями.
@@ -35,7 +35,7 @@
 
 - `backend/internal/adapters/skills/prompts.go` — `go:embed` и доступ к тексту скила (`Names`, `Prompt`).
 - `backend/internal/adapters/skills/skills.go` — декоратор, `Options`, оговорка `contractCaveat`.
-- `backend/internal/adapters/skills/prompts/{campaign-plan,native-article,article-review}/SKILL.md` — синхронизированные копии.
+- `backend/internal/adapters/skills/prompts/<name>/SKILL.md` — синхронизированные копии всех четырёх скилов пакета.
 - `backend/internal/adapters/skills/{prompts_test.go,skills_test.go,drift_test.go}` — юнит-тесты, тест дрейфа.
 - `backend/cmd/server/skills.go` — карта «роль → скил» (`skillBindings`).
 - `backend/cmd/server/skills_test.go` — исчерпывающий охват ролей и порядок декораторов.
@@ -50,7 +50,7 @@
 **Files:**
 - Modify: `Makefile` (секция подготовки окружения, блок `.PHONY` в строках 10–14)
 - Create: `backend/internal/adapters/skills/prompts.go`
-- Create: `backend/internal/adapters/skills/prompts/{campaign-plan,native-article,article-review}/SKILL.md` (создаёт `make sync-skills`)
+- Create: `backend/internal/adapters/skills/prompts/<name>/SKILL.md` для всех четырёх скилов пакета (создаёт `make sync-skills`)
 - Test: `backend/internal/adapters/skills/prompts_test.go`
 
 **Interfaces:**
@@ -75,7 +75,7 @@ sync-skills:
 - [ ] **Step 2: Синхронизировать копии**
 
 Run: `make sync-skills && find backend/internal/adapters/skills/prompts -type f | sort`
-Expected: три файла — `prompts/article-review/SKILL.md`, `prompts/campaign-plan/SKILL.md`, `prompts/native-article/SKILL.md`.
+Expected: четыре файла — `prompts/article-review/SKILL.md`, `prompts/campaign-context/SKILL.md`, `prompts/campaign-plan/SKILL.md`, `prompts/native-article/SKILL.md`.
 
 - [ ] **Step 3: Написать падающий тест**
 
@@ -105,7 +105,7 @@ func TestPromptRejectsUnknownName(t *testing.T) {
 }
 
 func TestNamesListsAllEmbeddedSkills(t *testing.T) {
-	want := []string{"article-review", "campaign-plan", "native-article"}
+	want := []string{"article-review", "campaign-context", "campaign-plan", "native-article"}
 	if got := skills.Names(); !slices.Equal(got, want) {
 		t.Errorf("Names() = %v, want %v", got, want)
 	}
