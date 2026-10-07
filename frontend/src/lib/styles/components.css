@@ -579,3 +579,166 @@ textarea.control {
 	margin-top: 4px;
 	max-height: 420px;
 }
+
+/* --- лента брифа (страница-чат) --- */
+
+.thread-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.thread {
+	display: grid;
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.thread-empty {
+	margin: 0;
+}
+
+.bubble {
+	max-width: 78%;
+	padding: 8px 12px;
+	border: 1px solid var(--c-border);
+	border-radius: var(--radius);
+	background: var(--c-bg);
+}
+
+.bubble-text {
+	margin: 0;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	line-height: 1.45;
+}
+
+.bubble-user {
+	justify-self: end;
+	background: var(--c-primary-strong);
+	border-color: var(--c-primary-strong);
+	color: var(--c-primary-contrast);
+}
+
+.bubble-assistant {
+	justify-self: start;
+	background: var(--c-bg-subtle);
+}
+
+/* Ответ ещё дописывается: курсор показывает живой хвост реплики. */
+.bubble-live .bubble-text::after {
+	content: '▍';
+	color: var(--c-primary);
+}
+
+.bubble-error {
+	justify-self: start;
+	display: grid;
+	gap: 8px;
+	justify-items: start;
+	border-color: var(--c-danger-border);
+	margin-bottom: 16px;
+}
+
+.bubble-error .error {
+	margin: 0;
+}
+
+.typing {
+	margin: 0;
+	color: var(--c-muted);
+	font-size: 0.9em;
+	animation: typing 1.2s ease-in-out infinite;
+}
+
+@keyframes typing {
+	0%,
+	100% {
+		opacity: 0.45;
+	}
+	50% {
+		opacity: 1;
+	}
+}
+
+.thread-input {
+	display: flex;
+	gap: 8px;
+	align-items: flex-end;
+	margin-bottom: 12px;
+}
+
+.thread-input .control {
+	min-height: 48px;
+	max-height: 200px;
+	resize: vertical;
+}
+
+.thread-hint {
+	margin: 0 0 12px;
+	color: var(--c-warn);
+	font-weight: 600;
+}
+
+.thread-warning {
+	margin: 0 0 12px;
+	padding: 8px 12px;
+	border-left: 3px solid var(--c-warn);
+	border-radius: var(--radius-sm);
+	background: var(--c-bg-subtle);
+	color: var(--c-text-soft);
+}
+
+.brief-block {
+	display: grid;
+	gap: 10px;
+}
+
+.brief {
+	margin: 0;
+	padding: 12px 14px;
+	border: 1px solid var(--c-border);
+	border-radius: var(--radius);
+	display: grid;
+	gap: 6px;
+}
+
+.brief-row {
+	display: grid;
+	grid-template-columns: 180px 1fr;
+	gap: 8px;
+}
+
+.brief-label {
+	margin: 0;
+	color: var(--c-muted);
+}
+
+.brief-value {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.brief-gap {
+	margin: 0;
+	color: var(--c-warn);
+	font-weight: 600;
+}
+
+.thread-run {
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: 1px solid var(--c-border);
+}
+
+.thread-run-link {
+	margin: 12px 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.typing {
+		animation: none;
+	}
+}
