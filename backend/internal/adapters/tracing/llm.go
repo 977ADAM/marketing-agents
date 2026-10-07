@@ -31,10 +31,33 @@ type modelNamer interface {
 	ModelFor(role string) string
 }
 
+// Декоратор обязан пробрасывать стрим: иначе утверждение типа на corellm.Streamer
+// в composition root не соберётся.
+var _ corellm.Streamer = (*TracingClient)(nil)
+
 func (c *TracingClient) Complete(ctx context.Context, role, system, user string, out any) (corellm.Usage, error) {
 	start := time.Now()
 	usage, err := c.inner.Complete(ctx, role, system, user, out)
+	c.record(ctx, start, role, system, user, out, usage, err)
+	return usage, err
+}
 
+// CompleteStream повторяет Complete для потокового вызова. Разобранной структуры
+// ответа у стрима нет, поэтому в тело события идёт накопленный usage.Response.
+func (c *TracingClient) CompleteStream(ctx context.Context, role, system, user string, onDelta func(string)) (corellm.Usage, error) {
+	streamer, ok := c.inner.(corellm.Streamer)
+	if !ok {
+		return corellm.Usage{}, fmt.Errorf("tracing: клиент не поддерживает стриминг")
+	}
+	start := time.Now()
+	usage, err := streamer.CompleteStream(ctx, role, system, user, onDelta)
+	c.record(ctx, start, role, system, user, nil, usage, err)
+	return usage, err
+}
+
+// record пишет в трассу одно событие вызова модели — и для Complete, и для
+// стрима: роль, модель, токены, длительность, статус и тела промптов.
+func (c *TracingClient) record(ctx context.Context, start time.Time, role, system, user string, out any, usage corellm.Usage, err error) {
 	ev := trace.Event{
 		Kind:             trace.KindLLM,
 		Name:             role,
@@ -54,8 +77,6 @@ func (c *TracingClient) Complete(ctx context.Context, role, system, user string,
 	final, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	c.rec.Event(final, ev)
-
-	return usage, err
 }
 
 // payload собирает тело события: метаданные вызова и длинные тексты — промпты,
@@ -94,8 +115,9 @@ func (c *TracingClient) payload(role, system, user string, out any, usage corell
 	case usage.Response != "":
 		// Сырой ответ модели: в нём видно и опечатки, и обёртки, и отказ.
 		put("response", usage.Response)
-	case err == nil:
+	case err == nil && out != nil:
 		// Модель не вернула текст, но ответ разобран — отдаём структуру.
+		// У стрима структуры нет: там ответ уже лежит в usage.Response.
 		p["response"] = out
 	}
 	if len(truncated) > 0 {

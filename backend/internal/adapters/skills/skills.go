@@ -22,10 +22,19 @@ JSON не добавляют. Там, где скил требует замеч�
 ("revise"). Оценка и вердикт проверяются кодом: отсутствующее или недопустимое
 значение — ошибка.`
 
-// Options настраивает декоратор: Bindings связывает роль с именем скила.
+// proseCaveat — оговорка для роли, которая отвечает прозой (интервьюер): скил
+// описывает содержание, но ответ — свободный текст, а не JSON по схеме.
+const proseCaveat = `Файлы не создаются: раздел «Результат: …» выше описывает требуемое
+содержание, а не файл на диске. Формат ответа задан ниже и важнее инструкций выше.`
+
+// Options настраивает декоратор: Bindings связывает роль с именем скила, Prose
+// отмечает роли, которые отвечают прозой, а не JSON.
 type Options struct {
 	// Bindings — роль вызова → имя встроенного скила.
 	Bindings map[string]string
+	// Prose — роли, для которых стрим отвечает прозой: им вместо контракта JSON
+	// подставляется короткая прозаическая оговорка.
+	Prose map[string]bool
 }
 
 // Client — декоратор corellm.Client: для роли с байнда подставляет текст скила
@@ -33,7 +42,12 @@ type Options struct {
 type Client struct {
 	inner   corellm.Client
 	prompts map[string]string // роль → текст скила
+	prose   map[string]bool   // роль → отвечает прозой
 }
+
+// Декоратор обязан пробрасывать стрим: иначе утверждение типа на corellm.Streamer
+// в composition root не соберётся.
+var _ corellm.Streamer = (*Client)(nil)
 
 // New создаёт декоратор поверх inner и заранее читает тексты всех скилов, чтобы
 // ошибка конфигурации всплыла при старте, а не на первом вызове модели.
@@ -41,7 +55,14 @@ func New(inner corellm.Client, opts Options) (*Client, error) {
 	if inner == nil {
 		return nil, fmt.Errorf("skills: внутренний клиент не задан")
 	}
-	c := &Client{inner: inner, prompts: make(map[string]string, len(opts.Bindings))}
+	c := &Client{
+		inner:   inner,
+		prompts: make(map[string]string, len(opts.Bindings)),
+		prose:   make(map[string]bool, len(opts.Prose)),
+	}
+	for role, isProse := range opts.Prose {
+		c.prose[role] = isProse
+	}
 	// Роли обходим по порядку: при нескольких плохих байндах ошибка стабильна.
 	roles := make([]string, 0, len(opts.Bindings))
 	for role := range opts.Bindings {
@@ -63,9 +84,33 @@ func New(inner corellm.Client, opts Options) (*Client, error) {
 // без изменений.
 func (c *Client) Complete(ctx context.Context, role, system, user string, out any) (corellm.Usage, error) {
 	if text, ok := c.prompts[role]; ok {
-		system = text + "\n\n" + contractCaveat + "\n\n" + system
+		system = composeSystem(text, contractCaveat, system)
 	}
 	return c.inner.Complete(ctx, role, system, user, out)
+}
+
+// CompleteStream повторяет Complete для потокового вызова: прозаической роли
+// вместо контракта JSON подставляется короткая оговорка, остальным — прежняя.
+// onDelta уходит внутреннему клиенту без изменений, как и usage с ошибкой.
+func (c *Client) CompleteStream(ctx context.Context, role, system, user string, onDelta func(string)) (corellm.Usage, error) {
+	if text, ok := c.prompts[role]; ok {
+		caveat := contractCaveat
+		if c.prose[role] {
+			caveat = proseCaveat
+		}
+		system = composeSystem(text, caveat, system)
+	}
+	streamer, ok := c.inner.(corellm.Streamer)
+	if !ok {
+		return corellm.Usage{}, fmt.Errorf("skills: клиент не поддерживает стриминг")
+	}
+	return streamer.CompleteStream(ctx, role, system, user, onDelta)
+}
+
+// composeSystem собирает system из трёх частей: текст скила, оговорка о формате,
+// контракт роли. Порядок общий для Complete и CompleteStream.
+func composeSystem(skill, caveat, system string) string {
+	return skill + "\n\n" + caveat + "\n\n" + system
 }
 
 // modelNamer — необязательная возможность клиента сообщить модель роли.
