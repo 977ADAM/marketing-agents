@@ -9,6 +9,7 @@ API_URL  ?= http://127.0.0.1:8080
 .DEFAULT_GOAL := help
 .PHONY: help deps deps-backend env fmt vet build build-backend build-frontend \
         test test-backend test-unit test-e2e test-live test-frontend check check-frontend verify \
+        sync-skills \
         backend frontend start-frontend dev \
         db-up db-down migrate migrate-down \
         docker-build up docker-down docker-logs docker-ps health clean
@@ -44,6 +45,15 @@ deps: deps-backend
 
 deps-backend:
 	cd $(BACKEND) && $(GO) mod download
+
+## sync-skills: скопировать скилы пакета marketing-skills во встроенные копии бэкенда
+sync-skills:
+	@for d in marketing-skills/skills/*/; do \
+		name=$$(basename $$d); \
+		mkdir -p $(BACKEND)/internal/adapters/skills/prompts/$$name; \
+		cp $$d/SKILL.md $(BACKEND)/internal/adapters/skills/prompts/$$name/SKILL.md; \
+	done
+	@echo "скилы синхронизированы: $(BACKEND)/internal/adapters/skills/prompts"
 
 ## env: создать backend/.env из примера, если файла ещё нет
 env:
