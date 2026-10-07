@@ -451,6 +451,7 @@ git commit -m "feat(skills): карта ролей и сборка промпт�
 - Modify: `marketing-skills/README.md`
 - Modify: `README.md`
 - Modify: `Makefile` (цель `sync-skills` становится полным зеркалом)
+- Modify: `backend/internal/features/campaign/service/validation_test.go` (устаревшее ожидание в тесте отмены — см. Step 6)
 
 **Interfaces:**
 - Consumes: цель `make sync-skills` (Task 1), тест на дрейф (Task 3).
@@ -494,14 +495,42 @@ Expected: PASS; без синхронизации тест на дрейф па�
 - в строке про `marketing-skills/` указать, что три скила применяются к промптам агентов;
 - в разделе «Слои и устойчивость прогонов» добавить абзац: промпты агентов собираются адаптером `internal/adapters/skills` как `тело SKILL.md + оговорка + JSON-контракт роли`; копии синхронизируются `make sync-skills` и защищены тестом на дрейф; промпт растёт примерно на 900–1300 токенов на вызов, что видно в трассе и в стоимости прогона.
 
-- [ ] **Step 6: Проверить и закоммитить**
+- [ ] **Step 6: Починить устаревшее ожидание в тесте отменённого прогона**
 
-Run: `cd backend && go test ./internal/adapters/skills/ ./cmd/server/ && cd .. && git diff --stat`
-Expected: тесты проходят, в diff — четыре `SKILL.md` пакета, четыре копии, `Makefile` и два README.
+`TestCancelledRunStillWritesResultTrace` в `backend/internal/features/campaign/service/validation_test.go` падает на main (проверено на `31eeb28`, до этой работы) и валит `make verify`. Тест ожидает ровно одну запись в трассе, но после появления событий этапов (`KindPhase`, включая «failed») прогон намеренно пишет три: фазу `strategizing`, фазу `failed` и итог `KindResult`, причём фаза и итог пишутся через `context.WithoutCancel` (`internal/features/campaign/service/trace.go:33-44,71-80`). Поведение верное — устарело ожидание, поэтому правится тест, а не production-код.
+
+Заменить условие `err == nil || len(sink.records) != 1 || sink.records[0].Kind != trace.KindResult` на проверку смысла: ошибка есть, последняя запись — итог провалившегося прогона, среди записей есть фаза `failed`:
+
+```go
+if err == nil {
+    t.Fatal("ожидалась ошибка отменённого прогона")
+}
+last := sink.records[len(sink.records)-1]
+if last.Kind != trace.KindResult || last.RunID != "timeout" || last.Status != trace.StatusError {
+    t.Fatalf("последняя запись не итог провалившегося прогона: %+v", last)
+}
+var failedPhase bool
+for _, rec := range sink.records {
+    if rec.Kind == trace.KindPhase && rec.Name == "failed" && rec.Status == trace.StatusError {
+        failedPhase = true
+    }
+}
+if !failedPhase {
+    t.Fatalf("в трассе нет фазы failed: %+v", sink.records)
+}
+```
+
+Run: `cd backend && go test ./internal/features/campaign/service/ -run TestCancelledRunStillWritesResultTrace -count=1 -v`
+Expected: PASS; остальные тесты пакета не меняются.
+
+- [ ] **Step 7: Проверить и закоммитить**
+
+Run: `cd backend && go test ./internal/adapters/skills/ ./cmd/server/ ./internal/features/campaign/service/ && cd .. && git diff --stat`
+Expected: тесты проходят (включая починенный тест отмены), в diff — четыре `SKILL.md` пакета, четыре копии, `Makefile`, `validation_test.go` и два README.
 
 ```bash
-git add marketing-skills README.md Makefile backend/internal/adapters/skills/prompts
-git commit -m "docs: версия пакета 0.2 и связь скилов с промптами сервиса"
+git add marketing-skills README.md Makefile backend/internal/adapters/skills/prompts backend/internal/features/campaign/service/validation_test.go
+git commit -m "docs: версия пакета 0.2, связь скилов с промптами и актуальное ожидание теста отмены"
 ```
 
 ---
