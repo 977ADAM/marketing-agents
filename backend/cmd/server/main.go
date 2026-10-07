@@ -5,6 +5,7 @@ import (
 	"github.com/977ADAM/marketing-agents/internal/adapters/accounting"
 	llm "github.com/977ADAM/marketing-agents/internal/adapters/llm/deepseek"
 	sloglogger "github.com/977ADAM/marketing-agents/internal/adapters/logger/slog"
+	"github.com/977ADAM/marketing-agents/internal/adapters/skills"
 	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
 	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
 	config "github.com/977ADAM/marketing-agents/internal/core/config"
@@ -126,7 +127,14 @@ func main() {
 	baseLLM := llm.New(cfg.APIKey, cfg.BaseURL, cfg.ModelDefault, cfg.LLMMaxRetries, nil)
 	// Копирайтеры — на быструю/дешёвую модель; стратег и критик остаются на сильной (дефолтной).
 	baseLLM.SetRoleModel(campaignservice.RoleCopywriter, cfg.ModelFast)
-	llmClient := accounting.New(tracing.NewLLM(baseLLM, recorder))
+	// Скилы — снаружи трассы: тогда в трассу попадает уже собранный промпт,
+	// а не контракт роли без скила.
+	skilled, err := skills.New(tracing.NewLLM(baseLLM, recorder), skills.Options{Bindings: skillBindings()})
+	if err != nil {
+		logger.Error("skills", "err", err)
+		os.Exit(1)
+	}
+	llmClient := accounting.New(skilled)
 
 	// Подбор тем по поисковому спросу включается наличием адреса MCP-сервера
 	// Wordstat. Без него работает прежний путь: темы придумывает стратег.
