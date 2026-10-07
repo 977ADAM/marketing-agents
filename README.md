@@ -54,7 +54,8 @@ backend/            Go-сервис (отдельный модуль): API /api/
     topic/          domain, service, source/wordstat (+ testdata)
     trace/          domain, service, repository/mariadb, transport/http
   internal/application/runner/  фоновые задачи, admission, leases, progress/SSE
-  internal/adapters/            DeepSeek, slog, tracing, accounting
+  internal/adapters/            DeepSeek, slog, tracing, accounting, skills
+                                (промпты ролей из пакета marketing-skills)
   internal/testkit/             mock-клиенты и изолированные тестовые базы
   migrations/       миграции схемы: NNNN_name.sql с секциями -- migrate:up / -- migrate:down (dbmate)
   tests/            сквозные тесты: e2e (стор → трасса → оркестратор → раннер), live (живой MCP)
@@ -70,8 +71,10 @@ frontend/           SvelteKit 3 (Svelte 5, adapter-node)
   Dockerfile        образ фронта: сборка + Node-сервер SvelteKit
 docker-compose.yml  стек: mariadb (внутренний) + backend (внутренний) + frontend
                     (публикуется на 127.0.0.1:8080) и одноразовый сервис migrate
-marketing-skills/   автономный пакет скилов для нативных кампаний (v0.1): 4 скила,
-                    README пакета и поведенческая проверка evals/; не часть сервиса
+marketing-skills/   автономный пакет скилов для нативных кампаний (v0.2): 4 скила,
+                    README пакета и поведенческая проверка evals/; три из них
+                    (campaign-plan, native-article, article-review) применяются
+                    к промптам агентов сервиса, campaign-context — пока нет
 ```
 
 Go-команды запускаются из `backend/`, фронтовые — из `frontend/`.
@@ -509,6 +512,15 @@ MCP-сервер Wordstat (`yandex-wordstat-mcp`, Streamable HTTP + basic-auth),
 `cmd/server/main.go` собирает repository → service → HTTP transport для каждой
 фичи. Сервисы объявляют потребляемые порты; domain/core не импортируют features,
 application или adapters. Runner координирует сервисы и фоновые задачи.
+
+Промпты агентов собираются адаптером `internal/adapters/skills`: он подставляет
+в начало system-промпта тело `SKILL.md` из пакета `marketing-skills`, затем
+оговорку о формате и оставляет JSON-контракт роли. Карту «роль → скил» собирает
+composition root, поэтому сами агенты о пакете не знают. Встроенные копии скилов
+синхронизируются целью `make sync-skills` (полное зеркало пакета) и защищены
+тестом на дрейф: копии обязаны совпадать с пакетом побайтово и по набору имён.
+Промпт растёт примерно на 900–1300 токенов на вызов, что видно в трассе и в
+стоимости прогона.
 
 Новые миграции добавляют revision, creation keys, leases, checkpoints, usage и
 счётчик событий. Перед запуском новой версии выполните `make migrate`;

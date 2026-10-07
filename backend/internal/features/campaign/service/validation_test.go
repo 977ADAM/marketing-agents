@@ -139,7 +139,20 @@ func TestCancelledRunStillWritesResultTrace(t *testing.T) {
 	sink := &contextSink{}
 	rec := traceservice.New(sink, trace.Config{Mode: trace.ModeSummary})
 	_, err := service.NewWorkflow(cancelClient{cancel}, service.Options{Recorder: rec}).Run(ctx, testBrief(), nil)
-	if err == nil || len(sink.records) != 1 || sink.records[0].Kind != trace.KindResult {
-		t.Fatalf("err=%v records=%+v", err, sink.records)
+	if err == nil {
+		t.Fatal("ожидалась ошибка отменённого прогона")
+	}
+	last := sink.records[len(sink.records)-1]
+	if last.Kind != trace.KindResult || last.RunID != "timeout" || last.Status != trace.StatusError {
+		t.Fatalf("последняя запись не итог провалившегося прогона: %+v", last)
+	}
+	var failedPhase bool
+	for _, rec := range sink.records {
+		if rec.Kind == trace.KindPhase && rec.Name == "failed" && rec.Status == trace.StatusError {
+			failedPhase = true
+		}
+	}
+	if !failedPhase {
+		t.Fatalf("в трассе нет фазы failed: %+v", sink.records)
 	}
 }

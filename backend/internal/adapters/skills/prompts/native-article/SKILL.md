@@ -2,7 +2,7 @@
 name: native-article
 description: Use when writing or revising a native advertising article from a client brief and editorial assignment. Also use for нативная статья, рекламная интеграция и доработка статьи по замечаниям. Not for landing pages, ad snippets, emails, or independent factual verification.
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Нативная статья

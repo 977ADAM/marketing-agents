@@ -46,8 +46,9 @@ deps: deps-backend
 deps-backend:
 	cd $(BACKEND) && $(GO) mod download
 
-## sync-skills: скопировать скилы пакета marketing-skills во встроенные копии бэкенда
+## sync-skills: зеркалировать скилы пакета marketing-skills во встроенные копии бэкенда
 sync-skills:
+	@rm -rf $(BACKEND)/internal/adapters/skills/prompts
 	@for d in marketing-skills/skills/*/; do \
 		name=$$(basename $$d); \
 		mkdir -p $(BACKEND)/internal/adapters/skills/prompts/$$name; \

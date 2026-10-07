@@ -2,7 +2,7 @@
 name: campaign-context
 description: Use when a native-content campaign needs a client brief, product context, audience, approved claims, or clarification of conflicting marketing materials. Also use for бриф кампании, контекст продукта, УТП и ограничения. Not for writing articles or a company-wide annual marketing plan.
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Контекст нативной кампании

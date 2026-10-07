@@ -2,7 +2,7 @@
 name: article-review
 description: Use when a native advertising article needs editorial review, a publication verdict, a claim check against supplied sources, or rechecking after revision. Also use for проверка статьи, критик, редактура и оценка соответствия брифу. Not for writing a replacement article or claiming an external fact-check was performed.
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Проверка нативной статьи

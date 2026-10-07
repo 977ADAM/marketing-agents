@@ -2,7 +2,7 @@
 name: campaign-plan
 description: Use when choosing topics, search intents or editorial assignments for a native-article campaign from a client brief and research. Also use for темы кампании, медиаплан и задания копирайтеру. Not for drafting the articles or an annual cross-channel marketing strategy.
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # План нативной кампании
