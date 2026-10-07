@@ -7,10 +7,13 @@ import (
 	tracing "github.com/977ADAM/marketing-agents/internal/adapters/tracing"
 	runner "github.com/977ADAM/marketing-agents/internal/application/runner"
 	config "github.com/977ADAM/marketing-agents/internal/core/config"
+	corellm "github.com/977ADAM/marketing-agents/internal/core/llm"
 	schema "github.com/977ADAM/marketing-agents/internal/core/repository/mariadb"
 	"github.com/977ADAM/marketing-agents/internal/core/repository/mariadb/pool"
 	middleware "github.com/977ADAM/marketing-agents/internal/core/transport/http/middleware"
 	server "github.com/977ADAM/marketing-agents/internal/core/transport/http/server"
+	briefservice "github.com/977ADAM/marketing-agents/internal/features/brief/service"
+	briefhttp "github.com/977ADAM/marketing-agents/internal/features/brief/transport/http"
 	campaignrepo "github.com/977ADAM/marketing-agents/internal/features/campaign/repository/mariadb"
 	campaignservice "github.com/977ADAM/marketing-agents/internal/features/campaign/service"
 	campaignhttp "github.com/977ADAM/marketing-agents/internal/features/campaign/transport/http"
@@ -179,10 +182,22 @@ func main() {
 	campaignService := campaignservice.NewService(campaigns, background, cfg.Limits)
 	reviewService := reviewservice.NewService(reviews, background, cfg.Limits)
 	limiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
+
+	// Корень композиции: интервью требует стрима, поэтому клиент проверяется
+	// утверждением типа с понятным отказом старта, а не паникой. Это страховка
+	// на случай, если кто-то поменяет цепочку декораторов и стрим перестанет
+	// доходить до внешнего слоя; ту же цепочку проверяет TestInterviewerSkillIsProse.
+	stream, ok := llmClient.(corellm.Streamer)
+	if !ok {
+		logger.Error("brief", "err", "клиент модели не поддерживает стриминг")
+		os.Exit(1)
+	}
+
 	api := server.New(cfg.Limits)
 	api.RegisterRoutes(campaignhttp.NewHandler(campaignService, hub, limiter, cfg.Limits).Routes()...)
 	api.RegisterRoutes(reviewhttp.NewHandler(reviewService, hub, limiter, cfg.Limits).Routes()...)
 	api.RegisterRoutes(tracehttp.NewHandler(campaignService, reviewService, traceservice.NewQuery(events)).Routes()...)
+	api.RegisterRoutes(briefhttp.NewHandler(briefservice.New(briefservice.Options{Stream: stream, Log: sloglogger.New(logger)}), limiter).Routes()...)
 
 	// Роутинг: /api/* и /healthz → API. Веб-интерфейс бэкенд не отдаёт —
 	// приложение обслуживает фронтенд (frontend/, SvelteKit), который и
